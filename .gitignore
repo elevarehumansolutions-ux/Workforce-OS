@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.mcp.json
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+.claude/
+.vscode/
+celerybeat-schedule

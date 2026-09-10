@@ -1,0 +1,84 @@
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app  # live reload in dev
+    # --no-server-header: the actual fix for what SecurityHeadersMiddleware's
+    # removed "remove server banner" block was trying to do — Uvicorn sets
+    # that header after the app's Response is built, so only a Uvicorn-level
+    # flag can suppress it.
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --no-server-header
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: elevare
+      POSTGRES_PASSWORD: elevare_dev
+      POSTGRES_DB: elevare_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elevare -d elevare_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "6379:6379"
+  
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    # without it, Celery defaults to one forked child per CPU core, and each one
+    # opens its own DB connections per task. Bounds how many of those can exist
+    # at once so a burst of tasks can't exhaust Postgres max_connections.
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=2 -Q celery
+
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: celery -A app.core.celery_app beat --loglevel=info
+
+
+volumes:
+  postgres_data:

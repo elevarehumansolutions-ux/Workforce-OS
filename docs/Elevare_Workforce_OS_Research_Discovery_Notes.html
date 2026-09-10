@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Elevare Workforce OS: Research and Discovery Notes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#141d2b; --navy:#1f3a5c; --teal:#2e6f5e; --teal-soft:#e6efec;
+    --clay:#b4623a; --violet:#5b4b8a; --violet-soft:#eeebf6;
+    --paper:#faf8f4; --panel:#ffffff; --line:#e2e0d8; --grey:#5b6472; --grey-soft:#8a9099;
+    --mono:'IBM Plex Mono',monospace; --serif:'Fraunces',serif; --sans:'Inter',sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.65;font-size:16px;}
+  .shell{display:flex;max-width:1300px;margin:0 auto;}
+  nav.toc{width:260px;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;padding:38px 22px 40px 28px;border-right:1px solid var(--line);}
+  nav.toc .brand{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--teal);margin-bottom:6px;}
+  nav.toc .doctitle{font-family:var(--serif);font-weight:600;font-size:18px;color:var(--navy);margin-bottom:22px;line-height:1.3;}
+  nav.toc ol{list-style:none;margin:0;padding:0;counter-reset:sec;}
+  nav.toc li{counter-increment:sec;margin-bottom:2px;}
+  nav.toc a{display:flex;gap:9px;text-decoration:none;color:var(--grey);font-size:12.5px;padding:5px 7px;border-radius:6px;}
+  nav.toc a::before{content:counter(sec,decimal-leading-zero);font-family:var(--mono);color:var(--grey-soft);font-size:11px;}
+  nav.toc a:hover{background:var(--teal-soft);color:var(--teal);}
+  main{flex:1;min-width:0;padding:52px 58px 120px;}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--teal);margin-bottom:12px;}
+  h1.title{font-family:var(--serif);font-weight:700;font-size:38px;color:var(--navy);line-height:1.15;margin:0 0 14px;}
+  .warn{display:flex;gap:14px;margin:22px 0 8px;padding:16px 20px;background:#fff6ea;border:1px solid #ecd9ae;border-radius:10px;}
+  .warn .icon{font-family:var(--serif);font-weight:700;font-size:19px;color:var(--clay);}
+  .warn p{margin:0;font-size:13.5px;color:#5a4a30;}
+  .warn strong{color:#3d3020;}
+  .meta-row{display:flex;flex-wrap:wrap;gap:22px;margin:22px 0 8px;padding:16px 20px;background:var(--panel);border:1px solid var(--line);border-radius:10px;}
+  .meta-item .label{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--grey-soft);margin-bottom:3px;}
+  .meta-item .value{font-size:13.5px;font-weight:600;color:var(--ink);}
+
+  section{padding-top:52px;margin-top:-14px;}
+  section:first-of-type{padding-top:6px;}
+  h2{font-family:var(--serif);font-weight:600;font-size:24px;color:var(--navy);margin:0 0 4px;display:flex;align-items:baseline;gap:12px;}
+  h2 .num{font-family:var(--mono);font-size:14px;color:var(--clay);font-weight:500;}
+  .rule{height:1px;background:var(--line);margin:12px 0 22px;}
+  h3{font-family:var(--serif);font-weight:600;font-size:17px;color:var(--ink);margin:26px 0 8px;}
+  p{color:#333c47;margin:0 0 12px;max-width:78ch;}
+  ul{padding-left:19px;margin:0 0 14px;}
+  li{margin-bottom:6px;color:#333c47;}
+  strong{color:var(--ink);}
+  code{font-family:var(--mono);font-size:12.5px;background:#f0eee7;padding:1px 6px;border-radius:4px;}
+
+  .badge{display:inline-block;font-family:var(--mono);font-size:10px;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.05em;}
+  .badge.confirmed{background:var(--teal-soft);color:var(--teal);}
+  .badge.open{background:#fff6ea;color:var(--clay);}
+  .badge.progress{background:var(--violet-soft);color:var(--violet);}
+
+  .pipeline{display:flex;flex-wrap:wrap;gap:0;align-items:center;margin:20px 0 8px;padding:20px;background:var(--navy);border-radius:12px;}
+  .pipeline .node{font-family:var(--mono);font-size:11.5px;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);padding:6px 10px;border-radius:7px;white-space:nowrap;margin:3px 0;}
+  .pipeline .arrow{color:#9fb3c8;padding:0 6px;font-size:12px;}
+
+  table{width:100%;border-collapse:collapse;margin:14px 0 24px;font-size:13.5px;}
+  th{text-align:left;font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#fff;background:var(--navy);padding:9px 12px;}
+  th:first-child{border-radius:8px 0 0 0;} th:last-child{border-radius:0 8px 0 0;}
+  td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top;color:#333c47;}
+  tr:nth-child(even) td{background:#f4f2ec;}
+
+  .doc-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin-bottom:12px;}
+  .doc-card .name{font-weight:700;font-size:14px;color:var(--ink);}
+  .doc-card .desc{font-size:13px;color:var(--grey);margin-top:3px;}
+
+  .qa-item{background:#fffaf6;border:1px solid #ecdfce;border-radius:10px;padding:14px 18px;margin:10px 0;}
+  .qa-item .q{font-weight:600;color:var(--ink);margin-bottom:3px;font-size:14px;}
+  .qa-item .a{font-size:13px;color:var(--grey);margin:0;}
+
+  footer{margin-top:64px;padding-top:20px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10.5px;color:var(--grey-soft);display:flex;justify-content:space-between;}
+  @media (max-width:900px){nav.toc{display:none;} main{padding:30px 18px 90px;} h1.title{font-size:28px;}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">Elevare Workforce OS</div>
+    <div class="doctitle">Research & Discovery Notes</div>
+    <ol>
+      <li><a href="#purpose">Purpose of This Handover</a></li>
+      <li><a href="#context">Company & Role Context</a></li>
+      <li><a href="#vision">Product Vision</a></li>
+      <li><a href="#scope">Confirmed MVP Scope</a></li>
+      <li><a href="#ai">AI Approach</a></li>
+      <li><a href="#architecture">System Architecture</a></li>
+      <li><a href="#docs">Related Documents</a></li>
+      <li><a href="#design">Design & Frontend Status</a></li>
+      <li><a href="#infra">Infrastructure Decisions</a></li>
+      <li><a href="#devplan">Development Plan Status</a></li>
+      <li><a href="#open">Open Questions for You</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <section id="purpose">
+      <div class="kicker">Research & Discovery Notes · Prepared by Emmanuel · For Discussion</div>
+      <h1 class="title">Elevare Workforce OS: What I've Learned So Far</h1>
+      <p style="font-size:16px;max-width:66ch;color:#444d59;">This isn't a fixed brief or a set of locked-in decisions. It's a summary of the research, reasoning, and questions I've worked through so far, some through conversations with my HR/product owner, some through my own technical exploration, so you can see my thinking quickly and tell me where you'd push back or do it differently.</p>
+
+      <div class="warn">
+        <div class="icon">i</div>
+        <p><strong>How to read this.</strong> Where something came directly from my HR/product owner (the business scope, the AI approach), I've marked it as such, since that's real input from the person who owns the product vision. Everything technical, architecture, stack choices, sequencing, is my current thinking, not something I'm attached to. I'd genuinely like to go through it with you and change what doesn't hold up.</p>
+      </div>
+
+      <div class="meta-row">
+        <div class="meta-item"><div class="label">My role</div><div class="value">Technical Lead / Backend Developer</div></div>
+        <div class="meta-item"><div class="label">Target launch</div><div class="value">November 2026</div></div>
+        <div class="meta-item"><div class="label">Dev started</div><div class="value">Monday, Sep 7, 2026</div></div>
+        <div class="meta-item"><div class="label">Team size</div><div class="value">1 Backend (me) · 1 Frontend/UI-UX</div></div>
+      </div>
+    </section>
+
+    <section id="context">
+      <h2><span class="num">01</span> Company & Role Context</h2>
+      <div class="rule"></div>
+      <p><strong>Elevare Human Solutions Ltd</strong> is a Nigerian company whose current business helps other companies with HR needs, recruitment, workforce services. I'm the platform manager and technical lead for a new product, Elevare Workforce OS, working alongside our HR lead, who acts as product owner and holds the business vision. I have an existing background in Python, FastAPI, and Django.</p>
+      <p>Elevare Workforce OS is being built as a <strong>brand-new, standalone product</strong>, sold alongside Elevare's existing recruitment platform, not as a feature added to it. It's scoped from the start as a <strong>multi-tenant SaaS</strong> product for external paying customers, not an internal tool used by Elevare first.</p>
+    </section>
+
+    <section id="vision">
+      <h2><span class="num">02</span> Product Vision</h2>
+      <div class="rule"></div>
+      <p>Elevare Workforce OS is an Enterprise Workforce Execution Platform. It connects business strategy, critical talent, operational execution, AI, and intelligent payroll in one ecosystem. It's positioned to close a gap in traditional HR tools: they manage administration well but give leadership little visibility into whether strategy is actually being executed, or which roles/people matter most to outcomes.</p>
+      <p>Best classified as an <strong>HCM platform with a strategy-execution layer</strong>, not a full ERP, no finance, inventory, or procurement modules.</p>
+      <div class="pipeline">
+        <div class="node">Organization</div><div class="arrow">→</div>
+        <div class="node">Business DNA</div><div class="arrow">→</div>
+        <div class="node">Departments/Roles</div><div class="arrow">→</div>
+        <div class="node">OKRs/KPIs</div><div class="arrow">→</div>
+        <div class="node">Daily Tasks</div><div class="arrow">→</div>
+        <div class="node">Execution Logs</div><div class="arrow">→</div>
+        <div class="node">Impact Score</div><div class="arrow">→</div>
+        <div class="node">Payroll</div>
+      </div>
+      <p style="font-size:12.5px;color:var(--grey-soft);">This pipeline is the backbone of the database schema, not just a narrative.</p>
+    </section>
+
+    <section id="scope">
+      <h2><span class="num">03</span> MVP Scope <span class="badge confirmed">From my HR/product owner</span></h2>
+      <div class="rule"></div>
+      <p>This scope came directly from my HR lead, who owns the product vision, not from my own assumption: company onboarding and organisational setup, Business DNA configuration, department and reporting structure, employee management, OKR and KPI setup, daily task assignment linked to KPIs, attendance and clock-in, employee/manager/executive dashboards, workflow management, performance tracking, reporting and analytics, and intelligent payroll based on approved execution metrics. One addition I proposed and she accepted: critical-role vacancy flagging, a lighter version of full recruitment integration, which we agreed to defer.</p>
+      <p style="font-size:13px;color:var(--grey-soft);">This is business scope, not a technical constraint, if something here has technical implications worth questioning, I'd like to hear it.</p>
+    </section>
+
+    <section id="ai">
+      <h2><span class="num">04</span> AI Approach <span class="badge confirmed">From my HR/product owner</span></h2>
+      <div class="rule"></div>
+      <p><strong>Hybrid, AI suggests, human approves.</strong> Manual input is limited to Business DNA capture only, vision, mission, industry, value chain. Everywhere else the system can help, Critical Role suggestions, KPI suggestions, nothing auto-activates, everything requires human review (approve, edit, or reject).</p>
+      <p>For MVP this is <strong>rules and template based</strong>, not real machine learning, there's no dataset anywhere of "which roles are critical per industry" since that's proprietary business judgment nobody publishes. Every approval or correction a customer makes becomes labeled data, which is the realistic long-term path to a trained model, not something available on day one.</p>
+      <p>Business DNA questions themselves are a fixed, structured questionnaire, not dynamically AI-generated.</p>
+    </section>
+
+    <section id="architecture">
+      <h2><span class="num">05</span> System Architecture <span class="badge open">My current thinking, open to change</span></h2>
+      <div class="rule"></div>
+      <p>This is where I'd most like your input. Nothing below is locked in, it's the direction I've reasoned toward so far, and I'm genuinely open to doing parts of it differently if you see a better approach.</p>
+      <table>
+        <tr><th>Area</th><th>My current thinking</th></tr>
+        <tr><td>Shape</td><td>Modular monolith, one deployable backend, cleanly separated modules internally, rather than microservices, mainly to avoid operational overhead for a two-person team</td></tr>
+        <tr><td>Backend framework</td><td>Still deciding between FastAPI and Django. I have existing experience in both. Open to your take on which fits this project and timeline better.</td></tr>
+        <tr><td>Database</td><td>PostgreSQL, feels like a reasonably safe choice given how relational the domain is, open to challenge</td></tr>
+        <tr><td>Frontend</td><td>React, decoupled SPA</td></tr>
+        <tr><td>Auth</td><td>JWT with role claims, for role-based access across Employee/Manager/HR/Executive</td></tr>
+        <tr><td>Multi-tenancy</td><td>Leaning toward shared database and schema, with an <code>organization_id</code> on every table, reinforced with Row-Level Security. Would like your view on whether this holds up once real payroll data is involved.</td></tr>
+        <tr><td>Containerization</td><td>Planning to use Docker from day one, mainly so a later hosting migration (see Azure question below) stays cheap</td></tr>
+      </table>
+    </section>
+
+    <section id="docs">
+      <h2><span class="num">06</span> Companion Document</h2>
+      <div class="rule"></div>
+      <p>Attached alongside this brief is the original Product Concept Brief my HR/product owner gave me at the very start, this is the source material her vision was built from, and it's the closest thing to the original ask, before any of my own technical interpretation.</p>
+      <div class="doc-card"><div class="name">Elevare Workforce OS: Product Concept Brief (v1.0)</div><div class="desc">The original document from my HR/product owner, unfiltered by my own reasoning, worth reading first for that reason.</div></div>
+      <p style="font-size:13px;color:var(--grey-soft);">I also have a few other working documents I've put together along the way, a fuller PRD, a long-range vision sketch, and a development phase plan, happy to share any of them if it would help our conversation, just didn't want to front-load you with everything at once.</p>
+    </section>
+
+    <section id="design">
+      <h2><span class="num">07</span> Design & Frontend Status <span class="badge progress">In progress</span></h2>
+      <div class="rule"></div>
+      <p>A frontend/UI-UX developer has been hired and is actively working from the real PRD, not a test brief. As of this handover, roughly 28 screens have been designed in Figma. Strong coverage exists for auth/onboarding, all three dashboards, employee management, the AI suggestion/approval pattern (Critical Roles specifically), task assignment, and payroll.</p>
+      <h3>Known gaps as of this handover</h3>
+      <ul>
+        <li><strong>KPI Suggestions screen</strong>, the AI-suggestion pattern exists for Critical Roles but not yet for KPIs, same pattern needs replicating</li>
+        <li><strong>Workflow Management screen</strong>, referenced in scope but not yet designed</li>
+        <li><strong>Settings page</strong>, several tabs (Roles & Permissions, Integrations, Security, Audit Log) exist as navigation only, with no defined content behind them yet, this needs scoping before it's built further</li>
+        <li>One known rendering bug on the Employee Details page, overlapping text</li>
+      </ul>
+    </section>
+
+    <section id="infra">
+      <h2><span class="num">08</span> Infrastructure Decisions</h2>
+      <div class="rule"></div>
+      <ul>
+        <li><strong>Development hosting:</strong> Railway (or similar), chosen deliberately for low cost during dev, since there are no real users yet</li>
+        <li><strong>Production hosting:</strong> Azure, planned but not yet finalized, pending a conversation with a local Microsoft partner (CloudSA), who has also proposed handling security/identity infrastructure and potentially AI tooling via Azure OpenAI</li>
+        <li><strong>Email:</strong> Resend, free tier, using a subdomain of the company domain</li>
+        <li><strong>Domain:</strong> to be purchased, will serve both the app and the email subdomain</li>
+        <li><strong>Dev tooling:</strong> AI-assisted development tooling (Claude/ChatGPT API) requested as productivity tooling given team size and timeline</li>
+      </ul>
+    </section>
+
+    <section id="devplan">
+      <h2><span class="num">09</span> Development Plan Status</h2>
+      <div class="rule"></div>
+      <p>Development began Monday, Sep 7, 2026, following a nine-phase plan I put together myself: foundation and auth first, the strategy/AI suggestion loop given the most time since it's the core differentiator, payroll placed last since it depends on everything else being trustworthy first, hardening and launch prep at the end.</p>
+      <p>I'm committed to this timeline and working toward it, not looking to relitigate the schedule itself, but I'm very open to your input on how each phase gets built, and on the technical choices within it.</p>
+    </section>
+
+    <section id="open">
+      <h2><span class="num">10</span> Things I'd Like to Go Through Together</h2>
+      <div class="rule"></div>
+      <p>These are the questions where I'd genuinely value your judgment, not confirmation of something I've already decided.</p>
+
+      <div class="qa-item">
+        <div class="q">Is the Azure/CloudSA direction sound?</div>
+        <p class="a">I don't have independent judgment on whether committing to Microsoft's ecosystem (hosting, identity, potentially AI) is the right call for a team our size, versus staying more vendor-neutral longer.</p>
+      </div>
+      <div class="qa-item">
+        <div class="q">FastAPI or Django for the backend?</div>
+        <p class="a">I have working experience in both. I'd like to walk through the trade-offs together, given the multi-tenancy needs, the timeline, and that I'll largely be building this alone.</p>
+      </div>
+      <div class="qa-item">
+        <div class="q">Is the rules-based AI suggestion approach the right MVP call, or should RAG be pulled forward?</div>
+        <p class="a">We deliberately scoped AI down to rules/templates for MVP, given team size. Worth a second opinion on whether that's still right given the product's positioning and the marketing push planned around launch.</p>
+      </div>
+      <div class="qa-item">
+        <div class="q">Are there architectural risks I'm not seeing?</div>
+        <p class="a">I'd specifically welcome a critical look at the multi-tenancy approach (shared schema plus Row-Level Security) and whether it will genuinely hold up once real customer data and real payroll numbers are involved.</p>
+      </div>
+      <div class="qa-item">
+        <div class="q">What am I not asking that I should be?</div>
+        <p class="a">Given this is my first time building something at this scope, I'd rather hear what's missing from this brief than assume I've covered everything.</p>
+      </div>
+    </section>
+
+    <footer>
+      <div>Elevare Workforce OS · Research & Discovery Notes</div>
+      <div>Prepared by Emmanuel, for discussion</div>
+    </footer>
+  </main>
+</div>
+</body>
+</html>
