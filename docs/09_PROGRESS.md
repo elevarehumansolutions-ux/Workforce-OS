@@ -8,7 +8,8 @@ Ordering rule: a milestone is sequenced after every module it depends on per `02
 
 ## Milestones
 
-### M1 — Foundation & Infrastructure Scaffolding
+### M1 — Foundation & Infrastructure Scaffolding — ✅ DONE (2026-09-10)
+Reviewed against `03_ARCHITECTURE.md`/`07_SECURITY.md`, no gaps found. See `08_DECISIONS.md` 2026-09-10. Repo initialized, committed (`439a9d2`).
 **Backend:** Repo/module skeleton (`module_name/{models,repository,service,router}.py` per `02_SYSTEM_DESIGN.md`). Docker: one Dockerfile, three containers (`uvicorn`, `celery worker`, `celery beat`) per `03_ARCHITECTURE.md`. Postgres + Alembic. Redis. Celery wiring. FastAPI app entrypoint, router aggregation. CORS middleware (allow-list, `allow_credentials=True`). Base env config (`.env`, `.env.example`). The RLS regression test suite (`tests/security/test_row_level_security.py`, `test_row_level_security_behavior.py`) — written ahead of the schema it verifies, goes green as each milestone's tables land. **The `platform_admin` Postgres role** (`BYPASSRLS`, `07_SECURITY.md`) is also created here, alongside RLS itself — separate credential from the main app's `.env`, usable only from `scripts/admin/`, never the web/worker/beat containers. Provisioned this early because it's pure infra/security setup with no Billing-specific logic, and M3's Audit Log needs a real admin-script invocation path to log against.
 **Frontend:** Vite/React app scaffold, API client, env config — parallel track, no shared blocker with backend yet.
 **Depends on:** nothing.
