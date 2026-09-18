@@ -1,41 +1,34 @@
 # Current Task
 
-**M2 — Identity, Auth & Multi-Tenancy** (see `09_PROGRESS.md`)
+**M3 — Audit Log & Notifications** (infrastructure modules, see `09_PROGRESS.md`)
 
-**Backend implementation is functionally complete** — all auth endpoints,
-memberships endpoints, and the full invite-teammate flow are built and
-passing 64 tests under a genuinely RLS-enforcing DB role. See
-`08_DECISIONS.md` 2026-09-17 entries for the full list of what shipped and
-why.
+M2 backend is merged to `main` (PRs #2, #3) and closed out — see
+`08_DECISIONS.md` 2026-09-17/09-18 entries. Branched `m3-audit-notifications`
+off the updated `main`.
 
-## Immediate next step: none of this is committed yet
+**Backend:** `audit_log`, `notifications` tables (`04_DATABASE.md` Clusters
+8–9). Internal `log_action()` / `notify()` services — the ones every later
+domain module calls into, built now, ahead of the modules that need them
+(per the 2026-09-06 decision that uninstrumented write paths can't be
+retrofitted). `GET /audit-log` (no viewer UI required), `GET /notifications`
+(filters: `category`, `unread=true`), `POST /notifications/{id}/read`.
 
-`git status` on `m2-identity-auth` shows a large amount of uncommitted work.
-Per `CLAUDE.md`'s git workflow, before this milestone can be considered
-closed: review the diff → commit → push → open PR → merge → delete the
-branch → branch again for M3. None of that has happened yet — this is the
-actual next action, not a new implementation task.
+**Frontend:** Notification bell/center (role-filtered stream, category
+filter, mark-read). No audit log viewer screen (explicitly deferred,
+`07_SECURITY.md`).
 
-## After that, pick one:
+**Completeness gaps already flagged for this milestone (09_PROGRESS.md,
+2026-09-18 review) — worth deciding before or during the build, not after:**
+- `GET /audit-log` has no stated filtering (`entity_type`, `entity_id`,
+  actor, date range) or pagination. Given every mutating action across every
+  future module writes to this table, it's the fastest-growing table in the
+  schema — an unfiltered, unpaginated endpoint over it won't hold up. Use
+  `core/pagination.py`'s cursor-based `paginate_cursor` here (the
+  append-heavy, large-feed case it was actually built for — see
+  `08_DECISIONS.md` 2026-09-18 on why `GET /memberships` used offset
+  pagination instead; this endpoint is the opposite shape).
+- `POST /notifications/{id}/read` has no bulk "mark all as read."
 
-1. **M2 frontend** — Registration, Login, org-switcher, Invite Teammate
-   screen, Team Management screen (see `09_PROGRESS.md` M2 for the full
-   list). Not started.
-2. **M3 backend** (Audit Log & Notifications) — next milestone in dependency
-   order, per `09_PROGRESS.md`.
-3. **Known cleanup items, lower priority, not blocking either of the above:**
-   - `tests/security/test_row_level_security*.py` (the M1 RLS regression
-     suite) still fails — stale hardcoded connection string
-     (`test_user:test_pass@localhost:5432/elevare_test`) that predates the
-     real `.env`/`docker-compose.yml` setup, plus an outdated assumption
-     that `organizations` has no RLS. Needs a rewrite against the real
-     `elevare_app` role, not a small patch.
-   - Dead `validate_phone_digits` function in `auth/schemas.py` — unused,
-     safe to delete.
-   - Open product question (not a bug): `PATCH /memberships/{id}` with
-     `is_deactivated=True` deactivates the target's `User.account_status`
-     globally, locking them out of every org they belong to, not just the
-     one doing the deactivating. Needs a product decision (per-membership
-     deactivation vs. global) before changing anything.
+**Resolved, unrelated to M3:** Uche's Next.js question came back — client-rendered only, no architecture change needed (`08_DECISIONS.md` 2026-09-18). Small pending action, not urgent: add his real frontend URL (Vercel) to `CORS_ALLOWED_ORIGINS` once it exists.
 
-Depends on: M1 (done, see `09_PROGRESS.md`).
+**Depends on:** M2 (needs `actor_user_id`/`recipient_user_id` — done).

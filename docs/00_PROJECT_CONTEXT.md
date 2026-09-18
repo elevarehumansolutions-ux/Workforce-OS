@@ -54,7 +54,7 @@ Business Strategy → Workforce Structure → KPIs → Daily Execution → Perfo
 | Shape | Modular monolith (single deployable, internally separated modules) — avoids microservices operational overhead for a 2-person team |
 | Backend framework | **FastAPI** — decided 2026-09-02, see `08_DECISIONS.md` |
 | Database | PostgreSQL |
-| Frontend | React (decoupled SPA) |
+| Frontend | React via Next.js, client-rendered only (decoupled SPA — no SSR/Server Components in use, confirmed with Uche 2026-09-18, see `08_DECISIONS.md`) |
 | Auth | JWT with role claims (Employee/Manager/HR/Executive/...) |
 | Multi-tenancy | **Shared database, shared schema, `organization_id` on every table, enforced by Postgres Row-Level Security** — decided 2026-09-04, see `08_DECISIONS.md` |
 | Containerization | Docker from day one |
