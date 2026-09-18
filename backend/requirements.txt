@@ -6,4 +6,28 @@ alembic==1.14.0
 celery==5.4.0
 redis==5.2.1
 pydantic-settings==2.7.0
+# Direct dependency of alembic/env.py (loads MIGRATION_DATABASE_URL outside
+# Settings) — was already present transitively via pydantic-settings, now
+# pinned explicitly since app code imports it directly.
+python-dotenv==1.2.3
+# Pinned explicitly (not just pulled in transitively) so pip doesn't have to
+# search the full pydantic/pydantic-core version space to satisfy resend/
+# python-jose/email-validator together — that search was taking 90+ minutes
+# in a clean Docker build and still failing. This is the exact pair pip's
+# resolver lands on locally when given room to search once.
+pydantic==2.13.5
+pydantic-core==2.46.5
+pytest==8.2.0
+pytest-asyncio==0.23.6
+pytest-cov==6.0.0
+httpx==0.27.2
 structlog==24.4.0
+
+# Auth
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.1
+email-validator==2.2.0
+phonenumbers==8.13.50
+
+# Email delivery
+resend==2.4.0

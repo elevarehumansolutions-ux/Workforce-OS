@@ -5,13 +5,35 @@ turned on, by asking Postgres's own system catalogs about itself.
 import pytest
 from sqlalchemy import create_engine, text
 
-# Tables that intentionally carry no organization_id — see 04_DATABASE.md Conventions.
-TABLES_WITHOUT_RLS = {"organizations", "users"}
+from app.core.config import settings
+
+# Tables deliberately exempt from RLS, and why:
+#   - alembic_version: Alembic's own migration bookkeeping, not tenant data.
+#   - users: global identity, no organization_id — see 04_DATABASE.md Conventions.
+#   - refresh_tokens / email_verification_tokens / password_reset_tokens / invites:
+#     looked up by a raw bearer token before any tenant context can possibly
+#     exist yet, RLS scoped to app.current_org_id would block the one
+#     operation each of these exists to support (see auth/models.py,
+#     tenancy_identity/models.py Invite docstring).
+# organizations and memberships are NOT here — both have real RLS policies
+# (docs/RLS_POLICIES_EXPLAINED.md) and must be checked like everything else.
+TABLES_WITHOUT_RLS = {
+    "alembic_version",
+    "users",
+    "refresh_tokens",
+    "email_verification_tokens",
+    "password_reset_tokens",
+    "invites",
+}
 
 
 @pytest.fixture(scope="module")
 def db_engine():
-    engine = create_engine("postgresql+psycopg://test_user:test_pass@localhost:5432/elevare_test")
+    # settings.database_url uses postgresql+psycopg (psycopg3), which works
+    # for both sync (create_engine, here) and async (create_async_engine,
+    # conftest.py) engines under the same URL — no driver swap needed, just
+    # reuse the real config instead of a separate hardcoded connection string.
+    engine = create_engine(settings.database_url)
     yield engine
     engine.dispose()
 

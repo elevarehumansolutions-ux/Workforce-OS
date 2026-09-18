@@ -1,7 +1,10 @@
 import asyncio
+import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -13,14 +16,24 @@ import app.core.model_registry
 
 from alembic import context
 
-from app.core.config import settings
 from app.core.database import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Read directly from the environment, not app.core.config.Settings —
+# Alembic is the only process that ever needs the schema-owning superuser's
+# DDL privileges (the restricted app role, elevare_app, deliberately doesn't
+# have them). Keeping this out of Settings means the app's own config
+# surface only ever describes what the running app/Celery processes
+# themselves need, not migration-only tooling.
+#
+# load_dotenv() only fills in vars not already set — inside Docker,
+# docker-compose's env_file already injects MIGRATION_DATABASE_URL, so this
+# is purely a fallback for running `alembic` directly on the host.
+load_dotenv()
+config.set_main_option("sqlalchemy.url", os.environ["MIGRATION_DATABASE_URL"])
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

@@ -29,7 +29,12 @@ class PlatformError(Exception):
         self.message = message
         self.code = code
         self.status_code = status_code
-        self.details = details or None
+        # Always a list, never None — ErrorResponse.details is typed
+        # list[ErrorDetail] = [], and every PlatformError subclass in this
+        # codebase is raised without an explicit `details=`, so `details or
+        # None` was crashing the global handler (handle_platform_exception)
+        # into a 500 on every single error response it tried to serialise.
+        self.details = details or []
         super().__init__(message)
 
 
@@ -78,6 +83,21 @@ class TokenInvalidException(PlatformError):
     ) -> None:
         """Initialise with platform error defaults."""
         super().__init__(message, code, status_code, details)
+
+
+class VerificationTokenExpiredException(PlatformError):
+    """Raised when a verification or invite token has passed its expiry time."""
+
+    def __init__(
+        self,
+        message: str = "Verification token has expired",
+        code: str = "VERIFICATION_TOKEN_EXPIRED",
+        status_code: int = 400,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
 
 
 class RevokedTokenException(PlatformError):
@@ -137,9 +157,127 @@ class TokenAlreadyUsedException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class EmailVerificationRequiredException(PlatformError):
+    """Raised when an account with PENDING_VERIFICATION status tries to use a protected endpoint."""
+
+    def __init__(
+        self,
+        message: str = "Email verification required",
+        code: str = "EMAIL_VERIFICATION_REQUIRED",
+        status_code: int = 403,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class AccountSuspendedException(PlatformError):
+    """Raised when a SUSPENDED account tries to use a protected endpoint."""
+
+    def __init__(
+        self,
+        message: str = "Account suspended",
+        code: str = "ACCOUNT_SUSPENDED",
+        status_code: int = 403,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class AccountBannedException(PlatformError):
+    """Raised when a BANNED account tries to use a protected endpoint."""
+
+    def __init__(
+        self,
+        message: str = "Account banned",
+        code: str = "ACCOUNT_BANNED",
+        status_code: int = 403,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class AccountDeactivatedException(PlatformError):
+    """Raised when a DEACTIVATED account tries to use a protected endpoint."""
+
+    def __init__(
+        self,
+        message: str = "Account deactivated",
+        code: str = "ACCOUNT_DEACTIVATED",
+        status_code: int = 403,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class NoActiveMembershipException(PlatformError):
+    """Raised at login when a user's account is fine, but every organization
+    they belong to has deactivated their specific membership (08_DECISIONS.md
+    2026-09-18: deactivation is per-membership, not a global account lock —
+    this is the legitimate, expected outcome of that, not a server error)."""
+
+    def __init__(
+        self,
+        message: str = "You have no active organization memberships",
+        code: str = "NO_ACTIVE_MEMBERSHIP",
+        status_code: int = 403,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 # ---------------------------------------------------------------------------
-# Authorization  (HTTP 403)
+# Authorization  (HTTP 403 / 404)
 # ---------------------------------------------------------------------------
+
+class UserNotFoundException(PlatformError):
+    """Raised when a lookup by user id/email finds no matching row."""
+
+    def __init__(
+        self,
+        message: str = "User not found",
+        code: str = "USER_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class MembershipNotFoundException(PlatformError):
+    """Raised when a lookup by membership id finds no matching row (this
+    also covers "exists, but belongs to a different org" — RLS makes that
+    case indistinguishable from not existing at all, which is correct: a
+    caller shouldn't be able to tell the two apart)."""
+
+    def __init__(
+        self,
+        message: str = "Membership not found",
+        code: str = "MEMBERSHIP_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class InternalServerErrorException(PlatformError):
+    """Raised when an unexpected error occurs that isn't a known domain failure."""
+
+    def __init__(
+        self,
+        message: str = "An unexpected error occurred",
+        code: str = "INTERNAL_SERVER_ERROR",
+        status_code: int = 500,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
 
 class PermissionDeniedException(PlatformError):
     """Raised when an authenticated user lacks the required role or ownership."""

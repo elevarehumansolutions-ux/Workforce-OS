@@ -51,6 +51,7 @@ class TokenPayload(BaseModel):
 
     sub: str
     role: str
+    org_id: str
     type: str
 
 
@@ -87,3 +88,10 @@ class PaginationResponse(BaseModel):
     message: str
     data: list[Any]
     pagination: PaginationMeta
+
+
+class MessageResponse(BaseModel):
+    """Generic message response for operations that return no data."""
+
+    status: Literal["success"] = "success"
+    message: str

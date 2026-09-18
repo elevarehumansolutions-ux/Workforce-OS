@@ -13,7 +13,7 @@ Built incrementally, cluster by cluster, each depending on the one before it. Se
 ```sql
 CREATE TABLE organizations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
+    name TEXT,                       -- nullable: NULL until Business DNA onboarding sets it (see 08_DECISIONS.md 2026-09-13)
     subscription_status TEXT NOT NULL DEFAULT 'trial' CHECK (subscription_status IN ('trial','active','expired','cancelled')),
     subscription_expires_at TIMESTAMPTZ,
     fiscal_year_start_month SMALLINT NOT NULL DEFAULT 1 CHECK (fiscal_year_start_month BETWEEN 1 AND 12),
@@ -27,6 +27,8 @@ CREATE TABLE users (
     full_name TEXT NOT NULL,
     password_hash TEXT,              -- nullable: a user added later via SSO may have none
     auth_provider TEXT NOT NULL DEFAULT 'password',
+    account_status TEXT NOT NULL DEFAULT 'pending_verification' CHECK (account_status IN ('pending_verification','verified','suspended','deactivated','banned')),
+    last_login_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -37,6 +39,7 @@ CREATE TABLE memberships (
     user_id UUID NOT NULL REFERENCES users(id),
     role TEXT NOT NULL CHECK (role IN ('hr_administrator','manager','business_executive','employee','system_administrator')),
     is_owner BOOLEAN NOT NULL DEFAULT false,
+    deactivated_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (organization_id, user_id)
@@ -62,8 +65,11 @@ CREATE TABLE billing_records (
 - **`billing_records`, added 2026-09-07, is a payment history log, not an invoice generator.** The actual invoice/receipt is created and sent through Paystack or Flutterwave's own invoicing feature, not built here, same reasoning as not building custom payment processing at all. This table exists purely so an Owner or HR Administrator can see "what's been paid, and when" inside the product itself. Populated manually by Elevare staff (via the same admin process that sets `subscription_status`) whenever a payment is confirmed, `provider_reference` ties a row back to the real Paystack/Flutterwave transaction if it ever needs tracing. Read-only from the product's side, nothing in the app writes to this table except that manual process.
 - `users` has no `organization_id` — a User is just a person with an email and password; a `Membership` is what says "this person belongs to this company, with this role." This is the identity-separate-from-org-role pattern from the signup decision (whoever signs up first becomes Owner). `users` itself needs no RLS; the tenant boundary starts at `memberships`.
 - `is_owner` is a flag, not a role value, because it answers a different question (account-level authority, billing, un-removable) than `role` does (product permissions). A membership can be `role = 'hr_administrator', is_owner = true` simultaneously.
+- **`memberships.deactivated_at`, added 2026-09-18.** Deactivating a teammate is scoped to this one membership, not the person's `User.account_status` globally — someone deactivated from one organization keeps full, working access to any other organization they belong to. `NULL` = active. Not the `deleted_at` soft-delete convention: a deactivated membership is still a real, current row (still listed in Team Management, still shows up as "deactivated" in the org-switcher), not a stand-in for something that used to exist. See `08_DECISIONS.md` 2026-09-18 for the two deeper RLS bugs this fix surfaced.
 - **`organizations.fiscal_year_start_month`, added 2026-09-07, closes a real gap.** `01_REQUIREMENTS.md` §4 and Main Workflow #4 require the Quarterly Objective Review to trigger "at each quarter's end, per the org's configured fiscal year," but no field ever existed to store that. Lives on `organizations`, not `business_dna`, because it's operational/platform configuration, same category as `subscription_status` right above it, not business-identity content like vision or mission. `DEFAULT 1` (January) means standard calendar-year quarters happen automatically for every org that doesn't customize it, satisfying the requirement for real rather than quietly cutting it, at the cost of one column with a sane default.
 - **`organizations.subscription_status`/`subscription_expires_at`, added 2026-09-07.** Billing for MVP is manual (see `08_DECISIONS.md`): Elevare invoices a customer, they pay via a Paystack/Flutterwave payment link or bank transfer, and Elevare staff sets these two fields through the internal admin scripts already designed for the RLS-bypass role (`07_SECURITY.md`), the same tooling used for other cross-customer administrative work. **No automated enforcement reads these fields in MVP** — deliberately. With a small, closely-managed set of pilot/demo customers, building expiry-enforcement logic now risks locking out someone who actually paid but whose status update hasn't landed yet, more risk than a manual process carries at this scale. These fields exist for visibility and record-keeping now; automated access enforcement is Phase 2, once real customer volume justifies it.
+- **`organizations.name` is nullable, added 2026-09-13.** Registration is identity-only (name, work email, password — see the 2026-09-02 signup decision); company name isn't captured until the Business DNA onboarding step (M5). But the org row has to exist at registration time, since the founding Owner's `Membership` references it. See `08_DECISIONS.md` 2026-09-13.
+- **`users.account_status`, added 2026-09-13, is the single source of truth for account state** (`pending_verification`/`verified`/`suspended`/`deactivated`/`banned`) — matches what M1's stubbed `get_current_user` already expected to check. No separate `is_active`/`is_verified` booleans, deliberately, so there's exactly one field to read or update, not several that can silently disagree with each other.
 
 ## Cluster 2: Org Structure
 
