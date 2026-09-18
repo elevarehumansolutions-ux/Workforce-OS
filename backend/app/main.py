@@ -19,9 +19,11 @@ from fastapi.responses import JSONResponse
 # from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 
-# import app.core.model_registry  # noqa: F401
+import app.core.model_registry  # noqa: F401
 from app.core.config import settings
 from app.core.database import engine
+from app.modules.auth.router import router as auth_router
+from app.modules.tenancy_identity.router import router as tenancy_identity_router
 
 # Initialise Sentry before anything else
 # if settings.sentry_dsn:
@@ -156,3 +158,6 @@ async def health_check():
 
 
 # ---- Routers ----
+
+app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(tenancy_identity_router, prefix="/api/v1", tags=["memberships"])

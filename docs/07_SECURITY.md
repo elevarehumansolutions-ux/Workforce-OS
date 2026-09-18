@@ -16,6 +16,17 @@ Consolidates security decisions already made across `08_DECISIONS.md`, `03_ARCHI
 - It's invoked only from standalone internal scripts (`scripts/admin/`), never exposed as an HTTP endpoint. No network-reachable path ever carries this level of access.
 - Every invocation writes an entry to `audit_log` (actor, action, timestamp), the same accountability every other mutating action in the system already gets.
 
+## Provisioning a new environment (added 2026-09-17, after the M2 RLS-enforcement gap)
+
+Role creation is manual, per-environment infrastructure work — it does not run automatically via Alembic or on deploy. Before pointing the app at a new Postgres database (staging, production, or any fresh dev instance), whoever owns that database must:
+
+1. **Run `backend/scripts/db/provision_app_role.sql`.** Creates `elevare_app` — the ordinary, non-superuser, non-`BYPASSRLS` role the live app (FastAPI, Celery worker, Celery Beat) actually connects as. Without this, `DATABASE_URL` has nothing valid to point at except the schema-owning superuser, which silently bypasses every RLS policy in the system (this exact gap shipped undetected through all of M1 and part of M2 — see the 2026-09-17 entries in `08_DECISIONS.md`).
+2. **Generate a real password for `elevare_app`** and set `DATABASE_URL` to use it. Never reuse the script's dev placeholder (`elevare_app_dev`).
+3. **Point `MIGRATION_DATABASE_URL`** at the schema-owning superuser (the database's own master/admin credential) — this is Alembic's only consumer; the live app never reads it.
+4. **Run `backend/scripts/admin/provision_platform_admin_role.sql` only once the internal admin tooling that needs it actually exists** — it deliberately carries `BYPASSRLS`, for cross-tenant support/ops scripts, never for the live app. No urgency to provision it ahead of that tooling being built.
+5. **If provisioned:** generate a real password for `elevare_platform_admin` too, and store its connection string in that environment's own `scripts/admin/.env.admin` (or equivalent secrets store) — never in the same place `DATABASE_URL` lives, and never readable by the FastAPI/Celery processes.
+6. **Verify, don't assume:** confirm the roles actually landed as intended — `SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname LIKE 'elevare%';` should show `elevare` (or the environment's master user) with both `t`, and `elevare_app` with both `f`. This is what caught the M1 gap in the first place — the script having run isn't proof by itself.
+
 ## Auth tokens
 
 Short-lived JWT (org + role baked in) plus a refresh token that re-validates the live membership on every use. Full reasoning and the explicitly-deferred instant-revocation gap are in `03_ARCHITECTURE.md`, not repeated here.

@@ -44,8 +44,12 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "6379:6379"
-  
+      # Host side remapped to 6380 — a system-level redis-server (systemd,
+      # unrelated to this project) already holds 6379 on the host. Containers
+      # still reach this one at redis:6379 over the internal Docker network,
+      # unaffected either way.
+      - "6380:6379"
+
   celery_worker:
     build:
       context: ./backend

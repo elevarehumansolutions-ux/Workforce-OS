@@ -26,6 +26,11 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        # MIGRATION_DATABASE_URL lives in the same .env but is deliberately
+        # not a field on this class (see the note below) — without this,
+        # pydantic-settings treats any env var with no matching field as a
+        # validation error, not a harmless extra.
+        extra="ignore",
     )
 
     # Application
@@ -36,9 +41,21 @@ class Settings(BaseSettings):
     environment: str = "development"
 
     # --- Persistence ---
-    # Main app DB role - RLS-scoped, never BYPASSRLS.
+    # Main app DB role - RLS-scoped, never BYPASSRLS. Genuinely enforced as
+    # of 08_DECISIONS.md 2026-09-17 — this must resolve to elevare_app
+    # (scripts/db/provision_app_role.sql), not the elevare superuser that
+    # docker-compose's POSTGRES_USER creates. Using the superuser here was a
+    # real M1 gap: it silently bypassed every RLS policy in the app the
+    # whole time, undetected until a test that relied on RLS alone (no
+    # redundant app-level filter) caught it.
     database_url: str
 
+    # NOTE: no migration_database_url field here, deliberately — Alembic is
+    # the only consumer of that credential (see alembic/env.py, which reads
+    # MIGRATION_DATABASE_URL straight from the environment). Keeping it off
+    # Settings means this class only ever describes what the running
+    # app/Celery processes themselves need.
+    #
     # NOTE: no platform_admin_database_url field here, deliberately. That
     # credential lives in scripts/admin/.env.admin, read only by scripts/admin/
     # tooling via its own separate loader — never by this app's own
@@ -59,6 +76,12 @@ class Settings(BaseSettings):
     # Email Verification
     email_stub_mode: bool = True
     email_verification_token_expiry: int = 24
+    password_reset_token_expiry: int = 1
+
+    # Email delivery (Resend — see 00_PROJECT_CONTEXT.md)
+    resend_api_key: str | None = None
+    mail_from: str = "Elevare Workforce OS <noreply@elevare.com>"
+    invite_expiry: int = 7
 
     # Claude API KEY
     anthropic_api_key: str | None = None

@@ -12,4 +12,24 @@ Import order generally follows dependency hierarchy to avoid resolution
 issues during initialization.
 """
 
-__all__ = []
+from app.modules.tenancy_identity.models import (
+    Organization,
+    User,
+    Membership,
+    Invite,
+)
+from app.modules.auth.models import (
+    RefreshToken,
+    EmailVerificationToken,
+    PasswordResetToken,
+)
+
+__all__ = [
+    "Organization",
+    "User",
+    "Membership",
+    "Invite",
+    "RefreshToken",
+    "EmailVerificationToken",
+    "PasswordResetToken",
+]

@@ -11,3 +11,8 @@ venv/
 .claude/
 .vscode/
 celerybeat-schedule
+CLAUDE.md
+.coverage
+.pytest_cache/
+SESSION_HANDOFF.md
+scripts/
