@@ -116,12 +116,16 @@ def decode_refresh_token(token: str) -> TokenPayload:
     if payload.get("type") != "refresh":
         raise TokenInvalidException()
 
-    return TokenPayload(
-        sub=payload["sub"],
-        role=payload["role"],
-        org_id=payload.get("org_id", ""),
-        type=payload["type"],
-    )
+    try:
+        return TokenPayload(
+            sub=payload["sub"],
+            role=payload["role"],
+            org_id=payload.get("org_id", ""),
+            type=payload["type"],
+        )
+    except (KeyError, ValueError, TypeError) as e:
+        raise TokenInvalidException(f"Invalid token payload: {e}")  # type: ignore
+
 
 def create_token_pair(user_id: str, org_id: str, role: str) -> dict:
     """Generate an access/refresh token pair for a user.

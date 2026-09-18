@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from .models import User, Organization, Membership, Invite
 from app.core.exceptions import UserNotFoundException
+from app.core.pagination import paginate
+from app.core.schemas import PaginationResponse
 
 class UserRepository:
     def __init__(self, db: AsyncSession):
@@ -161,7 +163,9 @@ class MembershipRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_org_memberships(self, organization_id: uuid.UUID) -> list[Membership]:
+    async def get_org_memberships(
+        self, organization_id: uuid.UUID, page: int = 1, limit: int = 20
+    ) -> PaginationResponse:
         """List every membership in one organization (Team Management view),
         oldest first, with each membership's user eager-loaded."""
         stmt = (
@@ -170,8 +174,7 @@ class MembershipRepository:
             .where(Membership.organization_id == organization_id)
             .order_by(Membership.created_at.asc())
         )
-        result = await self._db.execute(stmt)
-        return list(result.scalars().all())
+        return await paginate(stmt, page, limit, self._db)
 
     async def update_membership_role(self, membership: Membership, role: str) -> Membership:
         """Change a membership's role. Caller (service layer) commits."""
