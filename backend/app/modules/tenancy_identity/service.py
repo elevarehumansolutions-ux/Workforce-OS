@@ -56,8 +56,8 @@ class MembershipService:
     async def get_membership_by_id(self, membership_id) -> Membership | None:
         return await self._repo.get_membership_by_id(membership_id)
 
-    async def get_org_memberships(self, organization_id) -> list[Membership]:
-        return await self._repo.get_org_memberships(organization_id)
+    async def get_org_memberships(self, organization_id, page: int = 1, limit: int = 20):
+        return await self._repo.get_org_memberships(organization_id, page, limit)
 
     async def update_membership_role(self, membership: Membership, role: str) -> Membership:
         return await self._repo.update_membership_role(membership, role)

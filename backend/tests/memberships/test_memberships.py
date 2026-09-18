@@ -176,8 +176,10 @@ async def test_list_memberships_returns_team(client):
     resp = await client.get(MEMBERSHIPS, headers=_auth_header(owner["access_token"]))
 
     assert resp.status_code == 200
-    emails = {m["user"]["email"] for m in resp.json()}
+    body = resp.json()
+    emails = {m["user"]["email"] for m in body["data"]}
     assert emails == {"owner6@example.com", "other6@example.com"}
+    assert body["pagination"]["total"] == 2
 
 
 @pytest.mark.asyncio
@@ -289,6 +291,71 @@ async def test_patch_membership_deactivates_teammate(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_invite_teammate_reactivates_previously_deactivated_member(client, monkeypatch):
+    """Re-inviting someone whose membership was deactivated must reactivate
+    that same row (service.py's invite_teammate, deactivated_at branch),
+    not error on the (organization_id, user_id) unique constraint or create
+    a second membership row for the same person/org pair."""
+    from tests.conftest import register_verified_and_login
+    import app.modules.tenancy_identity.router as membership_router_module
+
+    owner = await register_verified_and_login(client, email="owner11@example.com")
+
+    mock_dispatch = MagicMock()
+    monkeypatch.setattr(membership_router_module, "dispatch_invite_email", mock_dispatch)
+    await client.post(
+        MEMBERSHIPS,
+        json={"email": "other11@example.com", "role": "employee"},
+        headers=_auth_header(owner["access_token"]),
+    )
+    raw_token = mock_dispatch.delay.call_args.args[1].split("token=")[1]
+    accept_resp = await client.post(
+        f"{AUTH}/accept-invite",
+        json={
+            "token": raw_token,
+            "full_name": "Other Person",
+            "password": "Password123#",
+            "confirm_password": "Password123#",
+        },
+    )
+    original_membership_id = accept_resp.json()["membership"]["id"]
+
+    deactivate_resp = await client.patch(
+        f"{MEMBERSHIPS}/{original_membership_id}",
+        json={"is_deactivated": True},
+        headers=_auth_header(owner["access_token"]),
+    )
+    assert deactivate_resp.status_code == 200
+    assert deactivate_resp.json()["deactivated_at"] is not None
+
+    # Re-invite the same email, now an existing (but deactivated-here) user,
+    # with a different role — should reactivate, not fail or duplicate.
+    reinvite_resp = await client.post(
+        MEMBERSHIPS,
+        json={"email": "other11@example.com", "role": "manager"},
+        headers=_auth_header(owner["access_token"]),
+    )
+    assert reinvite_resp.status_code == 200
+    body = reinvite_resp.json()
+    assert body["status"] == "added"
+    assert body["membership"]["id"] == original_membership_id
+    assert body["membership"]["deactivated_at"] is None
+    assert body["membership"]["role"] == "manager"
+
+    # Reactivation actually restored access, not just the field.
+    login_resp = await client.post(
+        f"{AUTH}/login",
+        json={"email": "other11@example.com", "password": "Password123#"},
+    )
+    assert login_resp.status_code == 200
+
+    # Still exactly one membership row for this person in this org, not two.
+    memberships = await client.get(MEMBERSHIPS, headers=_auth_header(owner["access_token"]))
+    matches = [m for m in memberships.json()["data"] if m["user"]["email"] == "other11@example.com"]
+    assert len(matches) == 1
+
+
+@pytest.mark.asyncio
 async def test_deactivation_does_not_affect_a_different_organization(client):
     """The actual point of scoping this to the membership: someone deactivated
     from Org A keeps full, working access to Org B."""
@@ -309,7 +376,7 @@ async def test_deactivation_does_not_affect_a_different_organization(client):
     # Deactivate shared_user from Org A only.
     memberships_in_a = await client.get(MEMBERSHIPS, headers=_auth_header(owner_a["access_token"]))
     membership_id_in_a = next(
-        m["id"] for m in memberships_in_a.json() if m["user"]["email"] == "shared_user@example.com"
+        m["id"] for m in memberships_in_a.json()["data"] if m["user"]["email"] == "shared_user@example.com"
     )
     deactivate_resp = await client.patch(
         f"{MEMBERSHIPS}/{membership_id_in_a}",

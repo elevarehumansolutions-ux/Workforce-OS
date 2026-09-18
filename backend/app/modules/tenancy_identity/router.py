@@ -2,12 +2,13 @@ import logging
 import uuid
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.dependencies import get_db, require_org_role
 from app.core.exceptions import MembershipNotFoundException, ValidationException
+from app.core.schemas import PaginationResponse
 from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.schemas import (
     InviteTeammateRequest,
@@ -61,15 +62,18 @@ async def invite_teammate(
 
 @router.get("/memberships", status_code=200)
 async def list_memberships(
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(require_org_role(*_TEAM_MANAGEMENT_ROLES)),
-) -> list[MembershipWithUserResponse]:
+) -> PaginationResponse:
     """
     List everyone in the caller's organization (Team Management screen).
     """
     service = MembershipService(db)
-    memberships = await service.get_org_memberships(caller.organization_id)
-    return [MembershipWithUserResponse.model_validate(m) for m in memberships]
+    result = await service.get_org_memberships(caller.organization_id, page, limit)
+    result.data = [MembershipWithUserResponse.model_validate(m) for m in result.data]
+    return result
 
 
 @router.patch("/memberships/{membership_id}", status_code=200)
