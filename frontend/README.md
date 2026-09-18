@@ -1,16 +1,43 @@
-# React + Vite
+# Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Reserved for Uche's Next.js app — this folder was previously a Vite/React
+scaffold from M1 planning, before the actual frontend stack (Next.js,
+client-rendered only, confirmed 2026-09-18, see `../docs/08_DECISIONS.md`)
+was settled. Cleared out since none of that scaffold applies to Next.js's
+project structure or tooling.
 
-Currently, two official plugins are available:
+## Getting started
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Initialize your own Next.js project directly in this folder (e.g.
+`npx create-next-app@latest .`), commit it here.
 
-## React Compiler
+## What you need to know about the API
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Full endpoint list: `../docs/05_API_DESIGN.md`. Auth/token design:
+`../docs/03_ARCHITECTURE.md`.
 
-## Expanding the ESLint configuration
+The short version, worth getting right from the start:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- **Every request needs `credentials: "include"`** (fetch) or the
+  equivalent in whatever client you use — the refresh token lives in an
+  `httpOnly` cookie, it won't be sent cross-origin without this. The
+  backend's `CORSMiddleware` already has `allow_credentials=True` set to
+  match.
+- **Access token goes in `localStorage`** after login, sent as
+  `Authorization: Bearer <token>` on every request. Short-lived (15 min);
+  `POST /auth/refresh` (using the httpOnly cookie) gets you a new one.
+- **Error responses are a flat JSON shape**, not nested:
+  ```json
+  { "code": "VALIDATION_ERROR", "status": "error", "message": "...", "details": [] }
+  ```
+  `details` is a list of `{field, message}` pairs, populated for validation
+  errors (400s), empty otherwise.
+- **CORS is origin-allowlisted**, not wildcard-open (required anyway —
+  browsers refuse wildcard origin + credentials together). Send Emmanuel
+  your deployed URL (Vercel preview/prod) once you have one, so it can be
+  added to `CORS_ALLOWED_ORIGINS`.
+- **Env var:** point at `NEXT_PUBLIC_API_BASE_URL` (Next.js only exposes
+  `NEXT_PUBLIC_*`-prefixed vars to browser code) — see `.env.example`.
+
+None of this needs a proxy or server-side data fetching — the browser talks
+to the API directly, same as any regular client-side app.
