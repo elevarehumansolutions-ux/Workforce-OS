@@ -248,6 +248,23 @@ class UserNotFoundException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class NotificationNotFoundException(PlatformError):
+    """Raised when a lookup by notification id finds no matching row for
+    that recipient (this also covers "exists, but belongs to a different
+    user" — same reasoning as MembershipNotFoundException: a caller
+    shouldn't be able to tell "not yours" apart from "doesn't exist")."""
+
+    def __init__(
+        self,
+        message: str = "Notification not found",
+        code: str = "NOTIFICATION_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class MembershipNotFoundException(PlatformError):
     """Raised when a lookup by membership id finds no matching row (this
     also covers "exists, but belongs to a different org" — RLS makes that

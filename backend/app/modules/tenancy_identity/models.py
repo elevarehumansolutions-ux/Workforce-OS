@@ -14,6 +14,7 @@ from .enums import SubscriptionStatus, AuthProvider, MembershipRole, AccountStat
 
 if TYPE_CHECKING:
     from app.modules.auth.models import EmailVerificationToken, RefreshToken, PasswordResetToken
+    from app.modules.audit_and_notification.models import AuditLog, Notification
 
 
 class Organization(BaseModel):
@@ -50,6 +51,12 @@ class Organization(BaseModel):
 
     # Relationships
     memberships: Mapped[list["Membership"]] = relationship(back_populates="organization")
+    audit_logs: Mapped[list[AuditLog]] = relationship(
+        "AuditLog", back_populates="organization"
+    )
+    notifications: Mapped[list[Notification]] = relationship(
+        "Notification", back_populates="organization"
+    )
 
 
 class User(BaseModel):
@@ -106,6 +113,12 @@ class User(BaseModel):
     )
     password_reset_tokens: Mapped[list[PasswordResetToken]] = relationship(
         "PasswordResetToken", back_populates="user"
+    )
+    audit_logs: Mapped[list[AuditLog]] = relationship(
+        "AuditLog", back_populates="actor_user"
+    )
+    notifications: Mapped[list[Notification]] = relationship(
+        "Notification", back_populates="recipient_user"
     )
 
 

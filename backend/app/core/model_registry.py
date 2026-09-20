@@ -23,6 +23,10 @@ from app.modules.auth.models import (
     EmailVerificationToken,
     PasswordResetToken,
 )
+from app.modules.audit_and_notification.models import (
+    AuditLog,
+    Notification,
+)
 
 __all__ = [
     "Organization",
@@ -32,4 +36,6 @@ __all__ = [
     "RefreshToken",
     "EmailVerificationToken",
     "PasswordResetToken",
+    "AuditLog",
+    "Notification",
 ]

@@ -90,6 +90,27 @@ class PaginationResponse(BaseModel):
     pagination: PaginationMeta
 
 
+class CursorPaginationMeta(BaseModel):
+    """Metadata for a keyset (cursor) paginated response page.
+
+    Pairs with ``core/pagination.py``'s ``paginate_cursor`` — the
+    large/append-heavy counterpart to ``PaginationMeta``'s offset paging.
+    """
+
+    next_cursor: str | None
+    count: int
+    total: int
+
+
+class CursorPaginationResponse(BaseModel):
+    """Standard keyset-paginated list response envelope."""
+
+    status: Literal["success"] = "success"
+    message: str
+    data: list[Any]
+    pagination: CursorPaginationMeta
+
+
 class MessageResponse(BaseModel):
     """Generic message response for operations that return no data."""
 

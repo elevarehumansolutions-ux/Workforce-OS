@@ -12,6 +12,7 @@ import app.core.model_registry  #noqa:  F401
 from app.core.config import settings
 from app.core.dependencies import get_db
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -74,6 +75,20 @@ async def db_session():
         async with AsyncSessionLocal(bind=conn, expire_on_commit=False) as session:
             yield session
         await conn.rollback()
+
+
+async def set_org_context(db_session: AsyncSession, organization_id) -> None:
+    """Explicitly (re)establish RLS tenant context on a raw ``db_session``,
+    mirroring ``core/dependencies.py``'s ``get_current_membership``.
+
+    Needed when a test seeds rows directly via a service/repository rather
+    than through an authenticated client request — a real request sets this
+    itself, per request, from the caller's JWT.
+    """
+    await db_session.execute(
+        text("SELECT set_config('app.current_org_id', :org_id, true)"),
+        {"org_id": str(organization_id)},
+    )
 
 
 async def register_verified_and_login(client, **overrides) -> dict:
