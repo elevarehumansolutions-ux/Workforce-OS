@@ -16,6 +16,7 @@ from app.modules.auth.jwt_handler import (
 
 
 def test_create_token_pair_round_trips_through_decode():
+    """A freshly created access token decodes back to the same sub/org_id/role and type "access"."""
     user_id = str(uuid.uuid4())
     org_id = str(uuid.uuid4())
     pair = create_token_pair(user_id=user_id, org_id=org_id, role="hr_administrator")
@@ -29,6 +30,7 @@ def test_create_token_pair_round_trips_through_decode():
 
 
 def test_decode_access_token_rejects_expired_token():
+    """An access token with an exp claim in the past raises TokenExpiredException."""
     expired = jwt.encode(
         {
             "sub": "x", "org_id": "y", "role": "employee", "type": "access",
@@ -42,6 +44,7 @@ def test_decode_access_token_rejects_expired_token():
 
 
 def test_decode_access_token_rejects_bad_signature():
+    """An access token signed with a different secret raises TokenInvalidException."""
     token = jwt.encode(
         {
             "sub": "x", "org_id": "y", "role": "employee", "type": "access",
@@ -55,23 +58,29 @@ def test_decode_access_token_rejects_bad_signature():
 
 
 def test_decode_access_token_rejects_a_refresh_token():
-    """A refresh token must not work as an access token, even though both
-    are signed with the same secret — the `type` claim is what separates them."""
+    """A refresh token must not work as an access token.
+
+    Even though both are signed with the same secret — the `type` claim is
+    what separates them.
+    """
     pair = create_token_pair(user_id=str(uuid.uuid4()), org_id=str(uuid.uuid4()), role="employee")
     with pytest.raises(TokenInvalidException):
         decode_access_token(pair["refresh_token"])
 
 
 def test_decode_refresh_token_rejects_an_access_token():
+    """An access token must not work as a refresh token, since decode_refresh_token checks the `type` claim."""
     pair = create_token_pair(user_id=str(uuid.uuid4()), org_id=str(uuid.uuid4()), role="employee")
     with pytest.raises(TokenInvalidException):
         decode_refresh_token(pair["access_token"])
 
 
 def test_decode_refresh_token_ignores_jwt_expiry_claim():
-    """Refresh token expiry is enforced via its DB record (RefreshToken.expires_at),
-    not the JWT's own `exp` claim — decode_refresh_token must not reject a
-    JWT-expired-but-DB-valid token on that basis alone."""
+    """Refresh token expiry is enforced via its DB record, not the JWT's own `exp` claim.
+
+    Expiry lives on RefreshToken.expires_at — decode_refresh_token must not
+    reject a JWT-expired-but-DB-valid token on that basis alone.
+    """
     expired_refresh = jwt.encode(
         {
             "sub": "x", "org_id": "y", "role": "employee", "type": "refresh",
@@ -85,6 +94,7 @@ def test_decode_refresh_token_ignores_jwt_expiry_claim():
 
 
 def test_decode_refresh_token_rejects_bad_signature():
+    """A refresh token signed with a different secret raises TokenInvalidException."""
     token = jwt.encode(
         {
             "sub": "x", "org_id": "y", "role": "employee", "type": "refresh",
@@ -98,5 +108,6 @@ def test_decode_refresh_token_rejects_bad_signature():
 
 
 def test_decode_access_token_rejects_garbage_string():
+    """A string that isn't a JWT at all raises TokenInvalidException."""
     with pytest.raises(TokenInvalidException):
         decode_access_token("this-is-not-a-jwt-at-all")

@@ -168,9 +168,8 @@ class OrganizationRepository:
             data: Mapping of field names to their new values.
         
         Returns:
-            The updated and refreshed ``Organization``
+            The updated and refreshed ``Organization``.
         """
-
         for field, value in data.items():
             setattr(organization, field, value)
         

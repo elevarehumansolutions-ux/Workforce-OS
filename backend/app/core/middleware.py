@@ -1,5 +1,4 @@
-"""
-Custom Starlette middleware for the Elevare Workforce OS.
+"""Custom Starlette middleware for the Elevare Workforce OS.
 
 Currently provides:
 - ``RequestLoggingMiddleware``: logs every inbound request and its
@@ -33,11 +32,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
 
     def __init__(self, app, environment: str = "development") -> None:
-        """Initialise middleware. HSTS is set for every environment except
-        development — same derivation as Settings.cookie_secure, so this
-        can't drift out of sync with it the way an independent debug flag
-        could (see 03_ARCHITECTURE.md; DEBUG=true in production is already
-        a case config.py's own validator treats as a real misconfiguration).
+        """Initialise the middleware and decide whether HSTS should be enforced.
+
+        HSTS is set for every environment except development — same
+        derivation as Settings.cookie_secure, so this can't drift out of
+        sync with it the way an independent debug flag could (see
+        03_ARCHITECTURE.md; DEBUG=true in production is already a case
+        config.py's own validator treats as a real misconfiguration).
         """
         super().__init__(app)
         self._enforce_hsts = environment != "development"
@@ -78,9 +79,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """Log every inbound request and its completed response with a request ID."""
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        """
-        Log Request start, call the next handler, then log completion or failure.
-        """
+        """Log request start, call the next handler, then log completion or failure."""
         # Skip logging the CORS preflight requests
         if request.method == "OPTIONS":
             return await call_next(request)

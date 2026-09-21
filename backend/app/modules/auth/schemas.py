@@ -1,3 +1,5 @@
+"""Pydantic request/response schemas for the auth module's endpoints."""
+
 from pydantic import BaseModel, EmailStr, model_validator, Field
 import re
 from app.modules.tenancy_identity.schemas import (
@@ -24,7 +26,6 @@ def validate_password_strength(v: str) -> str:
         ValueError: If any strength requirement is not met.
 
     """
-
     if len(v) < 8:
         raise ValueError("Password must be at least 8 characters")
 
@@ -72,7 +73,6 @@ class RegisterRequest(BaseModel):
             ValueError: If the two password fields differ.
 
         """
-
         if self.password != self.confirm_password:
             raise ValueError("Passwords do not match!")
         
@@ -98,9 +98,7 @@ class ResendVerificationRequest(BaseModel):
 
 
 class AuthResponse(BaseModel):
-    """
-    Full authentication response returned after register / login.
-    """
+    """Full authentication response returned after register / login."""
 
     user: UserResponse
     organization: OrganizationResponse
@@ -159,22 +157,28 @@ class ResetPasswordRequest(BaseModel):
 
     @model_validator(mode="after")
     def check_new_password_strength(self) -> "ResetPasswordRequest":
+        """Validate that the new password meets the strength requirements."""
         validate_password_strength(self.new_password)
         return self
 
 
 class MeResponse(BaseModel):
-    """Response for GET /me — the caller's identity plus every organization
-    they belong to, for the frontend's org-switcher."""
+    """Response for GET /me.
+
+    Contains the caller's identity plus every organization they belong to,
+    for the frontend's org-switcher.
+    """
 
     user: UserResponse
     memberships: list[MembershipWithOrganizationResponse]
 
 
 class AcceptInviteRequest(BaseModel):
-    """Payload for completing a teammate invite when the invited email has
-    no existing account — creates the User and the invited Membership
-    together, the same shape as RegisterRequest plus the invite token."""
+    """Payload for completing a teammate invite when there's no existing account.
+
+    Creates the User and the invited Membership together, the same shape
+    as RegisterRequest plus the invite token.
+    """
 
     token: str
     full_name: str = Field(..., min_length=6, max_length=255)
@@ -183,6 +187,7 @@ class AcceptInviteRequest(BaseModel):
 
     @model_validator(mode="after")
     def password_match(self) -> "AcceptInviteRequest":
+        """Validate that password and confirm_password match."""
         if self.password != self.confirm_password:
             raise ValueError("Passwords do not match!")
         return self

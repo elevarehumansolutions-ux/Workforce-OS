@@ -22,10 +22,13 @@ async def _setup_position(client, h) -> str:
 
 
 async def _invite_via_accept(client, monkeypatch, owner, email: str, role: str) -> dict:
-    """Accept-invite, not direct registration — a directly registered user
+    """Create a teammate via accept-invite so they hold exactly one membership.
+
+    Accept-invite, not direct registration — a directly registered user
     always keeps their own founding org as an extra active membership,
     which would mask whether offboarding's deactivation actually blocks
-    login (same reasoning as tests/memberships/test_memberships.py)."""
+    login (same reasoning as tests/memberships/test_memberships.py).
+    """
     import app.modules.tenancy_identity.router as membership_router_module
 
     mock_dispatch = MagicMock()
@@ -51,6 +54,7 @@ async def _invite_via_accept(client, monkeypatch, owner, email: str, role: str) 
 
 @pytest.mark.asyncio
 async def test_offboard_deactivates_linked_membership_and_blocks_login(client, monkeypatch):
+    """Offboarding an employee with login access deactivates their linked membership and blocks further login."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="off_owner1@example.com")
@@ -92,9 +96,12 @@ async def test_offboard_deactivates_linked_membership_and_blocks_login(client, m
 
 @pytest.mark.asyncio
 async def test_offboard_employee_without_login_access_just_sets_status(client):
-    """employees.user_id is nullable — someone can exist in the org
-    structure without ever having login access. Offboarding them must not
-    error just because there's no Membership to touch."""
+    """Offboarding an employee with no linked user account just sets their status, without erroring.
+
+    employees.user_id is nullable — someone can exist in the org structure
+    without ever having login access. Offboarding them must not error just
+    because there's no Membership to touch.
+    """
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="off_owner2@example.com")
@@ -121,6 +128,7 @@ async def test_offboard_employee_without_login_access_just_sets_status(client):
 
 @pytest.mark.asyncio
 async def test_offboard_does_not_block_on_direct_reports(client):
+    """A manager with direct reports can still be offboarded successfully."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="off_owner3@example.com")
@@ -170,6 +178,7 @@ async def test_offboard_does_not_block_on_direct_reports(client):
 
 @pytest.mark.asyncio
 async def test_offboard_twice_rejected(client):
+    """Offboarding an already-inactive employee a second time is rejected with 422."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="off_owner4@example.com")
@@ -198,6 +207,7 @@ async def test_offboard_twice_rejected(client):
 
 @pytest.mark.asyncio
 async def test_reinstate_restores_status_and_login(client, monkeypatch):
+    """Reinstating an offboarded employee restores their active status and their login access."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="off_owner5@example.com")
@@ -239,6 +249,7 @@ async def test_reinstate_restores_status_and_login(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_reinstate_active_employee_rejected(client):
+    """Reinstating an employee who is already active is rejected with 422."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="off_owner6@example.com")
@@ -263,6 +274,7 @@ async def test_reinstate_active_employee_rejected(client):
 
 @pytest.mark.asyncio
 async def test_offboard_endpoint_requires_hr_admin_role(client, monkeypatch):
+    """A manager-role member is rejected with 403 when offboarding an employee."""
     from tests.conftest import register_verified_and_login
     from unittest.mock import MagicMock
     import app.modules.tenancy_identity.router as membership_router_module

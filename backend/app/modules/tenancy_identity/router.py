@@ -1,3 +1,10 @@
+"""FastAPI routes for the tenancy_identity module.
+
+Exposes the Team Management endpoints: inviting/adding teammates, listing an
+organization's memberships, and updating a membership's role or activation
+status. All endpoints are gated to the HR Administrator role.
+"""
+
 import logging
 import uuid
 from urllib.parse import quote
@@ -37,9 +44,24 @@ async def invite_teammate(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(require_org_role(*_TEAM_MANAGEMENT_ROLES)),
 ) -> InviteTeammateResponse:
-    """
-    Add an existing user to the org immediately, or invite an email with no
-    account yet (they accept via POST /auth/accept-invite).
+    """Add an existing user to the org immediately, or invite an email with no account.
+
+    An email with no account yet gets a pending invite and accepts it via
+    POST /auth/accept-invite. Requires the HR Administrator role.
+
+    Args:
+        data: Invitee's email and the role to grant them.
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        The invite/membership result, with ``status`` indicating whether the
+        teammate was added immediately or invited by email.
+
+    Raises:
+        AlreadyExistsException: If the invitee already has an active
+            membership in the caller's organization (translates to a 409
+            response).
     """
     service = MembershipService(db)
     status, result = await service.invite_teammate(
@@ -67,8 +89,18 @@ async def list_memberships(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(require_org_role(*_TEAM_MANAGEMENT_ROLES)),
 ) -> PaginationResponse:
-    """
-    List everyone in the caller's organization (Team Management screen).
+    """List everyone in the caller's organization (Team Management screen).
+
+    Requires the HR Administrator role.
+
+    Args:
+        page: 1-indexed page number.
+        limit: Maximum number of rows per page (1-100).
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        A paginated response of memberships, each paired with its user.
     """
     service = MembershipService(db)
     result = await service.get_org_memberships(caller.organization_id, page, limit)
@@ -83,8 +115,29 @@ async def update_membership(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(require_org_role(*_TEAM_MANAGEMENT_ROLES)),
 ) -> MembershipWithUserResponse:
-    """
-    Change a teammate's role and/or deactivate/reactivate their account.
+    """Change a teammate's role and/or deactivate/reactivate their account.
+
+    Requires the HR Administrator role. A caller can't target their own
+    membership through this endpoint, and can't deactivate the
+    organization's Owner (no ownership-transfer flow exists yet).
+
+    Args:
+        membership_id: Id of the membership to update.
+        data: New role and/or activation state; at least one must be set.
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        The updated membership, with its user eager-loaded.
+
+    Raises:
+        ValidationException: If neither ``role`` nor ``is_deactivated`` is
+            provided (translates to a 400 response).
+        MembershipNotFoundException: If no membership with that id exists
+            in the caller's org (translates to a 404 response).
+        PermissionDeniedException: If the caller targets their own
+            membership, or attempts to deactivate the org's Owner
+            (translates to a 403 response).
     """
     if not data.has_updates():
         raise ValidationException("Provide at least one of role or is_deactivated")

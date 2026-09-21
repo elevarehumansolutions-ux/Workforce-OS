@@ -13,6 +13,7 @@ def _auth_header(access_token: str) -> dict:
 
 @pytest.mark.asyncio
 async def test_invite_teammate_adds_existing_user_immediately(client):
+    """Inviting an email that already belongs to a registered user adds them as a membership immediately, no invite step."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="owner1@example.com")
@@ -33,6 +34,7 @@ async def test_invite_teammate_adds_existing_user_immediately(client):
 
 @pytest.mark.asyncio
 async def test_invite_teammate_rejects_duplicate_membership(client):
+    """Inviting the same email to the same org a second time is rejected with 409."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="owner2@example.com")
@@ -53,6 +55,7 @@ async def test_invite_teammate_rejects_duplicate_membership(client):
 
 @pytest.mark.asyncio
 async def test_invite_teammate_creates_pending_invite_for_new_email(client, monkeypatch):
+    """Inviting an email with no existing account creates a pending invite and dispatches an email containing a token."""
     import app.modules.tenancy_identity.router as membership_router_module
     from tests.conftest import register_verified_and_login
 
@@ -78,6 +81,7 @@ async def test_invite_teammate_creates_pending_invite_for_new_email(client, monk
 
 @pytest.mark.asyncio
 async def test_accept_invite_creates_account_and_logs_in(client, monkeypatch):
+    """Accepting a valid invite token creates a verified account with the invited role and org, and the new user can log in."""
     import app.modules.tenancy_identity.router as membership_router_module
     from tests.conftest import register_verified_and_login
 
@@ -120,6 +124,7 @@ async def test_accept_invite_creates_account_and_logs_in(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_accept_invite_rejects_reused_token(client, monkeypatch):
+    """An invite token can only be accepted once; reusing it after acceptance returns 400."""
     import app.modules.tenancy_identity.router as membership_router_module
     from tests.conftest import register_verified_and_login
 
@@ -149,6 +154,7 @@ async def test_accept_invite_rejects_reused_token(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_accept_invite_rejects_unknown_token(client):
+    """Accepting an invite with a token that was never issued returns 401."""
     resp = await client.post(
         f"{AUTH}/accept-invite",
         json={
@@ -163,6 +169,7 @@ async def test_accept_invite_rejects_unknown_token(client):
 
 @pytest.mark.asyncio
 async def test_list_memberships_returns_team(client):
+    """GET /memberships lists every member of the caller's org, with pagination totals reflecting the full team."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="owner6@example.com")
@@ -184,8 +191,11 @@ async def test_list_memberships_returns_team(client):
 
 @pytest.mark.asyncio
 async def test_list_memberships_requires_hr_admin_role(client, monkeypatch):
-    """An employee-role member (via accept-invite, so their only membership
-    is this org — no earliest-joined-default ambiguity) can't list the team."""
+    """An employee-role member can't list the team.
+
+    Via accept-invite, so their only membership is this org — no
+    earliest-joined-default ambiguity.
+    """
     import app.modules.tenancy_identity.router as membership_router_module
     from tests.conftest import register_verified_and_login
 
@@ -216,6 +226,7 @@ async def test_list_memberships_requires_hr_admin_role(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_patch_membership_changes_role(client):
+    """PATCH /memberships/{id} updates the target membership's role."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="owner8@example.com")
@@ -238,12 +249,15 @@ async def test_patch_membership_changes_role(client):
 
 @pytest.mark.asyncio
 async def test_patch_membership_deactivates_teammate(client, monkeypatch):
-    """Uses accept-invite, not register_verified_and_login, to create the
+    """Deactivating a teammate's only membership blocks their login with NO_ACTIVE_MEMBERSHIP.
+
+    Uses accept-invite, not register_verified_and_login, to create the
     teammate — a directly-registered user always has their own founding org
     as an extra membership (can't reach zero active memberships that way);
     an accept-invite user genuinely has only the one invited membership,
     which is what this test actually needs to exercise deactivation down to
-    zero active memberships anywhere."""
+    zero active memberships anywhere.
+    """
     from tests.conftest import register_verified_and_login
     import app.modules.tenancy_identity.router as membership_router_module
 
@@ -292,10 +306,13 @@ async def test_patch_membership_deactivates_teammate(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_invite_teammate_reactivates_previously_deactivated_member(client, monkeypatch):
-    """Re-inviting someone whose membership was deactivated must reactivate
-    that same row (service.py's invite_teammate, deactivated_at branch),
-    not error on the (organization_id, user_id) unique constraint or create
-    a second membership row for the same person/org pair."""
+    """Re-inviting a previously-deactivated member reactivates the same membership row.
+
+    Must reactivate that same row (service.py's invite_teammate,
+    deactivated_at branch), not error on the (organization_id, user_id)
+    unique constraint or create a second membership row for the same
+    person/org pair.
+    """
     from tests.conftest import register_verified_and_login
     import app.modules.tenancy_identity.router as membership_router_module
 
@@ -357,13 +374,12 @@ async def test_invite_teammate_reactivates_previously_deactivated_member(client,
 
 @pytest.mark.asyncio
 async def test_deactivation_does_not_affect_a_different_organization(client):
-    """The actual point of scoping this to the membership: someone deactivated
-    from Org A keeps full, working access to Org B."""
+    """Deactivation is scoped per-membership: someone deactivated from Org A keeps full, working access to Org B."""
     from tests.conftest import register_verified_and_login
 
     owner_a = await register_verified_and_login(client, email="owner_a@example.com")
     owner_b = await register_verified_and_login(client, email="owner_b@example.com")
-    shared_user = await register_verified_and_login(client, email="shared_user@example.com")
+    await register_verified_and_login(client, email="shared_user@example.com")
 
     for owner in (owner_a, owner_b):
         invite_resp = await client.post(
@@ -405,6 +421,7 @@ async def test_deactivation_does_not_affect_a_different_organization(client):
 
 @pytest.mark.asyncio
 async def test_patch_membership_rejects_self_target(client):
+    """A caller can't PATCH their own membership (e.g. to change their own role)."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="owner10@example.com")
@@ -456,9 +473,11 @@ async def test_patch_membership_rejects_deactivating_owner(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_patch_membership_not_found_across_orgs(client):
-    """A membership id from a different org is indistinguishable from a
-    nonexistent one — get_membership_by_id is scoped by RLS automatically,
-    the router never has to check "does this belong to my org" by hand."""
+    """A membership id from a different org is indistinguishable from a nonexistent one, and returns 404.
+
+    get_membership_by_id is scoped by RLS automatically, the router never
+    has to check "does this belong to my org" by hand.
+    """
     from tests.conftest import register_verified_and_login
 
     owner_a = await register_verified_and_login(client, email="orga@example.com")
@@ -474,6 +493,7 @@ async def test_patch_membership_not_found_across_orgs(client):
 
 @pytest.mark.asyncio
 async def test_patch_membership_requires_at_least_one_field(client):
+    """PATCH /memberships/{id} with an empty body is rejected with 422."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="owner12@example.com")
@@ -495,6 +515,7 @@ async def test_patch_membership_requires_at_least_one_field(client):
 
 @pytest.mark.asyncio
 async def test_memberships_endpoints_require_authentication(client):
+    """GET and POST /memberships both reject unauthenticated requests with 401."""
     resp1 = await client.get(MEMBERSHIPS)
     assert resp1.status_code == 401
 

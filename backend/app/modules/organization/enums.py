@@ -1,7 +1,11 @@
+"""Enumerations used by the organization module's models and schemas."""
+
 from enum import Enum
 
 
 class RiskLevel(str, Enum):
+    """Risk level assigned to a position, from least to most critical."""
+
     VERY_LOW = "very_low"
     LOW = "low"
     MEDIUM = "medium"
@@ -10,6 +14,8 @@ class RiskLevel(str, Enum):
 
 
 class CriticalityType(str, Enum):
+    """Category describing why a position matters to the business."""
+
     REVENUE_GENERATING = "revenue_generating"
     REVENUE_ENABLING = "revenue_enabling"
     OPERATIONAL = "operational"
@@ -22,6 +28,8 @@ class CriticalityType(str, Enum):
 
 
 class EmploymentType(str, Enum):
+    """Employment arrangement under which an employee works."""
+
     FULL_TIME = "full_time"
     PART_TIME = "part_time"
     CONTRACT = "contract"
@@ -30,5 +38,7 @@ class EmploymentType(str, Enum):
 
 
 class EmployeeStatus(str, Enum):
+    """Lifecycle status of an employee record."""
+
     ACTIVE = "active"
     INACTIVE = "inactive"

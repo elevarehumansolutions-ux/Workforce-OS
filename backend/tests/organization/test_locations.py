@@ -37,12 +37,14 @@ async def _invite_and_accept(client, monkeypatch, owner, email: str, role: str) 
 
 @pytest.mark.asyncio
 async def test_locations_require_authentication(client):
+    """GET /locations rejects an unauthenticated request with 401."""
     resp = await client.get(LOCATIONS)
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_create_location_requires_hr_admin_role(client, monkeypatch):
+    """An employee-role member is rejected with 403 when creating a location."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="loc_owner1@example.com")
@@ -56,6 +58,7 @@ async def test_create_location_requires_hr_admin_role(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_any_role_can_read_locations(client, monkeypatch):
+    """An employee-role member can still successfully list locations, unlike creating them."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="loc_owner2@example.com")
@@ -68,6 +71,7 @@ async def test_any_role_can_read_locations(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_create_get_update_delete_location(client):
+    """Full CRUD lifecycle for a location: create, get, partial update (untouched fields survive), and soft-delete."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="loc_owner3@example.com")
@@ -97,8 +101,11 @@ async def test_create_get_update_delete_location(client):
 
 @pytest.mark.asyncio
 async def test_list_locations_is_paginated_and_org_scoped(client):
-    """RLS proof: an org only ever sees its own locations, even though
-    both orgs' rows sit in the same table."""
+    """Listing locations is paginated and scoped to the caller's own org.
+
+    RLS proof: an org only ever sees its own locations, even though both
+    orgs' rows sit in the same table.
+    """
     from tests.conftest import register_verified_and_login
 
     owner_a = await register_verified_and_login(client, email="loc_owner_a@example.com")

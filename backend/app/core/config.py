@@ -1,4 +1,4 @@
-"""Application settings loaded from environment variables and a .env file"""
+"""Application settings loaded from environment variables and a .env file."""
 
 import logging
 
@@ -93,9 +93,11 @@ class Settings(BaseSettings):
 
     @property
     def cookie_secure(self) -> bool:
-        """Refresh-cookie Secure flag — derived from environment, not its own
-        setting, so it can't drift out of sync with ENVIRONMENT. See
-        03_ARCHITECTURE.md: true in staging/production, false in local dev.
+        """Refresh-cookie Secure flag — derived from environment, not its own setting.
+
+        This is derived rather than its own setting so it can't drift out of
+        sync with ENVIRONMENT. See 03_ARCHITECTURE.md: true in
+        staging/production, false in local dev.
         """
         return self.environment != "development"
 

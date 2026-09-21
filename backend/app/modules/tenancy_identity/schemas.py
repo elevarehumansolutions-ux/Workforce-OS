@@ -14,7 +14,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     EmailStr,
-    Field,
 )
 
 from .enums import SubscriptionStatus, AuthProvider, MembershipRole, AccountStatus
@@ -72,8 +71,11 @@ class MembershipResponse(BaseModel):
 
 
 class MembershipWithOrganizationResponse(BaseModel):
-    """A membership paired with its organization — used by GET /me to
-    render the org-switcher (a user may belong to more than one org)."""
+    """A membership paired with its organization.
+
+    Used by GET /me to render the org-switcher (a user may belong to more
+    than one org).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -85,8 +87,11 @@ class MembershipWithOrganizationResponse(BaseModel):
 
 
 class MembershipWithUserResponse(BaseModel):
-    """A membership paired with its user — used by the Team Management
-    screen (GET /memberships) to show who each membership belongs to."""
+    """A membership paired with its user.
+
+    Used by the Team Management screen (GET /memberships) to show who each
+    membership belongs to.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -110,9 +115,12 @@ class InviteResponse(BaseModel):
 
 
 class InviteTeammateResponse(BaseModel):
-    """Response for POST /memberships — tells the caller whether the
-    teammate was added immediately (already had an account) or a pending
-    invite was created and emailed (no account yet)."""
+    """Response for POST /memberships.
+
+    Tells the caller whether the teammate was added immediately (already
+    had an account) or a pending invite was created and emailed (no account
+    yet).
+    """
 
     status: Literal["added", "invited"]
     membership: MembershipWithUserResponse | None = None
@@ -142,4 +150,5 @@ class UpdateMembershipRequest(BaseModel):
     is_deactivated: bool | None = None
 
     def has_updates(self) -> bool:
+        """Return whether at least one of role or is_deactivated was set."""
         return self.role is not None or self.is_deactivated is not None

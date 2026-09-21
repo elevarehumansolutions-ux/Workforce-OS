@@ -1,7 +1,4 @@
-"""
-Schema-level RLS checks. These don't test behavior, they test that RLS is even
-turned on, by asking Postgres's own system catalogs about itself.
-"""
+"""Schema-level RLS checks. These don't test behavior, they test that RLS is even turned on, by asking Postgres's own system catalogs about itself."""
 import pytest
 from sqlalchemy import create_engine, text
 
@@ -29,6 +26,7 @@ TABLES_WITHOUT_RLS = {
 
 @pytest.fixture(scope="module")
 def db_engine():
+    """Provide a sync SQLAlchemy engine against the test database for raw catalog queries."""
     # settings.database_url uses postgresql+psycopg (psycopg3), which works
     # for both sync (create_engine, here) and async (create_async_engine,
     # conftest.py) engines under the same URL — no driver swap needed, just
@@ -39,6 +37,7 @@ def db_engine():
 
 
 def test_every_tenant_table_has_rls_enabled(db_engine):
+    """Every table in the public schema, except the documented exemptions, has rowsecurity enabled."""
     with db_engine.connect() as conn:
         rows = conn.execute(text("""
             SELECT tablename, rowsecurity
@@ -55,10 +54,13 @@ def test_every_tenant_table_has_rls_enabled(db_engine):
 
 
 def test_every_rls_table_has_at_least_one_policy(db_engine):
-    """rowsecurity=true with zero policies is a different bug than the one we
-    actually care about: it blocks ALL access on that table, not scoped access.
-    Still worth catching on its own, it means someone enabled RLS and forgot
-    the policy that makes it useful."""
+    """Every table with RLS enabled (outside the documented exemptions) has at least one policy defined.
+
+    rowsecurity=true with zero policies is a different bug than the one we
+    actually care about: it blocks ALL access on that table, not scoped
+    access. Still worth catching on its own, it means someone enabled RLS
+    and forgot the policy that makes it useful.
+    """
     with db_engine.connect() as conn:
         tables_with_policies = {
             row[0] for row in conn.execute(text("SELECT DISTINCT tablename FROM pg_policies")).fetchall()

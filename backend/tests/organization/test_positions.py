@@ -1,5 +1,4 @@
-"""HTTP-level tests for /positions CRUD and the delete-blocked-while-
-referenced rule (two independent reasons)."""
+"""HTTP-level tests for /positions CRUD and the delete-blocked-while-referenced rule (two independent reasons)."""
 import pytest
 
 DEPARTMENTS = "/api/v1/departments"
@@ -13,6 +12,7 @@ def _auth_header(access_token: str) -> dict:
 
 @pytest.mark.asyncio
 async def test_create_position_with_risk_and_criticality(client):
+    """A position's risk_level and criticality_type round-trip when set, and default to NULL when not provided."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="pos_owner1@example.com")
@@ -45,6 +45,7 @@ async def test_create_position_with_risk_and_criticality(client):
 
 @pytest.mark.asyncio
 async def test_position_self_referential_reporting_chain(client):
+    """A position can be created with reports_to_position_id pointing at another position in the same department."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="pos_owner2@example.com")
@@ -67,6 +68,7 @@ async def test_position_self_referential_reporting_chain(client):
 
 @pytest.mark.asyncio
 async def test_delete_position_blocked_by_both_reasons_at_once(client):
+    """Deleting a position is rejected with 409 and a message naming both blockers when it has an active employee and another position reporting to it."""
     from tests.conftest import register_verified_and_login
     from datetime import date
 
@@ -103,6 +105,7 @@ async def test_delete_position_blocked_by_both_reasons_at_once(client):
 
 @pytest.mark.asyncio
 async def test_delete_position_succeeds_when_unreferenced(client):
+    """A position with no active employee or reporting position can be deleted, and is then no longer retrievable."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="pos_owner4@example.com")
