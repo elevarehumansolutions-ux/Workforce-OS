@@ -1,60 +1,46 @@
 # Current Task
 
-**M4 — Org Structure** (see `09_PROGRESS.md`)
 
-M3 backend is merged to `main` (PR #5) and closed out — see `08_DECISIONS.md`
-2026-09-20. `m3-audit-notifications` deleted (local + remote). Branched
-`m4-org-structure` off the updated `main`. M3 frontend (notification
-bell/center) is Uche's track, not blocking this milestone.
+**M4 — Org Structure — backend done and merged to `main` (PR #7). A dropped
+follow-up fix has been recovered. M5 — Business DNA is ready to start.**
 
-**Backend:** `locations`, `departments`, `positions`, `employees`
-(`04_DATABASE.md` Cluster 2). CRUD endpoints, `is_critical` toggle on
-departments, `reports_to_position_id` vs `employees.manager_id`, location
-filter + index, delete-blocked-while-referenced rule for `departments`/
-`positions` (named reason — a real hard delete, unchanged from the
-2026-09-07 rule), audit-log calls on every mutation (via M3's
-`log_action()`).
+**Shipped (M4):** `locations`/`departments`/`positions`/`employees` CRUD + RLS,
 
-**Employee offboarding/reinstatement — both resolved (2026-09-20), see
-`08_DECISIONS.md`:**
-- `POST /employees/{id}/offboard` (a dedicated action, not a generic status
-  PATCH) sets `employees.status = 'inactive'` and, if the employee has a
-  `Membership`, deactivates it (`deactivated_at`) in the same transaction —
-  both logged to `audit_log`. Automatic, not a separate manual step,
-  matching how real enterprise identity/HR systems (Okta Lifecycle
-  Management, Workday leaver workflows) deprovision access on termination.
-- Does **not** block on the employee having direct reports
-  (`employees.manager_id`) — offboarding is a soft, reversible status
-  change, not a delete, so nothing actually becomes a dangling FK. Reports
-  simply keep pointing at the now-inactive manager until reassigned; no
-  forced-reassignment prompt in MVP.
-- `POST /employees/{id}/reinstate` — mirror action, reverses an offboard
-  (`status = 'active'`, un-deactivates the `Membership`), reusing the same
-  reactivation mechanism M2 already built for re-inviting a previously
-  deactivated teammate.
-- This is distinct from, and doesn't change, the delete-blocked-while-
-  referenced rule for actually *deleting* a `positions` row — that's a real
-  hard delete and stays blocked.
+delete-blocked-while-referenced (departments/positions), employee
+offboard/reinstate (cascades to the linked `Membership`, doesn't block on
+direct reports), `hr_administrator`-only mutation gating. Full writeup:
+`08_DECISIONS.md` 2026-09-20/2026-09-21 entries, `09_PROGRESS.md` M4.
 
-**Still open:**
-- **Pre-existing, re-surfacing now that M4 is underway:** `01_REQUIREMENTS.md`
-  §1 flags the Business DNA questionnaire as materially narrower in the
-  discovery notes than in the PRD's field list. Doesn't block M4, but M5 is
-  next after this and needs that confirmed before it starts, not discovered
-  mid-build.
+**Also resolved before M4 merged, unblocking M5:** the Business DNA
+questionnaire field-list gap that had been open since `01_REQUIREMENTS.md`
+was first written — see `08_DECISIONS.md` 2026-09-21. `01_REQUIREMENTS.md`
+§1 and `09_PROGRESS.md` M5 both updated with the resolved five-item field
+set.
 
-**Frontend:** Org setup screens — Departments (with Critical toggle),
-Positions/job architecture, Locations, Employee Directory + Add Employee
-(grant-login-access checkbox, Reporting Manager field, location filter),
-Offboard/Reinstate Employee actions. Not started.
-
-**Depends on:** M2, M3 (both done).
+**Process incident, now closed:** a `.gitignore`/provisioning-script fix
+committed on `m4-org-structure` after PR #7 had already merged was dropped
+from `main` when the old branches were deleted, silently regressing
+`.gitignore` and untracking `backend/scripts/db/provision_app_role.sql`.
+Recovered via a cherry-pick onto `m4-followup-gitignore-fix`, PR'd and
+merged separately. See `08_DECISIONS.md` 2026-09-21 (second entry that
+date) for the full account.
 
 ## Next recommended action
 
-1. Build M4 backend: `locations`/`departments`/`positions`/`employees`
-   models, RLS policies, CRUD endpoints, offboard/reinstate actions,
-   delete-block rule for departments/positions, audit-log wiring.
-2. Standard workflow once done: review → commit → push → PR → merge →
-   delete branch → branch `m5-business-dna`, but confirm the Business DNA
-   questionnaire gap above before that milestone actually starts.
+1. **Standard post-merge cleanup** for both the M4 PR and this follow-up
+   fix: `git checkout main && git pull origin main`, delete
+   `m4-org-structure` and `m4-followup-gitignore-fix` (local + remote),
+   confirm `m5-business-dna` is branched off the now-current `main`.
+2. **M5 — Business DNA** is ready to start with its scope settled (no
+   open gap left to discover mid-build): `business_dna`,
+   `business_dna_core_values` (`04_DATABASE.md` Cluster 3), `GET|PUT
+   /business-dna` (upsert), `POST|GET|PATCH|DELETE /business-dna/core-values`.
+   Field set: business identity/industry/products & services,
+   vision/mission/core values/business model, revenue/operational/customer
+   value drivers, performance philosophy/workforce rules, capital
+   investment amount. Does not re-ask org structure/job architecture (M4)
+   or OKRs (M6).
+3. **Frontend, not yet started, both milestones:** M3's notification
+   bell/center and M4's Org Structure screens (Departments, Positions,
+   Locations, Employee Directory, Offboard/Reinstate) are both open on
+   Uche's side — Trello cards exist and are current for both.
