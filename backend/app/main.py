@@ -26,6 +26,7 @@ from app.modules.auth.router import router as auth_router
 from app.modules.tenancy_identity.router import router as tenancy_identity_router
 from app.modules.audit_and_notification.router import router as audit_and_notification_router
 from app.modules.organization.router import router as organization_router
+from app.modules.business_dna.router import router as business_dna_router
 
 # Initialise Sentry before anything else
 # if settings.sentry_dsn:
@@ -140,6 +141,12 @@ app.add_exception_handler(Exception, handle_generic_exception)
     tags=["system"],
 )
 async def health_check():
+    """Report service health, including a live database connectivity check.
+
+    Returns HTTP 200 with ``database: "ok"`` when a ``SELECT 1`` against the
+    configured database succeeds, or HTTP 503 with ``database:
+    "unreachable"`` otherwise.
+    """
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
@@ -165,3 +172,4 @@ app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(tenancy_identity_router, prefix="/api/v1", tags=["memberships"])
 app.include_router(audit_and_notification_router, prefix="/api/v1", tags=["audit-log", "notifications"])
 app.include_router(organization_router, prefix="/api/v1", tags=["org-structure"])
+app.include_router(business_dna_router, prefix="/api/v1", tags=["business-dna"])
