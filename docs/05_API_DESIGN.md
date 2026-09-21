@@ -27,10 +27,14 @@ Built directly on `02_SYSTEM_DESIGN.md` (module ownership) and `04_DATABASE.md` 
 
 ## Org Structure
 
-- `POST|GET /locations`, `PATCH|DELETE /locations/{id}`
-- `POST|GET /departments`, `PATCH /departments/{id}` (includes `is_critical`, `revenue_allocation_percentage`)
-- `POST|GET /positions`, `PATCH /positions/{id}`
-- `POST|GET /employees` (filter: `location_id`), `GET|PATCH /employees/{id}`
+Mutations (`POST`/`PATCH`/`DELETE`, including offboard/reinstate) restricted to `hr_administrator`; `GET` (list and by-id) open to any authenticated org member. See `08_DECISIONS.md` 2026-09-21.
+
+- `POST|GET /locations`, `GET|PATCH|DELETE /locations/{id}`
+- `POST|GET /departments`, `GET|PATCH|DELETE /departments/{id}` (includes `is_critical`, `revenue_allocation_percentage`; `DELETE` blocked while active positions are still assigned, named reason, `08_DECISIONS.md` 2026-09-07)
+- `POST|GET /positions`, `GET|PATCH|DELETE /positions/{id}` (`DELETE` blocked while active employees hold it or other positions report to it, named reason)
+- `POST|GET /employees` (filter: `location_id`), `GET|PATCH /employees/{id}` — no `DELETE`, offboarding is the removal mechanism instead
+- `POST /employees/{id}/offboard` — sets the employee inactive and deactivates their `Membership` if they have login access, in one step. Not a generic status PATCH. See `08_DECISIONS.md` 2026-09-20.
+- `POST /employees/{id}/reinstate` — reverses an offboard: restores active status and re-enables login access if it was deactivated. See `08_DECISIONS.md` 2026-09-20.
 
 ## Business DNA
 

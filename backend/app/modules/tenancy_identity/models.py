@@ -15,6 +15,7 @@ from .enums import SubscriptionStatus, AuthProvider, MembershipRole, AccountStat
 if TYPE_CHECKING:
     from app.modules.auth.models import EmailVerificationToken, RefreshToken, PasswordResetToken
     from app.modules.audit_and_notification.models import AuditLog, Notification
+    from app.modules.organization.models import Location, Department, Position, Employee
 
 
 class Organization(BaseModel):
@@ -56,6 +57,18 @@ class Organization(BaseModel):
     )
     notifications: Mapped[list[Notification]] = relationship(
         "Notification", back_populates="organization"
+    )
+    locations: Mapped[list[Location]] = relationship(
+        "Location", back_populates="organization"
+    )
+    departments: Mapped[list[Department]] = relationship(
+        "Department", back_populates="organization"
+    )
+    positions: Mapped[list[Position]] = relationship(
+        "Position", back_populates="organization"
+    )
+    employees: Mapped[list[Employee]] = relationship(
+        "Employee", back_populates="organization"
     )
 
 
@@ -119,6 +132,9 @@ class User(BaseModel):
     )
     notifications: Mapped[list[Notification]] = relationship(
         "Notification", back_populates="recipient_user"
+    )
+    employees: Mapped[list[Employee]] = relationship(
+        "Employee", back_populates="user"
     )
 
 

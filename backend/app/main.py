@@ -25,6 +25,7 @@ from app.core.database import engine
 from app.modules.auth.router import router as auth_router
 from app.modules.tenancy_identity.router import router as tenancy_identity_router
 from app.modules.audit_and_notification.router import router as audit_and_notification_router
+from app.modules.organization.router import router as organization_router
 
 # Initialise Sentry before anything else
 # if settings.sentry_dsn:
@@ -163,3 +164,4 @@ async def health_check():
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(tenancy_identity_router, prefix="/api/v1", tags=["memberships"])
 app.include_router(audit_and_notification_router, prefix="/api/v1", tags=["audit-log", "notifications"])
+app.include_router(organization_router, prefix="/api/v1", tags=["org-structure"])
