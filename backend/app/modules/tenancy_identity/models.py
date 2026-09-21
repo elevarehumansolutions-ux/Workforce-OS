@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from app.modules.auth.models import EmailVerificationToken, RefreshToken, PasswordResetToken
     from app.modules.audit_and_notification.models import AuditLog, Notification
     from app.modules.organization.models import Location, Department, Position, Employee
+    from app.modules.business_dna.models import BusinessDNA
 
 
 class Organization(BaseModel):
@@ -69,6 +70,9 @@ class Organization(BaseModel):
     )
     employees: Mapped[list[Employee]] = relationship(
         "Employee", back_populates="organization"
+    )
+    business_dna: Mapped[BusinessDNA | None] = relationship(
+        "BusinessDNA", back_populates="organization", uselist=False
     )
 
 

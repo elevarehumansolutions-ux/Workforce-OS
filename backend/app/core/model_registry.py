@@ -33,6 +33,10 @@ from app.modules.organization.models import (
     Position,
     Employee,
 )
+from app.modules.business_dna.models import (
+    BusinessDNA,
+    BusinessDNACoreValue,
+)
 
 __all__ = [
     "Organization",
@@ -48,4 +52,6 @@ __all__ = [
     "Department",
     "Position",
     "Employee",
+    "BusinessDNA",
+    "BusinessDNACoreValue",
 ]
