@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { apiFetch, setAccessToken, ApiError } from "@/lib/api";
 
 interface LoginFormData {
   email: string;
@@ -8,7 +10,14 @@ interface LoginFormData {
   keepSignedIn: boolean;
 }
 
+interface LoginResponse {
+  accessToken: string;
+  // refreshToken travels as an httpOnly cookie set by the server, not
+  // returned in the body — nothing to do with it here.
+}
+
 export default function LoginPage() {
+  const router = useRouter();
   const [formData, setFormData] = useState<LoginFormData>({
     email: "",
     password: "",
@@ -16,6 +25,7 @@ export default function LoginPage() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
 
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
@@ -34,11 +44,42 @@ export default function LoginPage() {
     return Object.keys(newErrors).length === 0;
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!validate()) return;
 
-    console.log("Login submitted:", formData);
+    setSubmitting(true);
+    try {
+      const data = await apiFetch<LoginResponse>("/auth/login", {
+        method: "POST",
+        body: { email: formData.email, password: formData.password },
+        skipAuth: true,
+      });
+
+      setAccessToken(data.accessToken);
+      router.push("/dashboard");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.details.length > 0) {
+          const fieldErrors: Record<string, string> = {};
+          err.details.forEach((d) => {
+            fieldErrors[d.field] = d.message;
+          });
+          setErrors(fieldErrors);
+        } else {
+          setErrors({ form: err.message });
+        }
+      } else {
+        setErrors({
+          form:
+            err instanceof Error
+              ? err.message
+              : "Something went wrong. Please try again.",
+        });
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -81,6 +122,12 @@ export default function LoginPage() {
           </p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-6">
+            {errors.form && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                {errors.form}
+              </div>
+            )}
+
             <div>
               <label htmlFor="email" className="mb-2 block text-sm font-medium text-gray-200">
                 Email Address
@@ -152,9 +199,10 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              className="w-full rounded-lg bg-indigo-500 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
+              disabled={submitting}
+              className="w-full rounded-lg bg-indigo-500 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Sign In
+              {submitting ? "Signing in…" : "Sign In"}
             </button>
 
             <p className="text-center text-sm text-gray-400">
