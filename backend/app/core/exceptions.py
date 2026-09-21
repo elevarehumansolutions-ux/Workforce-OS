@@ -57,6 +57,23 @@ class InvalidCredentialsException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class ResourceInUseException(PlatformError):
+    """Raised when deletion is blocked because the resource is still
+    actively referenced elsewhere (01_REQUIREMENTS.md §2, 08_DECISIONS.md
+    2026-09-07: block, don't cascade — the message carries the specific,
+    named reason, not a generic 'cannot delete')."""
+
+    def __init__(
+        self,
+        message: str = "Resource is still in use",
+        code: str = "RESOURCE_IN_USE",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class TokenExpiredException(PlatformError):
     """Raised when a JWT access or refresh token has passed its expiry time."""
 
@@ -258,6 +275,65 @@ class NotificationNotFoundException(PlatformError):
         self,
         message: str = "Notification not found",
         code: str = "NOTIFICATION_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class LocationNotFoundException(PlatformError):
+    """Raised when a lookup by location id finds no matching row (also
+    covers "exists, but belongs to a different org" — RLS makes that
+    indistinguishable from not existing, same reasoning as
+    MembershipNotFoundException)."""
+
+    def __init__(
+        self,
+        message: str = "Location not found",
+        code: str = "LOCATION_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class DepartmentNotFoundException(PlatformError):
+    """Raised when a lookup by department id finds no matching row."""
+
+    def __init__(
+        self,
+        message: str = "Department not found",
+        code: str = "DEPARTMENT_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class PositionNotFoundException(PlatformError):
+    """Raised when a lookup by position id finds no matching row."""
+
+    def __init__(
+        self,
+        message: str = "Position not found",
+        code: str = "POSITION_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class EmployeeNotFoundException(PlatformError):
+    """Raised when a lookup by employee id finds no matching row."""
+
+    def __init__(
+        self,
+        message: str = "Employee not found",
+        code: str = "EMPLOYEE_NOT_FOUND",
         status_code: int = 404,
         details: list | None = None,
     ) -> None:

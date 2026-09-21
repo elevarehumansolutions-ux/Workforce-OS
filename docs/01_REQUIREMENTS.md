@@ -7,17 +7,14 @@
 Grouped by the PRD's phase structure. Items marked **(MVP)** appear explicitly in the PRD's MVP roadmap list.
 
 ### 1. Business Foundation — Business DNA Engine (MVP)
-Capture how the organization operates and creates value:
+Capture how the organization operates and creates value. Field set resolved 2026-09-21 (`08_DECISIONS.md`) — the `business_dna` questionnaire itself captures:
 - Business identity, industry, products & services
 - Vision, mission, core values, business model
-- Strategic objectives, annual goals, OKRs, business priorities
-- Organizational structure, departments, business units, reporting relationships
-- Job architecture
 - Revenue drivers, operational drivers, customer value drivers
 - Performance philosophy, workforce rules
 - **Capital investment amount** (added 2026-09-03) — e.g. ₦25,000,000. Feeds the revenue-target generation mechanism described in §4, unrelated to payroll.
 
-> ⚠ **Gap:** discovery notes describe this as a fixed questionnaire covering only "vision, mission, industry, value chain" — materially narrower than the PRD's field list above. The PRD list is used here as the spec since it's the primary source; confirm the actual questionnaire will cover all of it.
+**Not asked again here, captured by their own modules instead:** organizational structure, departments, business units, reporting relationships, and job architecture are M4 (Org Structure); strategic objectives, annual goals, and OKRs are M6 (OKR). The PRD's original Business Foundation list named all of these as part of "Business DNA" narratively, but by the time each became its own schema/milestone, re-asking them in the Business DNA step would just be a duplicate data-entry step feeding nothing new.
 
 ### 2. Organization & Workforce Structure (MVP)
 - Organization setup, business units, departments, locations

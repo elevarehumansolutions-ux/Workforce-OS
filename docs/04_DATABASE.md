@@ -121,6 +121,7 @@ CREATE TABLE employees (
     last_name TEXT NOT NULL,
     work_email TEXT NOT NULL,
     phone_number TEXT,
+    address TEXT,
     employment_type TEXT CHECK (employment_type IN ('full_time','part_time','contract','intern')),
     start_date DATE NOT NULL,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
@@ -135,6 +136,7 @@ CREATE TABLE employees (
 - **`organization_id` appears on every table here**, even though it's reachable through `department_id` or `position_id`. Deliberate duplication: RLS policies need the column directly present to check the tenant boundary without a join on every query.
 - **Two different "reporting" concepts exist, on purpose:** `positions.reports_to_position_id` is the structural org chart (which role reports to which role, independent of who holds them); `employees.manager_id` is a specific person's actual assigned manager. They'll usually agree, but the Journey Walkthrough deck designed both separately (position-level org-chart setup, plus a person-level "Reporting Manager" field on Add Employee).
 - **`employees.user_id` is nullable** because the Add Employee screen has a "grant login access" checkbox — someone can exist in the org structure before ever being invited to log in.
+- **`employees.address` added 2026-09-20** during implementation (not in the original PRD field list) — a plain optional text field for the employee's own address, distinct from `locations.address` (the office/site they work out of).
 - **`employees.status` has no `'on_leave'` value.** It was originally included on the assumption a Leave module would set it, but Leave Management moved to Phase 2 (see `08_DECISIONS.md`, 2026-09-04) with no manual fallback wanted either. Just `'active'`/`'inactive'` for MVP; revisit when Leave Management is actually built.
 - **Soft-deleting a department or position is blocked, not cascaded, while active references exist** (active employees still assigned, open/in-progress tasks, a pending AI suggestion), enforced in application code, not the database, since it needs to check across multiple tables and return a specific, named reason. Added 2026-09-07, see `01_REQUIREMENTS.md` §2 and `08_DECISIONS.md`.
 - **Not modeled yet, flagged honestly:** the PRD mentions "business units" above departments. Nothing in our conversations stress-tested whether that needs its own table or is just a grouping label. Left out for now rather than guessed; add it if it turns out to matter.

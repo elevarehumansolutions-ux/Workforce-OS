@@ -27,6 +27,12 @@ from app.modules.audit_and_notification.models import (
     AuditLog,
     Notification,
 )
+from app.modules.organization.models import (
+    Location,
+    Department,
+    Position,
+    Employee,
+)
 
 __all__ = [
     "Organization",
@@ -38,4 +44,8 @@ __all__ = [
     "PasswordResetToken",
     "AuditLog",
     "Notification",
+    "Location",
+    "Department",
+    "Position",
+    "Employee",
 ]

@@ -1,37 +1,60 @@
 # Current Task
 
-**M3 — Audit Log & Notifications** (infrastructure modules, see `09_PROGRESS.md`)
+**M4 — Org Structure** (see `09_PROGRESS.md`)
 
-Backend is done and verified (2026-09-20) on `m3-audit-notifications` — full
-design writeup in `08_DECISIONS.md` 2026-09-20. Not yet committed/pushed/PR'd
-— that's the next mechanical step, same as M2's "commit → review → PR →
-merge" flow (`08_DECISIONS.md`/`09_PROGRESS.md`).
+M3 backend is merged to `main` (PR #5) and closed out — see `08_DECISIONS.md`
+2026-09-20. `m3-audit-notifications` deleted (local + remote). Branched
+`m4-org-structure` off the updated `main`. M3 frontend (notification
+bell/center) is Uche's track, not blocking this milestone.
 
-**Backend, shipped:** `audit_log`/`notifications` tables + RLS policies
-(`04_DATABASE.md` Clusters 8–9), `log_action()`/`notify()` internal services,
-all four endpoints (`GET /audit-log`, `GET /notifications`,
-`POST /notifications/{id}/read`, `POST /notifications/read-all`). Both
-completeness gaps flagged in the 2026-09-18 review — `GET /audit-log`'s
-missing filters/pagination, and bulk mark-all-read — are closed. 16 new
-tests (`tests/audit_and_notification/`), 90 tests passing total, run
-against the real dev DB (not just reasoned about).
+**Backend:** `locations`, `departments`, `positions`, `employees`
+(`04_DATABASE.md` Cluster 2). CRUD endpoints, `is_critical` toggle on
+departments, `reports_to_position_id` vs `employees.manager_id`, location
+filter + index, delete-blocked-while-referenced rule for `departments`/
+`positions` (named reason — a real hard delete, unchanged from the
+2026-09-07 rule), audit-log calls on every mutation (via M3's
+`log_action()`).
 
-**Backend, not yet done:** nothing outstanding — see `08_DECISIONS.md`
-2026-09-20 for the full list of what shipped in this pass.
+**Employee offboarding/reinstatement — both resolved (2026-09-20), see
+`08_DECISIONS.md`:**
+- `POST /employees/{id}/offboard` (a dedicated action, not a generic status
+  PATCH) sets `employees.status = 'inactive'` and, if the employee has a
+  `Membership`, deactivates it (`deactivated_at`) in the same transaction —
+  both logged to `audit_log`. Automatic, not a separate manual step,
+  matching how real enterprise identity/HR systems (Okta Lifecycle
+  Management, Workday leaver workflows) deprovision access on termination.
+- Does **not** block on the employee having direct reports
+  (`employees.manager_id`) — offboarding is a soft, reversible status
+  change, not a delete, so nothing actually becomes a dangling FK. Reports
+  simply keep pointing at the now-inactive manager until reassigned; no
+  forced-reassignment prompt in MVP.
+- `POST /employees/{id}/reinstate` — mirror action, reverses an offboard
+  (`status = 'active'`, un-deactivates the `Membership`), reusing the same
+  reactivation mechanism M2 already built for re-inviting a previously
+  deactivated teammate.
+- This is distinct from, and doesn't change, the delete-blocked-while-
+  referenced rule for actually *deleting* a `positions` row — that's a real
+  hard delete and stays blocked.
 
-**Frontend:** Notification bell/center (role-filtered stream, category
-filter, mark-read). Not started. No audit log viewer screen needed
-(explicitly deferred, `07_SECURITY.md`).
+**Still open:**
+- **Pre-existing, re-surfacing now that M4 is underway:** `01_REQUIREMENTS.md`
+  §1 flags the Business DNA questionnaire as materially narrower in the
+  discovery notes than in the PRD's field list. Doesn't block M4, but M5 is
+  next after this and needs that confirmed before it starts, not discovered
+  mid-build.
 
-**Depends on:** M2 (`actor_user_id`/`recipient_user_id` — done).
+**Frontend:** Org setup screens — Departments (with Critical toggle),
+Positions/job architecture, Locations, Employee Directory + Add Employee
+(grant-login-access checkbox, Reporting Manager field, location filter),
+Offboard/Reinstate Employee actions. Not started.
+
+**Depends on:** M2, M3 (both done).
 
 ## Next recommended action
 
-1. Review the diff on `m3-audit-notifications`, commit, push, open a PR,
-   merge, delete the branch (local + remote) per the standard workflow.
-2. Decide: M3 frontend (notification bell), or move on to M4 (Org
-   Structure) backend — both are unblocked at this point.
-3. Before M4 starts: `09_PROGRESS.md`'s M4 entry already flags an open
-   cross-module question (does offboarding an employee also deactivate
-   their `Membership`?) that needs a decision before that milestone's
-   design is settled, not discovered mid-build.
+1. Build M4 backend: `locations`/`departments`/`positions`/`employees`
+   models, RLS policies, CRUD endpoints, offboard/reinstate actions,
+   delete-block rule for departments/positions, audit-log wiring.
+2. Standard workflow once done: review → commit → push → PR → merge →
+   delete branch → branch `m5-business-dna`, but confirm the Business DNA
+   questionnaire gap above before that milestone actually starts.
