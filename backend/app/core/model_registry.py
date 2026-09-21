@@ -37,6 +37,10 @@ from app.modules.business_dna.models import (
     BusinessDNA,
     BusinessDNACoreValue,
 )
+from app.modules.okrs.models import (
+    OKR,
+    KeyResult,
+)
 
 __all__ = [
     "Organization",
@@ -54,4 +58,6 @@ __all__ = [
     "Employee",
     "BusinessDNA",
     "BusinessDNACoreValue",
+    "OKR",
+    "KeyResult",
 ]

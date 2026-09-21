@@ -402,6 +402,39 @@ class BusinessDNACoreValueNotFoundException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class OKRNotFoundException(PlatformError):
+    """Raised when a lookup by OKR id finds no matching row.
+
+    Also covers "exists, but belongs to a different org" — RLS makes that
+    indistinguishable from not existing, same reasoning as
+    DepartmentNotFoundException.
+    """
+
+    def __init__(
+        self,
+        message: str = "OKR not found",
+        code: str = "OKR_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class KeyResultNotFoundException(PlatformError):
+    """Raised when a lookup by key result id finds no matching row."""
+
+    def __init__(
+        self,
+        message: str = "Key result not found",
+        code: str = "KEY_RESULT_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class InternalServerErrorException(PlatformError):
     """Raised when an unexpected error occurs that isn't a known domain failure."""
 
