@@ -44,8 +44,10 @@ Mutations (`POST`/`PATCH`/`DELETE`, including offboard/reinstate) restricted to 
 
 ## OKR
 
-- `POST|GET /okrs` (filter: `department_id`), `GET|PATCH /okrs/{id}`
-- `POST|GET /okrs/{id}/key-results`, `PATCH /key-results/{id}`
+`POST`/`PATCH` on `okrs` and `key_results` restricted to `hr_administrator`; `GET` open to any authenticated org member. No `DELETE` in M6 — deferred to M8, alongside `kpis.key_result_id` (the actual reference a delete-block would need to guard against, which doesn't exist as a table until then). See `08_DECISIONS.md` 2026-09-21.
+
+- `POST|GET /okrs` (filter: `department_id`, `location_id`), `GET|PATCH /okrs/{id}` — offset-paginated (`page`/`limit`, `PaginationResponse`), same shape as `GET /memberships` (`08_DECISIONS.md` 2026-09-18): a bounded, roster-sized list, not cursor-paginated.
+- `POST|GET /okrs/{id}/key-results`, `PATCH /key-results/{id}` — same role gate and pagination envelope as the parent resource.
 
 ## AI Suggestions
 

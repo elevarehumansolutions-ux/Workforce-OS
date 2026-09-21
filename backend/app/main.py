@@ -27,6 +27,7 @@ from app.modules.tenancy_identity.router import router as tenancy_identity_route
 from app.modules.audit_and_notification.router import router as audit_and_notification_router
 from app.modules.organization.router import router as organization_router
 from app.modules.business_dna.router import router as business_dna_router
+from app.modules.okrs.router import router as okrs_router
 
 # Initialise Sentry before anything else
 # if settings.sentry_dsn:
@@ -173,3 +174,4 @@ app.include_router(tenancy_identity_router, prefix="/api/v1", tags=["memberships
 app.include_router(audit_and_notification_router, prefix="/api/v1", tags=["audit-log", "notifications"])
 app.include_router(organization_router, prefix="/api/v1", tags=["org-structure"])
 app.include_router(business_dna_router, prefix="/api/v1", tags=["business-dna"])
+app.include_router(okrs_router, prefix="/api/v1", tags=["okrs"])

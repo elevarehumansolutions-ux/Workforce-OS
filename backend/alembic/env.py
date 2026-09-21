@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
+import app.core.model_registry  # noqa: F401 — populates Base.metadata for autogenerate
 from app.core.database import Base
 
 # this is the Alembic Config object, which provides

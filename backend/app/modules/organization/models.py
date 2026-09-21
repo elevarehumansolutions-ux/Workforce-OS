@@ -33,6 +33,7 @@ from app.core.database import BaseModel
 
 if TYPE_CHECKING:
     from app.modules.tenancy_identity.models import Organization, User
+    from app.modules.okrs.models import OKR
 
 
 class Location(BaseModel):
@@ -77,6 +78,9 @@ class Location(BaseModel):
     )
     employees: Mapped[list["Employee"]] = relationship(
         "Employee", back_populates="location"
+    )
+    okrs: Mapped[list["OKR"]] = relationship(
+        "OKR", back_populates="location"
     )
 
 
@@ -130,6 +134,9 @@ class Department(BaseModel):
     )
     positions: Mapped[list["Position"]] = relationship(
         "Position", back_populates="department"
+    )
+    okrs: Mapped[list["OKR"]] = relationship(
+        "OKR", back_populates="department"
     )
 
 

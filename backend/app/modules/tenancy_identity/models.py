@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.modules.audit_and_notification.models import AuditLog, Notification
     from app.modules.organization.models import Location, Department, Position, Employee
     from app.modules.business_dna.models import BusinessDNA
+    from app.modules.okrs.models import OKR
 
 
 class Organization(BaseModel):
@@ -85,6 +86,9 @@ class Organization(BaseModel):
     )
     business_dna: Mapped[BusinessDNA | None] = relationship(
         "BusinessDNA", back_populates="organization", uselist=False
+    )
+    okrs: Mapped[list[OKR]] = relationship(
+        "OKR", back_populates="organization"
     )
 
 
