@@ -1,46 +1,40 @@
 # Current Task
 
+**M5 — Business DNA — backend done and merged to `main` (PR #10). Ready to
+pick either M5 frontend or M6 backend next.**
 
-**M4 — Org Structure — backend done and merged to `main` (PR #7). A dropped
-follow-up fix has been recovered. M5 — Business DNA is ready to start.**
+**Shipped:** `business_dna`/`business_dna_core_values` models + RLS,
+repository, service (upsert with `organization_name` write-through and
+`SAVEPOINT`-based race recovery), router (`GET|PUT /business-dna`,
+`POST|GET|PATCH|DELETE /business-dna/core-values`), 11 new tests. Full
+writeup: `08_DECISIONS.md` 2026-09-21 entries (field list, access
+model/upsert logic, ruff/docstring pass, the duplicate-exception fix, the
+M5-done entry), `09_PROGRESS.md` M5.
 
-**Shipped (M4):** `locations`/`departments`/`positions`/`employees` CRUD + RLS,
+**Also merged in the same PR:** a full-backend ruff/docstring compliance
+pass (`08_DECISIONS.md` 2026-09-21, "Ruff docstring compliance pass") —
+`backend/pyproject.toml` added, every `.py` file under `backend/app/`,
+`backend/alembic/`, `backend/tests/` brought to zero ruff errors.
 
-delete-blocked-while-referenced (departments/positions), employee
-offboard/reinstate (cascades to the linked `Membership`, doesn't block on
-direct reports), `hr_administrator`-only mutation gating. Full writeup:
-`08_DECISIONS.md` 2026-09-20/2026-09-21 entries, `09_PROGRESS.md` M4.
-
-**Also resolved before M4 merged, unblocking M5:** the Business DNA
-questionnaire field-list gap that had been open since `01_REQUIREMENTS.md`
-was first written — see `08_DECISIONS.md` 2026-09-21. `01_REQUIREMENTS.md`
-§1 and `09_PROGRESS.md` M5 both updated with the resolved five-item field
-set.
-
-**Process incident, now closed:** a `.gitignore`/provisioning-script fix
-committed on `m4-org-structure` after PR #7 had already merged was dropped
-from `main` when the old branches were deleted, silently regressing
-`.gitignore` and untracking `backend/scripts/db/provision_app_role.sql`.
-Recovered via a cherry-pick onto `m4-followup-gitignore-fix`, PR'd and
-merged separately. See `08_DECISIONS.md` 2026-09-21 (second entry that
-date) for the full account.
+**Also resolved earlier this session:** the `.gitignore`/provisioning-
+script fix PR #7 had dropped is merged too (PR #9,
+`m4-followup-gitignore-fix`) — `backend/scripts/db/provision_app_role.sql`
+and the env templates are tracked again.
 
 ## Next recommended action
 
-1. **Standard post-merge cleanup** for both the M4 PR and this follow-up
-   fix: `git checkout main && git pull origin main`, delete
-   `m4-org-structure` and `m4-followup-gitignore-fix` (local + remote),
-   confirm `m5-business-dna` is branched off the now-current `main`.
-2. **M5 — Business DNA** is ready to start with its scope settled (no
-   open gap left to discover mid-build): `business_dna`,
-   `business_dna_core_values` (`04_DATABASE.md` Cluster 3), `GET|PUT
-   /business-dna` (upsert), `POST|GET|PATCH|DELETE /business-dna/core-values`.
-   Field set: business identity/industry/products & services,
-   vision/mission/core values/business model, revenue/operational/customer
-   value drivers, performance philosophy/workforce rules, capital
-   investment amount. Does not re-ask org structure/job architecture (M4)
-   or OKRs (M6).
-3. **Frontend, not yet started, both milestones:** M3's notification
-   bell/center and M4's Org Structure screens (Departments, Positions,
-   Locations, Employee Directory, Offboard/Reinstate) are both open on
+1. **Standard post-merge cleanup:** delete `m5-business-dna`,
+   `m4-followup-gitignore-fix`, `m4-org-structure` (local + remote) if not
+   already done — confirm current work branches off the now-current
+   `main`.
+2. Two independent next steps, both unblocked:
+   - **M5 frontend:** Business DNA onboarding step (five-item field set,
+     `09_PROGRESS.md` M5) — Uche's track, not started.
+   - **M6 backend:** OKR (`okrs`, `key_results`, Cluster 4) —
+     `09_PROGRESS.md` M6. Has one known completeness gap already flagged
+     (no delete-blocked-while-referenced rule for an `okr` still pointed
+     at by `kpis.key_result_id`) — worth deciding before or during that
+     build, not after.
+3. **Frontend, not yet started, multiple milestones:** M3's notification
+   bell/center and M4's Org Structure screens are both still open on
    Uche's side — Trello cards exist and are current for both.
