@@ -1,45 +1,53 @@
 # Current Task
 
-**M6 — OKR backend is done, not yet merged** (see `09_PROGRESS.md`)
+**M7 — AI Suggestions Engine** (see `09_PROGRESS.md`)
 
-M5 backend is merged to `main` (PR #10) and closed out — see `08_DECISIONS.md`
-2026-09-21. M5 frontend is Uche's track, not blocking this milestone.
+M6 (OKR) backend is merged to `main` (PR #13) and closed out — see
+`08_DECISIONS.md` 2026-09-21. M6 frontend is Uche's track, not blocking
+this milestone.
 
-**Backend, shipped this session:** `okrs`, `key_results` (`04_DATABASE.md`
-Cluster 4) — models, migration + RLS (`80d102d22686`), repository, service
-(audit-logged via `log_action()`), schemas, router (`hr_administrator`-gated
-writes, open reads, `department_id`/`location_id` filters, offset
-pagination), `OKRNotFoundException`/`KeyResultNotFoundException`, and 18
-tests (`tests/okrs/test_okrs_router.py`). 144 tests passing total.
+**Backend:** `ai_suggestions`, `ai_usage_log` (`04_DATABASE.md` Cluster 4).
+Shared internal LLM-calling utility (Claude, per `06_AI_DESIGN.md`),
+event-triggered Celery task fired from Org Structure/OKR services. Redis
+debounce (`NX EX 60`). Idempotent generation (partial unique index +
+`ON CONFLICT DO NOTHING`). ID-hallucination validation against real rows.
+`GET /ai-suggestions`, `POST /ai-suggestions/{id}/approve|reject`.
 
-**Decisions settled 2026-09-21 (`08_DECISIONS.md`) — the 2026-09-18
-delete-block gap is closed, not open:**
-- `POST`/`PATCH` on `okrs`/`key_results` restricted to `hr_administrator`
-  only (Business Executive and Manager both excluded).
-- No `DELETE` endpoint in M6 at all, not even an unguarded soft-delete —
-  deferred to M8 in full, alongside `kpis.key_result_id` (the actual
-  reference a delete-block needs, which doesn't exist as a table until
-  then). Known, accepted limitation for the M6→M8 window: a wrongly-
-  created OKR/key result can only be corrected via `PATCH` until M8 ships.
-- `GET /okrs` and `GET /okrs/{id}/key-results` are offset-paginated
-  (`page`/`limit`, `PaginationResponse`), not cursor — same reasoning as
-  `GET /memberships`.
-- `GET /okrs` filters on both `department_id` and `location_id`.
+**Also in scope: the scheduled half of the "recurring, not one-time"
+requirement.** Event-triggered re-runs (a department marked critical, a new
+OKR saved) aren't the only trigger — the Quarterly Objective Review
+(`01_REQUIREMENTS.md` §4/workflow #4) is a separate, scheduled trigger: a
+Celery Beat job that reads each org's `organizations.fiscal_year_start_month`
+(already shipped in M2), scans for orgs whose fiscal quarter just ended, and
+re-runs suggestion generation additively.
 
-**Real infrastructure bug found and fixed along the way:** `alembic/env.py`
-never imported the model registry, so a bare `alembic revision
---autogenerate` silently produced a migration that dropped nearly every
-table in the schema instead of creating `okrs`/`key_results`. Fixed at the
-source (`env.py` now imports `app.core.model_registry`) — see
-`08_DECISIONS.md` 2026-09-21. Every milestone from M7 on would otherwise
-have hit the same bug on its first migration.
+**Still open — needs a decision before/during the build:**
+- **Completeness gap found in review (2026-09-18):** nothing stops the
+  exact same suggestion from being regenerated after HR explicitly rejects
+  it. The idempotency fix (`08_DECISIONS.md` 2026-09-07) only prevents a
+  *duplicate pending* row while one already exists — it says nothing about
+  a *rejected* one. Given suggestions regenerate on every OKR/org-structure
+  change and again every quarter (the Quarterly Objective Review above), a
+  rejected suggestion could resurface repeatedly, indefinitely, training HR
+  to ignore the whole review queue. Decide: skip generating a suggestion
+  that matches an already-rejected one for the same target (permanently, or
+  for some cooldown period), or leave it as-is and accept the
+  repeat-nagging risk.
 
-**Depends on:** M4 (`department_id`) — done.
+**Depends on:** M2 (`organizations.fiscal_year_start_month`) — done. M4
+(Org Structure) — done. M6 (suggestions read department/position/OKR
+context — `06_AI_DESIGN.md`'s `missing_department` row specifically reads
+existing OKRs as prompt context, a read dependency, not a foreign key) —
+done.
 
 ## Next recommended action
 
-1. Review the branch's full diff one more time, then: commit → push → open
-   PR → merge → standard post-merge cleanup (delete `m6-okr` local +
-   remote) → branch `m7-ai-suggestions` off the updated `main`.
-2. M6 frontend (OKR setup screens) is Uche's track, independent of M7
-   backend starting.
+1. Decide the rejected-suggestion regeneration question above before
+   writing the generation code — it shapes the idempotency-index design.
+2. Build M7 backend: `ai_suggestions`/`ai_usage_log` models, RLS, the
+   shared LLM-calling utility with usage/cost logging (`08_DECISIONS.md`
+   2026-09-07), the event-triggered Celery task, the Quarterly Objective
+   Review Celery Beat job, and the two endpoints.
+3. Standard workflow once done: review → commit → push → PR → merge →
+   delete branch → branch `m8-kpis` (or whatever's next per
+   `09_PROGRESS.md`).
