@@ -1,4 +1,10 @@
-"""ORM models for Cluster 3: Business DNA."""
+"""ORM models for Cluster 3: Business DNA.
+
+Contains:
+- :class:`BusinessDNA`: an organization's single Business DNA profile.
+- :class:`BusinessDNACoreValue`: one core value statement belonging to a
+  Business DNA profile.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +22,15 @@ if TYPE_CHECKING:
 
 
 class BusinessDNA(BaseModel):
+    """An organization's Business DNA profile.
+
+    One row per organization (enforced via a unique constraint on
+    ``organization_id``), capturing the narrative fields — industry,
+    vision, mission, business model, and drivers of revenue, operations,
+    and customer value — that describe how the business operates. Related
+    to a list of :class:`BusinessDNACoreValue` rows.
+    """
+
     __tablename__ = "business_dna"
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -89,6 +104,12 @@ class BusinessDNA(BaseModel):
 
 
 class BusinessDNACoreValue(BaseModel):
+    """A single core value statement belonging to a Business DNA profile.
+
+    Each row holds one core value and links back to both its parent
+    :class:`BusinessDNA` profile and the owning organization.
+    """
+
     __tablename__ = "business_dna_core_values"
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
