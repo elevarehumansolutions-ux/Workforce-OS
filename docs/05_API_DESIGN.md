@@ -38,8 +38,9 @@ Mutations (`POST`/`PATCH`/`DELETE`, including offboard/reinstate) restricted to 
 
 ## Business DNA
 
-- `GET|PUT /business-dna` — one row per org, PUT upserts it.
-- `POST|GET /business-dna/core-values`, `PATCH|DELETE /business-dna/core-values/{id}`
+- `GET|PUT /business-dna` — one row per org, PUT upserts it. `PUT` is `hr_administrator`-only; `GET` is open to any authenticated org member. `PUT`'s request body also carries `organization_name`, which the service writes to `organizations.name` in the same transaction as the `business_dna` upsert (one audit-log entry) — see `08_DECISIONS.md` 2026-09-21. `GET`'s response resolves the org's name via the `organization_id` relationship, not a duplicated column.
+- **Field-level restriction:** `capital_investment_amount` is included in `GET /business-dna`'s response only for `hr_administrator`/`business_executive` callers, omitted for everyone else. Every other field on the row is visible to any authenticated org member. See `08_DECISIONS.md` 2026-09-21 for why this is field-level, not a table-level role gate.
+- `POST|GET /business-dna/core-values`, `PATCH|DELETE /business-dna/core-values/{id}` — mutations `hr_administrator`-only, reads open to any authenticated org member, same shape as the parent resource.
 
 ## OKR
 
