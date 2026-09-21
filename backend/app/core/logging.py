@@ -1,3 +1,11 @@
+"""Structured logging configuration built on structlog.
+
+Wires structlog's processor pipeline into stdlib logging so both
+structlog-native calls and third-party stdlib loggers (uvicorn, sqlalchemy)
+render through the same formatter — colorized console output in
+development, structured JSON elsewhere.
+"""
+
 import logging
 import sys
 from collections.abc import Sequence

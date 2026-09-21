@@ -1,3 +1,12 @@
+"""SQLAlchemy models for the organization structure module.
+
+Defines locations, departments, positions, and employees. All models are
+organization-scoped via an ``organization_id`` foreign key and
+rely on Postgres row-level security (RLS) to restrict visibility to the
+caller's current organization. Deletion is soft (a nullable ``deleted_at``
+timestamp) rather than a hard row delete.
+"""
+
 from __future__ import annotations
 
 import decimal
@@ -27,6 +36,12 @@ if TYPE_CHECKING:
 
 
 class Location(BaseModel):
+    """A physical or logical site an organization operates from.
+
+    Organization-scoped (RLS restricts rows to the caller's current org) and
+    soft-deletable. Employees may optionally be assigned to a location.
+    """
+
     __tablename__ = "locations"
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -66,6 +81,13 @@ class Location(BaseModel):
 
 
 class Department(BaseModel):
+    """An organizational department, optionally flagged as revenue-critical.
+
+    Organization-scoped (RLS restricts rows to the caller's current org) and
+    soft-deletable. Holds one or more positions; deletion is blocked while
+    active positions still reference it (enforced in the service layer).
+    """
+
     __tablename__ = "departments"
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -112,6 +134,17 @@ class Department(BaseModel):
 
 
 class Position(BaseModel):
+    """A role within a department, forming a self-referential org-chart tree.
+
+    Organization-scoped (RLS restricts rows to the caller's current org) and
+    soft-deletable. ``reports_to_position_id`` links a position to its parent
+    in the reporting hierarchy (nullable at the top of the chart). Deletion
+    is blocked while active employees or direct reports still reference it
+    (enforced in the service layer). ``risk_level`` and ``criticality_type``
+    are constrained at the database level to the values of the ``RiskLevel``
+    and ``CriticalityType`` enums.
+    """
+
     __tablename__ = "positions"
 
     __table_args__ = (
@@ -200,6 +233,18 @@ class Position(BaseModel):
 
 
 class Employee(BaseModel):
+    """A person holding a position within an organization.
+
+    Organization-scoped (RLS restricts rows to the caller's current org) and
+    soft-deletable. ``user_id`` is nullable since an employee record can
+    exist before the person is invited to log in. ``manager_id`` is a
+    self-referential foreign key capturing this person's actual manager,
+    which may differ from the structural ``reports_to`` chain on their
+    position. ``employment_type`` and ``status`` are constrained at the
+    database level to the values of the ``EmploymentType`` and
+    ``EmployeeStatus`` enums.
+    """
+
     __tablename__ = "employees"
 
     __table_args__ = (

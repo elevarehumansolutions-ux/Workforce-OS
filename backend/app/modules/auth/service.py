@@ -1,4 +1,4 @@
-"""Auth Service"""
+"""Business logic for registration, login, session, and password flows."""
 import logging
 import uuid
 
@@ -57,7 +57,10 @@ logger = logging.getLogger(__name__)
 
 
 class AuthService:
+    """Coordinates registration, authentication, and session/token lifecycle."""
+
     def __init__(self, db: AsyncSession):
+        """Initialize the service and its collaborating services/repository."""
         self._db = db
         self._user_service = UserService(db)
         self._org_service = OrganizationService(db)
@@ -110,8 +113,7 @@ class AuthService:
         return MembershipResponse.model_validate(mem)
     
     async def create_verification_token(self, user_id: uuid.UUID) -> str:
-        """
-        Generate hash and store a new verification email  token for the user.
+        """Generate hash and store a new verification email  token for the user.
 
         Invalidates any existing unused tokens before creating the new one.
 
@@ -150,10 +152,7 @@ class AuthService:
         return token_record
     
     async def register(self, data: RegisterRequest, response: Response) -> AuthResponse:
-        """
-        Register a new account and return tokens.
-        """
-
+        """Register a new account and return tokens."""
         # Check if email exists in the database
         user = await self._user_service.get_user_by_email(data.email)
         if user:
@@ -244,8 +243,7 @@ class AuthService:
         )
     
     async def verify_email(self, token: str) -> MessageResponse:
-        """
-        Verify a user's email using the raw token from the verification link.
+        """Verify a user's email using the raw token from the verification link.
 
         Args:
             token: The raw (unhashed) token from the verification link.
@@ -292,8 +290,7 @@ class AuthService:
             raise InternalServerErrorException(f"Verification error: {e}")
 
     async def resend_verification_email(self, email: str) -> MessageResponse:
-        """
-        Send a new verification email, replacing any still-unused one.
+        """Send a new verification email, replacing any still-unused one.
 
         Always returns the same generic message regardless of whether the
         email exists or is already verified — same anti-enumeration
@@ -311,9 +308,7 @@ class AuthService:
         )
 
     async def login(self, data: LoginRequest, response: Response) -> AuthResponse:
-        """
-        Authenticate by email/password and return tokens for one of the
-        user's organizations.
+        """Authenticate by email/password and return tokens for one of the user's orgs.
 
         Which org: the earliest-joined membership is the login-time default
         (08_DECISIONS.md 2026-09-15) — the frontend org-switcher (M2) is how
@@ -421,8 +416,7 @@ class AuthService:
         )
 
     async def refresh(self, raw_refresh_token: str | None, response: Response) -> TokenResponse:
-        """
-        Issue a new access token from a valid, non-revoked refresh token.
+        """Issue a new access token from a valid, non-revoked refresh token.
 
         Rotates the refresh token (old one revoked, new one issued) and
         re-validates that the membership it was issued for still exists —
@@ -521,8 +515,7 @@ class AuthService:
         return MessageResponse(message="Password changed successfully")
 
     async def forgot_password(self, email: str) -> MessageResponse:
-        """
-        Request a password reset link.
+        """Request a password reset link.
 
         Always returns the same generic message regardless of whether the
         email exists — this prevents the endpoint being used to discover
@@ -572,9 +565,11 @@ class AuthService:
         return MessageResponse(message="Password reset successfully")
 
     async def get_me(self, user: User) -> MeResponse:
-        """Return the caller's identity plus every org they belong to —
-        same bootstrap exception as login (no org chosen yet, identify by
-        user id instead), reused here for the org-switcher's benefit."""
+        """Return the caller's identity plus every org they belong to.
+
+        Same bootstrap exception as login (no org chosen yet, identify by
+        user id instead), reused here for the org-switcher's benefit.
+        """
         # Same explicit reset as login(), same reasoning — see its comment.
         await self._db.execute(text("SELECT set_config('app.current_org_id', '', true)"))
         await self._db.execute(
@@ -591,9 +586,9 @@ class AuthService:
         )
 
     async def accept_invite(self, data: AcceptInviteRequest, response: Response) -> AuthResponse:
-        """
-        Complete a teammate invite for an email with no prior account —
-        creates the User and the invited Membership together, then logs
+        """Complete a teammate invite for an email with no prior account.
+
+        Creates the User and the invited Membership together, then logs
         them straight in (same shape as register()).
         """
         hashed = hash_token(data.token)

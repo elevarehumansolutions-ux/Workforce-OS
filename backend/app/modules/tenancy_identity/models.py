@@ -1,4 +1,9 @@
-"""ORM models for Cluster 1: Tenancy & Identity (organizations, users, memberships)."""
+"""ORM models for Cluster 1: Tenancy & Identity.
+
+Defines organizations, users, memberships, and pending invites — the
+foundational tenancy and identity records every other module scopes its own
+rows against via ``organization_id`` and Postgres row-level security (RLS).
+"""
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
@@ -16,9 +21,17 @@ if TYPE_CHECKING:
     from app.modules.auth.models import EmailVerificationToken, RefreshToken, PasswordResetToken
     from app.modules.audit_and_notification.models import AuditLog, Notification
     from app.modules.organization.models import Location, Department, Position, Employee
+    from app.modules.business_dna.models import BusinessDNA
 
 
 class Organization(BaseModel):
+    """A tenant of the platform.
+
+    The root of RLS scoping: every other tenant-owned row (memberships,
+    org-structure, business DNA, audit logs, notifications, ...) carries an
+    ``organization_id`` foreign key back to this table.
+    """
+
     __tablename__ = "organizations"
     __table_args__ = (
         CheckConstraint(
@@ -70,9 +83,20 @@ class Organization(BaseModel):
     employees: Mapped[list[Employee]] = relationship(
         "Employee", back_populates="organization"
     )
+    business_dna: Mapped[BusinessDNA | None] = relationship(
+        "BusinessDNA", back_populates="organization", uselist=False
+    )
 
 
 class User(BaseModel):
+    """A person who can log in to the platform, independent of any org.
+
+    A single user may hold memberships (and therefore roles) in more than
+    one organization. ``account_status`` is the single source of truth for
+    account state, so there's exactly one place to check or update it rather
+    than several booleans that could drift out of sync.
+    """
+
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint(
@@ -139,6 +163,18 @@ class User(BaseModel):
 
 
 class Membership(BaseModel):
+    """A user's link to one organization, carrying their role in it.
+
+    Unique on (``organization_id``, ``user_id``). ``deactivated_at`` is
+    scoped to this one membership, not the person globally (08_DECISIONS.md
+    2026-09-18) — deactivating someone from one org must not lock them out
+    of another org they also belong to. It is deliberately not the
+    ``deleted_at`` soft-delete convention: a deactivated membership is still
+    a real, current row (still listed in Team Management, still shown in the
+    org-switcher as "deactivated"), not a row standing in for something that
+    used to exist.
+    """
+
     __tablename__ = "memberships"
     __table_args__ = (
         UniqueConstraint(
@@ -193,13 +229,14 @@ class Membership(BaseModel):
 
 
 class Invite(BaseModel):
-    """A pending invite to join an organization — for an email address that
-    doesn't have a User account yet. No RLS: looked up by its own random
-    token before any org/user context exists, same reasoning as
-    EmailVerificationToken/PasswordResetToken/RefreshToken (auth/models.py).
-    When the invited email already has an account, no Invite row is ever
-    created — the Membership is added directly instead (see
-    tenancy_identity/service.py InviteService.invite_teammate).
+    """A pending invite to join an organization.
+
+    For an email address that doesn't have a User account yet. No RLS:
+    looked up by its own random token before any org/user context exists,
+    same reasoning as EmailVerificationToken/PasswordResetToken/RefreshToken
+    (auth/models.py). When the invited email already has an account, no
+    Invite row is ever created — the Membership is added directly instead
+    (see tenancy_identity/service.py InviteService.invite_teammate).
     """
 
     __tablename__ = "invites"

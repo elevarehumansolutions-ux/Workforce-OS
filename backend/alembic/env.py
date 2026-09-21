@@ -1,3 +1,11 @@
+"""Alembic migration environment for the Elevare Workforce OS backend.
+
+Configures Alembic to run migrations asynchronously against
+``MIGRATION_DATABASE_URL`` (the schema-owning superuser, not the app's
+restricted RLS role) and wires ``Base.metadata`` in for autogenerate
+support.
+"""
+
 import asyncio
 import os
 import sys
@@ -8,11 +16,9 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-import app.core.model_registry
 
 from alembic import context
 
@@ -76,12 +82,18 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 def do_run_migrations(connection):
+    """Configure the Alembic context on a live sync connection and run migrations.
+
+    Passed to ``AsyncConnection.run_sync`` since Alembic's ``context.configure``
+    and ``context.run_migrations`` are synchronous APIs.
+    """
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
         context.run_migrations()
 
 
 async def run_async_migrations() -> None:
+    """Create an async engine and run migrations against it, then dispose it."""
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -93,6 +105,7 @@ async def run_async_migrations() -> None:
 
 
 def run_migrations_online() -> None:
+    """Entry point for 'online' mode: run the async migration path to completion."""
     asyncio.run(run_async_migrations())
 
 

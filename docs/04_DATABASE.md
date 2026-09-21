@@ -183,6 +183,8 @@ CREATE TABLE business_dna_core_values (
 - **One `business_dna` row per organization**, editable in place, not versioned. Historical comparison (e.g. "what was our capital investment last year") is a future refinement, not something asked for yet.
 - **`business_dna_core_values` has `updated_at`, matching the top-level Conventions rule.** Editing a value updates its row in place, same as everywhere else in this schema, rather than modeling an edit as delete-and-reinsert.
 - **"Job architecture" isn't a separate field here** — it's already the `positions` table from Cluster 2.
+- **No `name`/`organization_name` column here, on purpose.** The org's name lives on `organizations.name` (nullable post-registration, see `08_DECISIONS.md` 2026-09-13). `PUT /business-dna` writes it through in the same transaction as this table's upsert rather than duplicating it here — see `08_DECISIONS.md` 2026-09-21.
+- **`capital_investment_amount` is restricted at the API/serialization layer, not RLS.** RLS enforces the tenant boundary (which org's row), not column-level visibility within a row a caller is already allowed to see — so this column is included in the `GET /business-dna` response only for `hr_administrator`/`business_executive` callers, handled by the response schema/service, same row for everyone otherwise. See `08_DECISIONS.md` 2026-09-21.
 
 ## Cluster 4: Strategy — OKRs and AI Suggestions
 

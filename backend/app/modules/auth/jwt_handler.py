@@ -132,6 +132,8 @@ def create_token_pair(user_id: str, org_id: str, role: str) -> dict:
 
     Args:
         user_id: The user's UUID as a string — becomes the ``sub`` claim.
+        org_id: The organization's UUID as a string — embedded in both
+            tokens as the ``org_id`` claim.
         role: The user's role string — embedded in both tokens.
 
     Returns:

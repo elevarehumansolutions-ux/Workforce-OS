@@ -10,14 +10,12 @@ from collections.abc import AsyncGenerator
 import logging
 import uuid
 
-import redis.asyncio as aioredis
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.exceptions import (
     AccountBannedException,
@@ -88,10 +86,12 @@ async def get_current_membership(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ) -> Membership:
-    """Establish org context for this request and return the live membership
-    the caller is acting under  re-checked against the DB, not just trusted
-    from theh JWT's `role` claim
+    """Establish org context for this request and return the live membership.
 
+    Sets the ``app.current_org_id`` session variable (consumed by RLS
+    policies) from the token's ``org_id`` claim, then re-checks the
+    membership against the DB rather than trusting the JWT's ``role`` claim
+    alone.
     """
     payload = decode_access_token(token)
 

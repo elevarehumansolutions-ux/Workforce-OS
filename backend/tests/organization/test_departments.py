@@ -1,5 +1,4 @@
-"""HTTP-level tests for /departments CRUD and the delete-blocked-while-
-referenced rule."""
+"""HTTP-level tests for /departments CRUD and the delete-blocked-while-referenced rule."""
 import pytest
 
 DEPARTMENTS = "/api/v1/departments"
@@ -39,6 +38,7 @@ async def _invite_and_accept(client, monkeypatch, owner, email: str, role: str) 
 
 @pytest.mark.asyncio
 async def test_create_department_requires_hr_admin_role(client, monkeypatch):
+    """A manager-role member is rejected with 403 when creating a department."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="dept_owner1@example.com")
@@ -52,8 +52,11 @@ async def test_create_department_requires_hr_admin_role(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_create_department_with_revenue_allocation(client):
-    """Exercises the Decimal field end to end (also the jsonable_encoder
-    fix on the audit-log side, indirectly)."""
+    """A department's revenue_allocation_percentage round-trips as a Decimal string, and defaults to NULL when unset.
+
+    Exercises the Decimal field end to end (also the jsonable_encoder fix
+    on the audit-log side, indirectly).
+    """
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="dept_owner2@example.com")
@@ -79,6 +82,7 @@ async def test_create_department_with_revenue_allocation(client):
 
 @pytest.mark.asyncio
 async def test_update_and_get_department(client):
+    """PATCH updates a department's fields, and GET returns the updated state."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="dept_owner3@example.com")
@@ -100,6 +104,7 @@ async def test_update_and_get_department(client):
 
 @pytest.mark.asyncio
 async def test_delete_department_blocked_while_position_active(client):
+    """Deleting a department with an active position under it is rejected with 409."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="dept_owner4@example.com")
@@ -116,6 +121,7 @@ async def test_delete_department_blocked_while_position_active(client):
 
 @pytest.mark.asyncio
 async def test_delete_department_succeeds_once_positions_removed(client):
+    """A department can be soft-deleted once its positions are removed first."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="dept_owner5@example.com")

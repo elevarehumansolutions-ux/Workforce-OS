@@ -1,3 +1,11 @@
+"""ORM models for the audit and notification module.
+
+Contains:
+- :class:`AuditLog`: an immutable record of an action taken within an
+  organization.
+- :class:`Notification`: an in-app notification delivered to a user.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -22,6 +30,12 @@ if TYPE_CHECKING:
     from app.modules.tenancy_identity.models import User, Organization
 
 class AuditLog(BaseModel):
+    """An immutable log entry recording an action taken on an entity.
+
+    Indexed on ``(organization_id, entity_type, entity_id)`` to support
+    looking up the audit trail for a specific entity within an organization.
+    """
+
     __tablename__ = "audit_log"
 
     __table_args__ = (
@@ -75,6 +89,15 @@ class AuditLog(BaseModel):
 
 
 class Notification(BaseModel):
+    """An in-app notification delivered to a specific user.
+
+    Constrained so ``category`` must be one of the values defined by
+    :class:`~app.modules.audit_and_notification.enums.NotificationCategory`,
+    and indexed on ``(organization_id, recipient_user_id, read_at,
+    created_at)`` to support listing a recipient's unread/recent
+    notifications efficiently.
+    """
+
     __tablename__ = "notifications"
 
     __table_args__ = (

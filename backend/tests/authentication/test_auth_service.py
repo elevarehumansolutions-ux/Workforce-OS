@@ -11,20 +11,15 @@ from app.core.exceptions import (
     InvalidCredentialsException,
     RevokedTokenException
 )
-from app.modules.auth.schemas import RegisterRequest
 from app.modules.auth.service import AuthService
 
 def mock_response() -> Response:
-    """
-    Return a mock FastAPI Response object for service tests.
-    """
+    """Return a mock FastAPI Response object for service tests."""
     return MagicMock(spec=Response)
 
 @pytest.mark.asyncio
 async def test_register_returns_auth_response(db_session):
-    """
-    Successful registration returns an AuthResponse response
-    """
+    """Successful registration returns an AuthResponse."""
     from tests.conftest import make_register_data
 
     service = AuthService(db_session)
@@ -101,6 +96,7 @@ async def test_verify_email_rejects_reused_token(db_session):
 
 @pytest.mark.asyncio
 async def test_resend_verification_sends_new_token_and_invalidates_old_one(db_session, monkeypatch):
+    """Resending verification issues a new token that works and invalidates the old one (now "already used")."""
     from tests.conftest import make_register_data
     from app.core.exceptions import TokenAlreadyUsedException
     import app.modules.auth.service as auth_service_module
@@ -134,8 +130,11 @@ async def test_resend_verification_sends_new_token_and_invalidates_old_one(db_se
 
 @pytest.mark.asyncio
 async def test_resend_verification_silent_for_already_verified_account(db_session, monkeypatch):
-    """No new email for an already-verified account — nothing to resend, and
-    the anti-enumeration response stays identical either way."""
+    """No new email for an already-verified account.
+
+    Nothing to resend, and the anti-enumeration response stays identical
+    either way.
+    """
     from tests.conftest import make_register_data
     import app.modules.auth.service as auth_service_module
 
@@ -153,6 +152,7 @@ async def test_resend_verification_silent_for_already_verified_account(db_sessio
 
 @pytest.mark.asyncio
 async def test_resend_verification_silent_for_unknown_email(db_session, monkeypatch):
+    """Resending verification for an unknown email still returns the generic success message, sending nothing."""
     import app.modules.auth.service as auth_service_module
 
     service = AuthService(db_session)
@@ -194,6 +194,7 @@ async def test_login_returns_tokens_for_registered_org(db_session):
 
 @pytest.mark.asyncio
 async def test_login_rejects_wrong_password(db_session):
+    """Logging in with a correct email but wrong password raises InvalidCredentialsException."""
     from tests.conftest import make_register_data
     from app.modules.auth.schemas import LoginRequest
 
@@ -209,6 +210,7 @@ async def test_login_rejects_wrong_password(db_session):
 
 @pytest.mark.asyncio
 async def test_login_rejects_unknown_email(db_session):
+    """Logging in with an email that has no account raises InvalidCredentialsException."""
     from app.modules.auth.schemas import LoginRequest
 
     service = AuthService(db_session)
@@ -221,6 +223,7 @@ async def test_login_rejects_unknown_email(db_session):
 
 @pytest.mark.asyncio
 async def test_refresh_issues_new_access_token(db_session):
+    """Refresh returns a new access token and rotates the refresh token, revoking the one just used."""
     from tests.conftest import make_register_data
     from app.modules.auth.schemas import LoginRequest
 
@@ -229,7 +232,7 @@ async def test_refresh_issues_new_access_token(db_session):
     await service.verify_email(reg.verification_token)
 
     login_response = mock_response()
-    login_result = await service.login(
+    await service.login(
         LoginRequest(email="refresh_test@example.com", password="Password123#"),
         login_response,
     )
@@ -250,6 +253,7 @@ async def test_refresh_issues_new_access_token(db_session):
 
 @pytest.mark.asyncio
 async def test_logout_revokes_refresh_token(db_session):
+    """Logging out revokes the refresh token, so a subsequent refresh with it raises RevokedTokenException."""
     from tests.conftest import make_register_data
     from app.modules.auth.schemas import LoginRequest
 
@@ -273,6 +277,7 @@ async def test_logout_revokes_refresh_token(db_session):
 
 @pytest.mark.asyncio
 async def test_change_password_updates_hash_and_revokes_other_sessions(db_session):
+    """Changing password revokes the existing refresh session and makes only the new password work for login."""
     from tests.conftest import make_register_data
     from app.modules.auth.schemas import LoginRequest, ChangePasswordRequest
 
@@ -313,6 +318,7 @@ async def test_change_password_updates_hash_and_revokes_other_sessions(db_sessio
 
 @pytest.mark.asyncio
 async def test_change_password_rejects_wrong_current_password(db_session):
+    """Changing password with an incorrect current password raises InvalidCredentialsException."""
     from tests.conftest import make_register_data
     from app.modules.auth.schemas import ChangePasswordRequest
 
@@ -329,6 +335,7 @@ async def test_change_password_rejects_wrong_current_password(db_session):
 
 @pytest.mark.asyncio
 async def test_forgot_and_reset_password_flow(db_session, monkeypatch):
+    """The forgot-password -> reset-password flow replaces the password, invalidating the old one for login."""
     from tests.conftest import make_register_data
     from app.modules.auth.schemas import LoginRequest
     import app.modules.auth.service as auth_service_module
@@ -361,6 +368,7 @@ async def test_forgot_and_reset_password_flow(db_session, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_forgot_password_silent_for_unknown_email(db_session, monkeypatch):
+    """Forgot-password for an unknown email still returns the generic success message, sending nothing."""
     import app.modules.auth.service as auth_service_module
 
     service = AuthService(db_session)

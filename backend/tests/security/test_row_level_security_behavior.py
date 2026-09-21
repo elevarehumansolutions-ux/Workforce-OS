@@ -1,6 +1,4 @@
-"""
-Behavioral RLS check: proves a session scoped to one organization actually
-cannot see another organization's rows, not just that a policy exists.
+"""Behavioral RLS check: proves a session scoped to one organization actually cannot see another organization's rows, not just that a policy exists.
 
 Exercises organizations/memberships specifically, since those are the two
 tables with real policies today (see docs/RLS_POLICIES_EXPLAINED.md). This
@@ -17,8 +15,7 @@ from app.core.config import settings
 
 @pytest.fixture(scope="function")
 def db_connection():
-    """Fresh connection + transaction per test, rolled back at the end so no
-    test leaves data behind for the next one."""
+    """Fresh connection + transaction per test, rolled back at the end so no test leaves data behind for the next one."""
     engine = create_engine(settings.database_url)
     conn = engine.connect()
     trans = conn.begin()
@@ -30,8 +27,7 @@ def db_connection():
 
 @pytest.fixture
 def two_organizations_with_members(db_connection):
-    """Seeds two real tenants, each with one user and one membership, so
-    there's something real to prove isolation between on both tables."""
+    """Seeds two real tenants, each with one user and one membership, so there's something real to prove isolation between on both tables."""
     org_a_id, org_b_id = str(uuid.uuid4()), str(uuid.uuid4())
     user_a_id, user_b_id = str(uuid.uuid4()), str(uuid.uuid4())
 
@@ -67,6 +63,7 @@ def two_organizations_with_members(db_connection):
 
 
 def test_org_a_cannot_see_org_b(db_connection, two_organizations_with_members):
+    """With app.current_org_id set to Org A, queries against organizations and memberships return no Org B rows."""
     # SET LOCAL doesn't accept bind parameters (Postgres requires a literal
     # there) — set_config() is a real function call and does, which is
     # exactly why the app itself uses set_config(), never SET LOCAL directly
@@ -91,10 +88,14 @@ def test_org_a_cannot_see_org_b(db_connection, two_organizations_with_members):
 def test_no_org_context_sees_only_your_own_membership_by_user_id(
     db_connection, two_organizations_with_members
 ):
-    """The memberships policy's second bootstrap branch (RLS_POLICIES_EXPLAINED.md
-    §5): with no org context at all — login's exact situation, before it
-    knows which org to act as — a session identified only by
-    app.current_user_id sees its own membership rows, and no one else's."""
+    """With no org context, a session identified only by app.current_user_id sees only its own membership rows.
+
+    The memberships policy's second bootstrap branch
+    (RLS_POLICIES_EXPLAINED.md §5): with no org context at all — login's
+    exact situation, before it knows which org to act as — a session
+    identified only by app.current_user_id sees its own membership rows,
+    and no one else's.
+    """
     db_connection.execute(
         text("SELECT set_config('app.current_user_id', :user_id, true)"),
         {"user_id": two_organizations_with_members["user_a_id"]},

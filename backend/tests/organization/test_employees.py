@@ -1,5 +1,4 @@
-"""HTTP-level tests for /employees CRUD (offboard/reinstate covered
-separately in test_employee_offboard_reinstate.py)."""
+"""HTTP-level tests for /employees CRUD (offboard/reinstate covered separately in test_employee_offboard_reinstate.py)."""
 from datetime import date
 
 import pytest
@@ -49,6 +48,7 @@ async def _setup_position(client, h) -> str:
 
 @pytest.mark.asyncio
 async def test_create_employee_requires_hr_admin_role(client, monkeypatch):
+    """A manager-role member is rejected with 403 when creating an employee."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="emp_owner1@example.com")
@@ -72,6 +72,7 @@ async def test_create_employee_requires_hr_admin_role(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_create_employee_defaults_status_active_and_location_nullable(client):
+    """A newly created employee defaults to status "active" with null location_id and user_id when not provided."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="emp_owner2@example.com")
@@ -98,6 +99,7 @@ async def test_create_employee_defaults_status_active_and_location_nullable(clie
 
 @pytest.mark.asyncio
 async def test_list_employees_filters_by_location(client):
+    """GET /employees?location_id=... returns only employees at that location."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="emp_owner3@example.com")
@@ -140,8 +142,11 @@ async def test_list_employees_filters_by_location(client):
 
 @pytest.mark.asyncio
 async def test_update_employee_cannot_change_status(client):
-    """PATCH /employees/{id} silently drops `status` (not a declared field
-    on EmployeeUpdateRequest) — only offboard/reinstate can change it."""
+    """PATCH /employees/{id} updates allowed fields but silently ignores an included status change.
+
+    `status` is not a declared field on EmployeeUpdateRequest — only
+    offboard/reinstate can change it.
+    """
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="emp_owner4@example.com")

@@ -1,4 +1,4 @@
-"""created User, Membership, Organization tables
+"""Create the User, Membership, and Organization tables.
 
 Revision ID: 41f904294609
 Revises:
@@ -19,7 +19,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
+    """Create organizations, users, and memberships tables with tenant-isolation RLS.
+
+    Creates the three founding tables, enables row level security on
+    ``organizations`` and ``memberships`` (``users`` is deliberately
+    excluded — it has no ``organization_id``), and adds a
+    ``tenant_isolation`` policy on each that scopes visibility to
+    ``app.current_org_id`` while still allowing the bootstrap insert during
+    registration, when no org context has been set yet.
+    """
     op.create_table('organizations',
     sa.Column('name', sa.String(length=255), nullable=False),
     sa.Column('subscription_status', sa.String(length=50), server_default='trial', nullable=False),
@@ -107,7 +115,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """Drop the tenant-isolation policies and the organizations/users/memberships tables."""
     op.execute("DROP POLICY IF EXISTS tenant_isolation ON memberships")
     op.execute("DROP POLICY IF EXISTS tenant_isolation ON organizations")
     op.drop_table('memberships')

@@ -14,19 +14,26 @@ from .enums import CriticalityType, EmployeeStatus, EmploymentType, RiskLevel
 # ---------------------------------------------------------------------------
 
 class LocationCreateRequest(BaseModel):
+    """Request body for creating a location."""
+
     name: str
     address: str | None = None
 
 
 class LocationUpdateRequest(BaseModel):
+    """Request body for partially updating a location. All fields optional."""
+
     name: str | None = None
     address: str | None = None
 
     def has_updates(self) -> bool:
+        """Return whether any field was explicitly set on this request."""
         return self.model_dump(exclude_unset=True) != {}
 
 
 class LocationResponse(BaseModel):
+    """API representation of a location, returned by location endpoints."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -43,21 +50,28 @@ class LocationResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class DepartmentCreateRequest(BaseModel):
+    """Request body for creating a department."""
+
     name: str
     is_critical: bool = False
     revenue_allocation_percentage: decimal.Decimal | None = None
 
 
 class DepartmentUpdateRequest(BaseModel):
+    """Request body for partially updating a department. All fields optional."""
+
     name: str | None = None
     is_critical: bool | None = None
     revenue_allocation_percentage: decimal.Decimal | None = None
 
     def has_updates(self) -> bool:
+        """Return whether any field was explicitly set on this request."""
         return self.model_dump(exclude_unset=True) != {}
 
 
 class DepartmentResponse(BaseModel):
+    """API representation of a department, returned by department endpoints."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -75,6 +89,8 @@ class DepartmentResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class PositionCreateRequest(BaseModel):
+    """Request body for creating a position."""
+
     department_id: uuid.UUID
     title: str
     is_critical: bool = False
@@ -84,6 +100,8 @@ class PositionCreateRequest(BaseModel):
 
 
 class PositionUpdateRequest(BaseModel):
+    """Request body for partially updating a position. All fields optional."""
+
     department_id: uuid.UUID | None = None
     title: str | None = None
     is_critical: bool | None = None
@@ -92,10 +110,13 @@ class PositionUpdateRequest(BaseModel):
     criticality_type: CriticalityType | None = None
 
     def has_updates(self) -> bool:
+        """Return whether any field was explicitly set on this request."""
         return self.model_dump(exclude_unset=True) != {}
 
 
 class PositionResponse(BaseModel):
+    """API representation of a position, returned by position endpoints."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -116,6 +137,8 @@ class PositionResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class EmployeeCreateRequest(BaseModel):
+    """Request body for creating an employee."""
+
     position_id: uuid.UUID
     first_name: str
     last_name: str
@@ -131,9 +154,12 @@ class EmployeeCreateRequest(BaseModel):
 
 
 class EmployeeUpdateRequest(BaseModel):
-    """Deliberately excludes `status` — offboarding/reinstating is a
+    """Request body for partially updating an employee. All fields optional.
+
+    Deliberately excludes `status` — offboarding/reinstating is a
     dedicated action (POST /employees/{id}/offboard|reinstate), not a
-    generic field on this PATCH, per 08_DECISIONS.md 2026-09-20."""
+    generic field on this PATCH, per 08_DECISIONS.md 2026-09-20.
+    """
 
     position_id: uuid.UUID | None = None
     first_name: str | None = None
@@ -148,10 +174,13 @@ class EmployeeUpdateRequest(BaseModel):
     employment_type: EmploymentType | None = None
 
     def has_updates(self) -> bool:
+        """Return whether any field was explicitly set on this request."""
         return self.model_dump(exclude_unset=True) != {}
 
 
 class EmployeeResponse(BaseModel):
+    """API representation of an employee, returned by employee endpoints."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

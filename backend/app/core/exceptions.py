@@ -9,7 +9,7 @@ global exception handler to build a consistent ``ErrorResponse``.
 class PlatformError(Exception):
     """Base class for all application-level exceptions.
 
-    Attributes
+    Attributes:
     ----------
         message: Human-readable description of the error.
         code: Upper-snake-case machine-readable identifier (e.g. ``NOT_FOUND``).
@@ -58,10 +58,12 @@ class InvalidCredentialsException(PlatformError):
 
 
 class ResourceInUseException(PlatformError):
-    """Raised when deletion is blocked because the resource is still
-    actively referenced elsewhere (01_REQUIREMENTS.md §2, 08_DECISIONS.md
-    2026-09-07: block, don't cascade — the message carries the specific,
-    named reason, not a generic 'cannot delete')."""
+    """Raised when deletion is blocked because the resource is still in use.
+
+    Still actively referenced elsewhere (01_REQUIREMENTS.md §2,
+    08_DECISIONS.md 2026-09-07: block, don't cascade — the message carries
+    the specific, named reason, not a generic 'cannot delete').
+    """
 
     def __init__(
         self,
@@ -231,10 +233,13 @@ class AccountDeactivatedException(PlatformError):
 
 
 class NoActiveMembershipException(PlatformError):
-    """Raised at login when a user's account is fine, but every organization
-    they belong to has deactivated their specific membership (08_DECISIONS.md
+    """Raised at login when every membership the user has is deactivated.
+
+    The user's account itself is fine, but every organization they belong
+    to has deactivated their specific membership (08_DECISIONS.md
     2026-09-18: deactivation is per-membership, not a global account lock —
-    this is the legitimate, expected outcome of that, not a server error)."""
+    this is the legitimate, expected outcome of that, not a server error).
+    """
 
     def __init__(
         self,
@@ -266,10 +271,12 @@ class UserNotFoundException(PlatformError):
 
 
 class NotificationNotFoundException(PlatformError):
-    """Raised when a lookup by notification id finds no matching row for
-    that recipient (this also covers "exists, but belongs to a different
-    user" — same reasoning as MembershipNotFoundException: a caller
-    shouldn't be able to tell "not yours" apart from "doesn't exist")."""
+    """Raised when a lookup by notification id finds no matching row.
+
+    This also covers "exists, but belongs to a different user" — same
+    reasoning as MembershipNotFoundException: a caller shouldn't be able to
+    tell "not yours" apart from "doesn't exist".
+    """
 
     def __init__(
         self,
@@ -283,10 +290,12 @@ class NotificationNotFoundException(PlatformError):
 
 
 class LocationNotFoundException(PlatformError):
-    """Raised when a lookup by location id finds no matching row (also
-    covers "exists, but belongs to a different org" — RLS makes that
+    """Raised when a lookup by location id finds no matching row.
+
+    Also covers "exists, but belongs to a different org" — RLS makes that
     indistinguishable from not existing, same reasoning as
-    MembershipNotFoundException)."""
+    MembershipNotFoundException.
+    """
 
     def __init__(
         self,
@@ -342,15 +351,50 @@ class EmployeeNotFoundException(PlatformError):
 
 
 class MembershipNotFoundException(PlatformError):
-    """Raised when a lookup by membership id finds no matching row (this
-    also covers "exists, but belongs to a different org" — RLS makes that
-    case indistinguishable from not existing at all, which is correct: a
-    caller shouldn't be able to tell the two apart)."""
+    """Raised when a lookup by membership id finds no matching row.
+
+    This also covers "exists, but belongs to a different org" — RLS makes
+    that case indistinguishable from not existing at all, which is correct:
+    a caller shouldn't be able to tell the two apart.
+    """
 
     def __init__(
         self,
         message: str = "Membership not found",
         code: str = "MEMBERSHIP_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class BusinessDNANotFoundException(PlatformError):
+    """Raised when the org hasn't created a Business DNA profile yet.
+
+    Also covers "exists, but belongs to a different org" — RLS makes that
+    indistinguishable from not existing, same reasoning as
+    LocationNotFoundException.
+    """
+
+    def __init__(
+        self,
+        message: str = "Business DNA not found",
+        code: str = "BUSINESS_DNA_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class BusinessDNACoreValueNotFoundException(PlatformError):
+    """Raised when a lookup by core value id finds no matching row."""
+
+    def __init__(
+        self,
+        message: str = "Business DNA core value not found",
+        code: str = "BUSINESS_DNA_CORE_VALUE_NOT_FOUND",
         status_code: int = 404,
         details: list | None = None,
     ) -> None:
