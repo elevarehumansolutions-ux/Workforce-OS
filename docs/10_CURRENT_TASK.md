@@ -1,9 +1,11 @@
 # Current Task
 
+
 **M4 — Org Structure — backend done and merged to `main` (PR #7). A dropped
 follow-up fix has been recovered. M5 — Business DNA is ready to start.**
 
 **Shipped (M4):** `locations`/`departments`/`positions`/`employees` CRUD + RLS,
+
 delete-blocked-while-referenced (departments/positions), employee
 offboard/reinstate (cascades to the linked `Membership`, doesn't block on
 direct reports), `hr_administrator`-only mutation gating. Full writeup:
