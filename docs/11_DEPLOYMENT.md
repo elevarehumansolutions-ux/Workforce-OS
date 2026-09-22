@@ -203,3 +203,168 @@ the rest stays for later, not because it's forgotten:
 - No investor-facing polish pass — this is an internal working
   environment, not the demo environment M15 describes.
 - No staging/production split — one box, one environment.
+
+## First deployment log (2026-09-21 to 2026-09-22): what actually happened
+
+The steps above are the clean version. This section is the real,
+chronological record of the first live run — every issue actually hit, the
+exact error where one appeared, and how it was resolved — kept for future
+troubleshooting, not as a retelling. If a future deploy (a rebuild, a second
+environment) hits something that looks similar, check here first.
+
+1. **VPS ordered.** InterServer Cloud VPS, 1 slice, New Jersey (lowest
+   latency to Nigeria of InterServer's US locations — transatlantic cables
+   from West Africa land on the US East Coast), Ubuntu 24.04 64-bit (not
+   the Desktop image — that bundles a full GUI and recommends 2GB RAM just
+   for the OS, wasted overhead on a headless Docker box already tight on a
+   1GB slice).
+
+2. **First SSH login failed — wrong root password.** A custom password had
+   been intended during the order flow but didn't actually get set;
+   InterServer doesn't re-display the root password anywhere in the
+   dashboard after creation, and it wasn't in email either. Resolved via
+   the VPS panel's **Reinstall OS** action (server had nothing on it yet,
+   so a clean reinstall was the fastest fix) — re-selected Ubuntu 24.04
+   64-bit, set the password carefully this time.
+
+3. **Second SSH attempt warned `REMOTE HOST IDENTIFICATION HAS CHANGED`,
+   refused to connect.** Expected: reinstalling the OS generates a brand
+   new SSH host key, different from the one `known_hosts` recorded from
+   attempt #2. Confirmed this was the known reinstall, not a real MITM,
+   and cleared the stale entry:
+   ```
+   ssh-keygen -f '~/.ssh/known_hosts' -R '163.245.215.24'
+   ```
+   Reconnected cleanly after that.
+
+4. **`docs/11_DEPLOYMENT.md` itself had a bug in the hardening step** —
+   told the reader to run `systemctl restart sshd`. The systemd unit on
+   Debian/Ubuntu is named `ssh`, not `sshd` (no such unit exists); the
+   command would have failed. Caught and fixed before it was actually run.
+
+5. **First-time bootstrap blocked — `docker-compose.prod.yml` didn't exist
+   on the server.** The `infra/early-deploy` branch containing it had been
+   built locally but never pushed/merged yet. Pushed, PR'd, merged, then
+   `git pull` on the server picked it up.
+
+6. **CI failed: `ruff: command not found`.** `ruff` is deliberately absent
+   from `backend/requirements.txt` (a separate, already-logged decision —
+   deferred to M14), and `.github/workflows/ci-cd.yml`'s lint step
+   wrongly assumed it would already be on the runner. Fixed by installing
+   a pinned `ruff==0.15.13` as its own CI-only step, not by adding it to
+   `requirements.txt` (which would have quietly reopened that deferred
+   decision instead of just fixing CI).
+
+7. **The `deploy` job failed with `Error: missing server host`.**
+   Expected at that point in the sequence — the `VPS_HOST`/`VPS_USER`/
+   `VPS_SSH_KEY` GitHub secrets hadn't been added yet (that came later, at
+   step 13). Not a bug, just reached before its prerequisite.
+
+8. **`elevare_app` role provisioned and verified** — output read at first
+   as "RLS is on for `elevare`, off for `elevare_app`, which is the
+   superuser." Backwards on both counts: `elevare` (`rolsuper=t`,
+   `rolbypassrls=t`) is the superuser, RLS bypassed for it, by design —
+   it's migration-only, never live traffic. `elevare_app` (`rolsuper=f`,
+   `rolbypassrls=f`) is the ordinary restricted role RLS actually applies
+   to, and is what `DATABASE_URL` points at. Worth being exact about this
+   one specifically — mixing the two up is the same class of mistake that
+   caused a real incident earlier in this project (`08_DECISIONS.md`
+   2026-09-17).
+
+9. **All three app containers (`api`, `celery_worker`, `celery_beat`)
+   crash-looped on first full boot.** Root cause:
+   `backend/.env` had `ENVIRONMENT=production` (this runbook's own
+   original, wrong guidance). `app/core/config.py`'s
+   `validate_production_secrets` refuses to boot under `environment=
+   production` unless `EMAIL_STUB_MODE=false` and `CORS_ALLOWED_ORIGINS`
+   has no `localhost` entries — neither was true yet. The actual crash:
+   ```
+   pydantic_core._pydantic_core.ValidationError: 1 validation error for Settings
+     Value error, Production security checks failed:
+     - EMAIL_STUB_MODE must be false in production
+     - CORS_ORIGINS contains localhost — remove before production deploy
+   ```
+   A second, quieter bug was sitting right behind this one: `ENVIRONMENT`
+   also drives the refresh-token cookie's `Secure` flag — had the crash
+   not happened, `production` would have set `Secure` on a cookie served
+   over plain HTTP (no domain/TLS yet at this point in the sequence),
+   which browsers silently refuse to store, breaking login with no
+   visible error. Fixed by setting `ENVIRONMENT=development` for this
+   interim IP-only phase — accurate, and gives correct cookie behavior for
+   the transport actually in use at the time.
+
+10. **`/health` confirmed working over plain HTTP** —
+    `{"status":"ok","database":"ok",...}`. First real end-to-end proof the
+    stack was up.
+
+11. **Domain bought** — `workforceos.online`, Namecheap, under $2
+    first-year promo (renewal will be higher, a known tradeoff of
+    promo-priced TLDs, accepted deliberately).
+
+12. **DNS moved to Cloudflare** via "Connect a domain" (not "Transfer" —
+    transfer moves registration/billing too, blocked by ICANN for the
+    first 60 days of a new registration anyway, and unnecessary just to
+    manage DNS) — nameservers changed at Namecheap, confirmed active by
+    Cloudflare within a few hours.
+
+13. **Adding the VPS's A record surfaced pre-existing conflicting DNS
+    records** — Cloudflare's initial scan had imported Namecheap's default
+    parking-page setup: an `A` record for the bare domain pointing at
+    Namecheap's parking IP (**Proxied**), a `www` CNAME to the same
+    parking page (**Proxied**), and MX/TXT records for Namecheap's free
+    email forwarding. Two `A` records for the same name would have made
+    resolution unpredictable, and the old Proxied one would have
+    intercepted Caddy's certificate request even if DNS picked the right
+    one. Fixed: deleted the old parking-page `A` record, kept only the new
+    one (VPS IP, **DNS only**, not proxied — proxying would break Caddy's
+    ACME HTTP-01 challenge the same way). Left the MX/TXT records alone
+    (unrelated, harmless). Left the `www` CNAME as optional cleanup (not
+    blocking — nothing serves `www`, `Caddyfile` only handles the bare
+    domain).
+
+14. **`Caddyfile` updated** from `:80` to `workforceos.online`, pushed,
+    merged, Caddy container recreated. **Certificate issuance succeeded on
+    the first attempt** — confirmed via `docker compose logs caddy`:
+    `"msg":"certificate obtained successfully","identifier":
+    "workforceos.online"`. No manual certbot step, no cron job — this is
+    genuininely automatic with Caddy, unlike the nginx+certbot setup used
+    previously for the recruitment site.
+
+15. **`APP_URL` guidance in this runbook was wrong.** Told the reader to
+    set it to the backend's own domain (`https://workforceos.online`).
+    Actually used exclusively to build links *emailed to users*
+    (`{APP_URL}/verify-email?token=...`, `/reset-password?...`,
+    `/accept-invite?...`) — frontend routes, not backend ones; the backend
+    has no page at `/verify-email` at all, only an API endpoint at a
+    different path. Caught by inspection of `app/core/email.py` before it
+    caused a real broken-link incident (harmless in the moment only
+    because `EMAIL_STUB_MODE=true` means no real email was going out yet).
+    Fixed: left as an obvious placeholder until the frontend is actually
+    deployed, with an explicit note not to forget updating it before
+    `EMAIL_STUB_MODE` is ever flipped to `false`.
+
+16. **`ENVIRONMENT` switched from `development` to `staging`** once HTTPS
+    was confirmed live — correct now that the transport genuinely
+    supports `Secure` cookies. Still not `production`: that requires real
+    `EMAIL_STUB_MODE`/CORS values first, unrelated to whether TLS exists.
+
+17. **GitHub Actions deploy secrets added** (`VPS_HOST`, `VPS_USER`,
+    `VPS_SSH_KEY`) — a dedicated keypair generated specifically for this,
+    deliberately separate from the read-only deploy key added back at
+    step 5 (that one only lets GitHub *read* the repo; this one lets
+    GitHub Actions *SSH into* the server — opposite directions, must never
+    be the same key).
+
+18. **`develop` branch added** as a CI safety gate (feature branch → PR →
+    `develop` → PR → `main`) — not a second deployment. Explicitly decided
+    against a real staging *environment*: the current VPS is already using
+    roughly 850MB of its ~1GB slice for one stack; a second full stack
+    would need a second VPS or more slices, an added cost not justified
+    yet for a 3–6 person internal tool. `develop` gets the same automated
+    test+lint gate `main` does, just no deploy target of its own.
+
+19. **Open/unresolved at the time of writing:** the site was reported as
+    "still trying to load" once, not yet diagnosed. If this recurs, first
+    checks: `docker compose -f docker-compose.prod.yml ps` (all containers
+    should say `Up`, not `Restarting`), then `docker compose -f
+    docker-compose.prod.yml logs api --tail 50` for the real error.
