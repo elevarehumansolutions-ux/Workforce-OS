@@ -204,6 +204,42 @@ the rest stays for later, not because it's forgotten:
   environment, not the demo environment M15 describes.
 - No staging/production split — one box, one environment.
 
+## Known gaps and follow-ups (2026-09-22, tracked for later, not forgotten)
+
+Explicitly agreed as acceptable for what this environment actually is — "not
+full-grade deployment, just something one could use for now" — but worth
+tracking so they're picked up deliberately later, not rediscovered from
+scratch. Not urgent, no action needed today.
+
+- **No uptime/crash alerting.** If a container dies, nobody finds out until
+  someone happens to check manually. Cheapest real fix: a free tier of
+  something like UptimeRobot pinging `https://workforceos.online/health`
+  every few minutes, emailing on failure — no code change needed, a few
+  minutes of setup whenever it's worth doing.
+- **No rate limiting on `/auth/login` or `/auth/refresh`.** Already-known,
+  already-scheduled scope (`09_PROGRESS.md` M14, "Security Hardening") —
+  not something this deployment skipped by accident. Worth naming here
+  specifically because it stopped being a theoretical future gap the
+  moment this became a real, internet-reachable login endpoint. Low
+  practical risk while the audience is a handful of people who were
+  personally invited; that stops being true if this environment's
+  audience ever grows past "people we know."
+- **Follow-ups once the frontend is actually deployed to Vercel** (all
+  three are `backend/.env` changes, not code changes):
+  1. `CORS_ALLOWED_ORIGINS` — add the real Vercel URL (currently just
+     `["http://localhost:3000"]` for local frontend-dev testing).
+  2. `APP_URL` — change from the placeholder to the real Vercel URL (used
+     to build the links in verification/reset/invite emails — see
+     `app/core/email.py`).
+  3. Only after both of those are real: `EMAIL_STUB_MODE` can move to
+     `false` once a real email provider (Resend, per `00_PROJECT_CONTEXT.md`)
+     is actually wired up — not before, or real emails would go out with
+     broken links.
+- **Domain renewal price.** `workforceos.online` was bought at a
+  promotional first-year price (~$2). Renewal the following year will be
+  meaningfully higher (typically $12–20+ for this kind of TLD) — not a
+  problem, just worth not being a surprise a year from now.
+
 ## First deployment log (2026-09-21 to 2026-09-22): what actually happened
 
 The steps above are the clean version. This section is the real,
