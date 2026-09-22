@@ -1,0 +1,122 @@
+name: CI/CD
+
+# CI (test + lint) runs on every PR and every push to main. Deploy runs only
+# after CI passes on a push to main — a PR alone never deploys, and a
+# failing test/lint run blocks deployment outright (deploy `needs: test`).
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: elevare
+          POSTGRES_PASSWORD: ci_only_throwaway
+          POSTGRES_DB: elevare_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U elevare -d elevare_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # elevare_app (RLS-restricted) vs. elevare (schema-owning superuser,
+      # Alembic-only) — the same two-role split as every other environment
+      # (07_SECURITY.md). Running the RLS test suite against a superuser
+      # would make it pass for the wrong reason (bypassing RLS entirely,
+      # the exact bug 08_DECISIONS.md 2026-09-17 documents) — CI has to
+      # provision the real restricted role, not take a shortcut.
+      DATABASE_URL: postgresql+psycopg://elevare_app:ci_only_throwaway_app@localhost:5432/elevare_db
+      MIGRATION_DATABASE_URL: postgresql+psycopg://elevare:ci_only_throwaway@localhost:5432/elevare_db
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET_KEY: ci-only-not-a-real-secret
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "15"
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: "30"
+      ALGORITHM: HS256
+      ENVIRONMENT: test
+      APP_URL: http://localhost:8000
+      APP_VERSION: ci
+      DEBUG: "true"
+      CORS_ALLOWED_ORIGINS: '["http://localhost:5173"]'
+      ANTHROPIC_API_KEY: unused-in-ci
+      ANTHROPIC_MODEL: claude-3-5-sonnet-20241022
+      EMAIL_STUB_MODE: "true"
+      EMAIL_VERIFICATION_TOKEN_EXPIRY: "24"
+      PAYSTACK_SECRET_KEY: unused-in-ci
+      PAYSTACK_PUBLIC_KEY: unused-in-ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Install postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Provision the elevare_app role
+        # Mirrors backend/scripts/db/provision_app_role.sql exactly — see
+        # docs/07_SECURITY.md's "Provisioning a new environment" checklist.
+        # A fresh CI Postgres service has no roles beyond the superuser, so
+        # this has to run before Alembic or the app can connect as anything
+        # but that superuser.
+        run: |
+          PGPASSWORD=ci_only_throwaway psql -h localhost -U elevare -d elevare_db \
+            -v app_password="ci_only_throwaway_app" \
+            -f scripts/db/provision_app_role.sql
+
+      - name: Run migrations
+        run: alembic upgrade head
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Run tests
+        run: pytest -q
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/elevare
+            git pull origin main
+            docker compose -f docker-compose.prod.yml up -d --build
+            docker compose -f docker-compose.prod.yml exec -T api alembic upgrade head

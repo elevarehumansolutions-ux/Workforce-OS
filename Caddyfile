@@ -1,0 +1,17 @@
+# Reverse proxy in front of the api container — the app is never bound to
+# a public port directly (docker-compose.prod.yml has no `ports:` on api).
+#
+# IP-only mode (current): Caddy serves plain HTTP on :80, no TLS. Traffic
+# — including login passwords and tokens — is unencrypted between browser
+# and server. Acceptable short-term for a small internal demo audience,
+# not for anything beyond that. See docs/11_DEPLOYMENT.md.
+#
+# To add a domain later: replace the ":80" line below with the domain
+# (e.g. "demo.elevare.example"), remove the explicit :80, and restart
+# Caddy (`docker compose -f docker-compose.prod.yml restart caddy`).
+# Caddy then automatically requests and renews a free Let's Encrypt
+# certificate for it — no other config change needed, nothing to rebuild.
+
+:80 {
+	reverse_proxy api:8000
+}
