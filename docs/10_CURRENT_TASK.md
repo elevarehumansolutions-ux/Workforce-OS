@@ -21,18 +21,14 @@ Celery Beat job that reads each org's `organizations.fiscal_year_start_month`
 (already shipped in M2), scans for orgs whose fiscal quarter just ended, and
 re-runs suggestion generation additively.
 
-**Still open — needs a decision before/during the build:**
-- **Completeness gap found in review (2026-09-18):** nothing stops the
-  exact same suggestion from being regenerated after HR explicitly rejects
-  it. The idempotency fix (`08_DECISIONS.md` 2026-09-07) only prevents a
-  *duplicate pending* row while one already exists — it says nothing about
-  a *rejected* one. Given suggestions regenerate on every OKR/org-structure
-  change and again every quarter (the Quarterly Objective Review above), a
-  rejected suggestion could resurface repeatedly, indefinitely, training HR
-  to ignore the whole review queue. Decide: skip generating a suggestion
-  that matches an already-rejected one for the same target (permanently, or
-  for some cooldown period), or leave it as-is and accept the
-  repeat-nagging risk.
+**Resolved (2026-09-22):** the rejected-suggestion regeneration question
+flagged in the 2026-09-18 review is settled — see `08_DECISIONS.md`
+2026-09-22. A rejected suggestion (same target, same `suggestion_type`) is
+suppressed from regenerating until the next Quarterly Objective Review for
+that org, not permanently and not on a fixed-duration cooldown. This needs
+to be designed into the idempotency logic (alongside the existing
+pending-duplicate index, `08_DECISIONS.md` 2026-09-07) from the start, not
+added after the generation code is written.
 
 **Depends on:** M2 (`organizations.fiscal_year_start_month`) — done. M4
 (Org Structure) — done. M6 (suggestions read department/position/OKR
@@ -42,12 +38,13 @@ done.
 
 ## Next recommended action
 
-1. Decide the rejected-suggestion regeneration question above before
-   writing the generation code — it shapes the idempotency-index design.
-2. Build M7 backend: `ai_suggestions`/`ai_usage_log` models, RLS, the
+1. Build M7 backend: `ai_suggestions`/`ai_usage_log` models, RLS, the
    shared LLM-calling utility with usage/cost logging (`08_DECISIONS.md`
    2026-09-07), the event-triggered Celery task, the Quarterly Objective
-   Review Celery Beat job, and the two endpoints.
-3. Standard workflow once done: review → commit → push → PR → merge →
+   Review Celery Beat job, and the two endpoints — idempotency design
+   incorporates both the pending-duplicate index (2026-09-07) and the
+   rejected-suggestion quarterly-cooldown suppression (2026-09-22) from
+   the start.
+2. Standard workflow once done: review → commit → push → PR → merge →
    delete branch → branch `m8-kpis` (or whatever's next per
    `09_PROGRESS.md`).
