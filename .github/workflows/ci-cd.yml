@@ -1,13 +1,15 @@
 name: CI/CD
 
-# CI (test + lint) runs on every PR and every push to main. Deploy runs only
-# after CI passes on a push to main — a PR alone never deploys, and a
-# failing test/lint run blocks deployment outright (deploy `needs: test`).
+# CI (test + lint) runs on every PR/push targeting main OR develop — develop
+# is a safety-gate integration branch (feature branches -> develop -> main),
+# no separate deployment of its own. Deploy runs only after CI passes on a
+# push to main specifically (the `deploy` job's own `if` check) — a push to
+# develop, or a PR alone, never deploys.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   push:
-    branches: [main]
+    branches: [main, develop]
 
 defaults:
   run:
