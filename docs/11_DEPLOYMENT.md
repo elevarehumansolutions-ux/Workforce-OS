@@ -116,9 +116,9 @@ POSTGRES_DB=elevare_db
 - `MIGRATION_DATABASE_URL` — same shape, but `elevare` (the superuser) with the password from `.env.postgres` above
 - `REDIS_URL` — `redis://redis:6379/0`
 - `JWT_SECRET_KEY` — generate a real secret (`openssl rand -hex 32`), never the placeholder
-- `ENVIRONMENT` — `production` (this is what flips the refresh-token cookie's `Secure` flag — see `03_ARCHITECTURE.md`; leave it `production` even though this is a demo box, since it's genuinely reachable over the internet)
-- `CORS_ALLOWED_ORIGINS` — the frontend's real Vercel URL, as a JSON list, never a wildcard
-- `APP_URL` — `http://<server-ip>` (or the domain, once one exists)
+- `ENVIRONMENT` — **`development`, not `production`, until HTTPS is actually live.** Two independent things hinge on this one value, and getting it wrong breaks the deploy in two different ways: (1) `app/core/config.py`'s `validate_production_secrets` refuses to boot at all when `environment=production` unless `EMAIL_STUB_MODE=false` and `CORS_ALLOWED_ORIGINS` has no `localhost` entries — neither is true yet, this exact mistake crash-looped every container on first deploy; (2) it also controls the refresh-token cookie's `Secure` flag (`environment != "development"`) — `Secure` cookies are silently rejected by browsers over a non-HTTPS connection, so setting anything other than `development` while still IP-only/HTTP would have quietly broken login sessions even without the crash. Switch to `staging` once the domain's HTTPS is confirmed working (see "Domain" section below) — `production` itself still needs real `EMAIL_STUB_MODE`/CORS values first, not just HTTPS.
+- `CORS_ALLOWED_ORIGINS` — the frontend's real Vercel URL once it's deployed; the placeholder `["http://localhost:5173"]` is fine for now, same reasoning as `ENVIRONMENT` above.
+- `APP_URL` — `http://<server-ip>` for now, `https://workforceos.online` once HTTPS is confirmed.
 - Everything else (`ANTHROPIC_API_KEY`, `PAYSTACK_*`, `EMAIL_STUB_MODE=true`) — placeholder values are fine until those features actually ship; nothing in M6 exercises them.
 
 ## First-time bootstrap
@@ -165,18 +165,33 @@ Repo → Settings → Secrets and variables → Actions, add:
 From here, every push to `main` (after `docker-compose.yml`/CI passes)
 auto-deploys — see `.github/workflows/ci-cd.yml`.
 
-## Adding a domain later (optional, recommended)
+## Domain: workforceos.online
 
-IP-only mode means login traffic is unencrypted (see `Caddyfile`'s own
-comment). To add a domain:
-1. Buy a cheap domain, point an A record at the server's IP.
-2. Edit `Caddyfile`: replace `:80` with the domain name.
-3. `git push` (or just edit directly on the server and
-   `docker compose -f docker-compose.prod.yml restart caddy`) — Caddy
-   automatically requests and renews a free Let's Encrypt certificate, no
-   other change needed.
-4. Update `CORS_ALLOWED_ORIGINS`/`APP_URL` in `backend/.env` if the
-   frontend's origin or this API's own public URL changes.
+DNS is on Cloudflare (free plan, nameservers pointed there from Namecheap
+registration), **DNS only** — not proxied (grey cloud) — an `A` record for
+the bare domain pointing at the VPS's IP. Kept unproxied deliberately:
+Cloudflare's proxy would intercept Caddy's ACME HTTP-01 challenge before it
+reaches the server, breaking automatic certificate issuance unless Caddy
+were reconfigured for DNS-01 (Cloudflare API token) instead — unnecessary
+complexity for a 3–6 person internal tool.
+
+`Caddyfile` already targets `workforceos.online` — Caddy requests and
+renews a free Let's Encrypt certificate for it automatically on startup,
+no other config needed on the Caddy side.
+
+**Once HTTPS is confirmed working** (`https://workforceos.online/health`
+returns a valid response with no certificate warning), two follow-ups in
+`backend/.env`:
+1. `APP_URL` — change from the IP to `https://workforceos.online`.
+2. `ENVIRONMENT` — change from `development` back to `staging` (not
+   `production` yet — that still requires `EMAIL_STUB_MODE=false` and a
+   real `CORS_ALLOWED_ORIGINS`, neither of which is true yet). `staging`
+   gives correctly `Secure`-flagged cookies now that the connection is
+   genuinely HTTPS, without tripping the strict production checks in
+   `app/core/config.py`'s `validate_production_secrets`. Recreate the
+   affected containers afterward — a plain `restart` doesn't reread
+   `.env` (`docker compose -f docker-compose.prod.yml up -d
+   --force-recreate api celery_worker celery_beat`).
 
 ## What this environment deliberately does not include
 
