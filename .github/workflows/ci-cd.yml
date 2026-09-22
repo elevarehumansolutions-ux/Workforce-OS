@@ -77,6 +77,14 @@ jobs:
       - name: Install dependencies
         run: pip install --no-cache-dir -r requirements.txt
 
+      - name: Install ruff
+        # Deliberately not in requirements.txt — that's a separate, already
+        # logged decision (08_DECISIONS.md/09_PROGRESS.md: ruff/black/isort
+        # were left out on purpose, deferred to M14's lint tooling pass).
+        # CI needs ruff to actually lint, so it's installed here, scoped to
+        # this workflow only, without reopening that deferred decision.
+        run: pip install --no-cache-dir ruff==0.15.13
+
       - name: Install postgresql-client
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
 
