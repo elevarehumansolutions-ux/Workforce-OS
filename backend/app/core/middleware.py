@@ -43,6 +43,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self._enforce_hsts = environment != "development"
 
+    # FastAPI's own docs UI (only ever mounted when DEBUG=true — see
+    # main.py's docs_url/redoc_url) is a real HTML+JS+CSS page, unlike
+    # every other route here, which is pure JSON. The blanket
+    # default-src 'none' CSP below is correct for the actual API (it has
+    # no legitimate reason to load a script or stylesheet at all) but
+    # silently breaks Swagger/ReDoc's own CDN-loaded JS — the page loads
+    # (200 OK) but nothing in it ever renders. Exempted here rather than
+    # weakened for every route, so the real API surface keeps the strict
+    # policy unchanged.
+    _CSP_EXEMPT_PATHS = frozenset({"/docs", "/redoc", "/openapi.json"})
+
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
@@ -56,9 +67,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = (
             "camera=(), microphone=(), geolocation=(), payment=()"
         )
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; frame-ancestors 'none'"
-        )
+        if request.url.path not in self._CSP_EXEMPT_PATHS:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'none'; frame-ancestors 'none'"
+            )
 
         # HSTS — only over HTTPS, not in local dev
         if self._enforce_hsts:
