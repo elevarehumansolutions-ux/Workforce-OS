@@ -1,0 +1,113 @@
+# Production/demo compose file — deployed to the InterServer VPS.
+#
+# Differs from docker-compose.yml (local dev) in several deliberate ways:
+# - No live-reload volume mounts — runs the image as built, not the host
+#   checkout, so a stale local edit can never accidentally ship.
+# - db/redis have no published ports — only reachable from other containers
+#   on the internal Docker network, never directly from the internet.
+# - Caddy sits in front of the api container as a reverse proxy (see
+#   Caddyfile) — the app itself is never bound to a public port directly.
+# - mem_limit set on every service — sized for a single $3 InterServer
+#   "slice" (~1GB RAM total). See docs/11_DEPLOYMENT.md for the sizing
+#   rationale and what to change if this ever gets upgraded to 2 slices.
+# - restart: unless-stopped everywhere — a VPS reboot (host maintenance,
+#   power blip) should bring the stack back up on its own.
+#
+# Secrets/config come from a real .env file that lives only on the server
+# (backend/.env, gitignored, never committed) — see docs/11_DEPLOYMENT.md
+# for how it's created and what it must contain.
+
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    mem_limit: 220m
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-server-header
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      # POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB (the superuser that
+      # owns the schema) — distinct from backend/.env.db, which holds the
+      # *elevare_app* role's password for provision_app_role.sql. Never
+      # committed; created once on the server (docs/11_DEPLOYMENT.md).
+      - ./backend/.env.postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elevare -d elevare_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    mem_limit: 280m
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 48m
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # concurrency=1, unlike dev's 2 — a single 1GB-RAM slice has no room to
+    # spare for a second worker process. Revisit if/when upgraded to 2 slices.
+    command: celery -A app.core.celery_app worker --loglevel=info --concurrency=1 -Q celery
+    mem_limit: 160m
+
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A app.core.celery_app beat --loglevel=info
+    mem_limit: 96m
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 48m
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
