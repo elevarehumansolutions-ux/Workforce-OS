@@ -368,3 +368,88 @@ environment) hits something that looks similar, check here first.
     checks: `docker compose -f docker-compose.prod.yml ps` (all containers
     should say `Up`, not `Restarting`), then `docker compose -f
     docker-compose.prod.yml logs api --tail 50` for the real error.
+
+## Reusable playbook: deploying a *different* app this same way
+
+Everything above is Elevare-specific. This section is the distilled,
+app-agnostic version of the same pattern — for standing up a different
+project the same way, without re-learning the pitfalls above from scratch.
+
+1. **Pick a VPS.** Any KVM VPS with root access and Docker support works —
+   provider doesn't matter much at this scale. Pick the datacenter
+   location closest to your actual users, not the cheapest or first one
+   listed. Avoid shared/cPanel hosting entirely; it can't run Docker.
+2. **Plain server OS image, not Desktop.** Ubuntu LTS or Debian stable are
+   interchangeable for this pattern — same package manager, same systemd
+   unit names, same Docker install script. A "Desktop" variant burns RAM
+   on a GUI a headless server never uses.
+3. **If a provider-set password doesn't work or isn't shown anywhere after
+   creation, use "Reset Password" or "Reinstall OS" — don't hunt for a
+   password that may genuinely not be recoverable.** Reinstalling
+   generates a new SSH host key, which will trigger a "host identity
+   changed" warning on your next connection — expected after a rebuild,
+   confirm it's actually your own reinstall before clearing it
+   (`ssh-keygen -R <ip>`), not blindly.
+4. **Harden immediately, before anything else runs:** a non-root sudo
+   user with key-only SSH, root login and password auth both disabled
+   (`PermitRootLogin no` / `PasswordAuthentication no` in
+   `/etc/ssh/sshd_config`, then `systemctl restart ssh` — the unit is
+   named `ssh`, not `sshd`, on Debian/Ubuntu), and a firewall (`ufw`)
+   allowing only what the app actually needs exposed — almost always just
+   `22`/`80`/`443`. Never open a database or cache port to the internet;
+   they should only be reachable from other containers on the same
+   Docker network.
+5. **Install Docker via `curl -fsSL https://get.docker.com | sudo sh`** —
+   works identically regardless of the app.
+6. **A read-only Deploy Key (GitHub repo → Settings → Deploy keys), not a
+   personal access token,** for the server's own `git pull` access —
+   scoped to one repo, can't push, safest option if the key ever leaks.
+7. **Secrets live in a `.env` file created directly on the server, never
+   committed.** Whatever that app's real secret values are is
+   app-specific; "never in git, server-only" is universal.
+8. **Caddy as the reverse proxy, not nginx, unless there's a specific
+   reason nginx is needed.** A `Caddyfile` this short is enough for
+   automatic, self-renewing free HTTPS for *any* app:
+   ```
+   yourdomain.com {
+       reverse_proxy your-app-container:PORT
+   }
+   ```
+   No certbot, no cron job, no manual renewal — Caddy's ACME client is
+   built in. Never bind the app's own container port directly to the
+   internet; only Caddy should be.
+9. **DNS on Cloudflare's free plan** regardless of where the domain is
+   registered ("Connect a domain," not "Transfer" — transfer moves
+   registration/billing too, which is a separate decision). **Keep the
+   record "DNS only," not "Proxied,"** if relying on Caddy's automatic
+   HTTPS — Cloudflare's proxy intercepts the ACME challenge before it
+   reaches the server otherwise. Before adding a new record, check what's
+   already there — a freshly-registered domain often already has
+   registrar-default parking-page/email-forwarding records that silently
+   conflict with a new one for the same name.
+10. **GitHub Actions: a `test` job gates a `deploy` job.** The deploy job
+    needs its own SSH keypair — generated fresh, distinct from the
+    read-only Deploy Key in step 6 (that one lets GitHub *read* the repo;
+    this one lets GitHub Actions *SSH into* the server, the opposite
+    direction — never reuse one for the other). Store the host, SSH user,
+    and private key as repo secrets; never paste a private key anywhere
+    outside that secrets form.
+11. **Before setting any "environment=production"-style flag, find and
+    read whatever startup validation that framework does under it.**
+    Many frameworks refuse to boot in a strict "production" mode unless
+    several other things are also already true (real secrets, no
+    `localhost` in CORS, debug off, etc.) — set it too early, before those
+    are genuinely true, and the app won't start at all, or will start
+    with something quietly broken (like a `Secure` cookie over a
+    connection that isn't HTTPS yet). Get it running under a permissive
+    setting first, then tighten once every precondition is actually met.
+12. **Before trusting what a "public URL"-style config value should be,
+    check where it's actually used in the code, don't assume from the
+    name.** A variable that sounds like "this app's own URL" may
+    actually be used to build links meant for a *different*
+    service (e.g. a separate frontend) — grep for it before filling it in.
+13. **Size the VPS for what's actually running.** A full multi-container
+    stack (database, cache, app server, any background workers) can use
+    most of a 1GB VPS on its own — know that a second, unrelated app
+    generally needs its own VPS/slice, not a shared one, unless you've
+    actually checked the memory math first.
