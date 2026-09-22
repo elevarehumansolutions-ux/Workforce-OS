@@ -12,8 +12,18 @@ interface SignupFormData {
   agreeToTerms: boolean;
 }
 
-interface RegisterResponse {
-  accessToken: string;
+interface AuthResponse {
+  user: {
+    id: string;
+    email: string;
+    full_name: string;
+    account_status: string;
+  };
+  organization: { id: string; name: string };
+  membership: { id: string; role: string; is_owner: boolean };
+  access_token: string;
+  token_type: string;
+  verification_token: string;
 }
 
 export default function SignupPage() {
@@ -32,9 +42,7 @@ export default function SignupPage() {
 
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
-    if (!formData.fullName.trim()) {
-      newErrors.fullName = "Full name is required.";
-    }
+    if (!formData.fullName.trim()) newErrors.fullName = "Full name is required.";
     if (!formData.workEmail.trim()) {
       newErrors.workEmail = "Work email is required.";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.workEmail)) {
@@ -61,36 +69,28 @@ export default function SignupPage() {
 
     setSubmitting(true);
     try {
-      const data = await apiFetch<RegisterResponse>("/auth/register", {
+      const data = await apiFetch<AuthResponse>("/auth/register", {
         method: "POST",
         body: {
-          fullName: formData.fullName,
+          full_name: formData.fullName,
           email: formData.workEmail,
           password: formData.password,
+          confirm_password: formData.confirmPassword,
         },
         skipAuth: true,
       });
 
-      setAccessToken(data.accessToken);
+      setAccessToken(data.access_token);
       router.push("/onboarding/business-dna");
     } catch (err) {
       if (err instanceof ApiError) {
-        if (err.details.length > 0) {
-          const fieldErrors: Record<string, string> = {};
-          err.details.forEach((d) => {
-            fieldErrors[d.field] = d.message;
-          });
-          setErrors(fieldErrors);
+        if (Object.keys(err.fieldErrors).length > 0) {
+          setErrors(err.fieldErrors);
         } else {
           setErrors({ form: err.message });
         }
       } else {
-        setErrors({
-          form:
-            err instanceof Error
-              ? err.message
-              : "Something went wrong. Please try again.",
-        });
+        setErrors({ form: err instanceof Error ? err.message : "Something went wrong. Please try again." });
       }
     } finally {
       setSubmitting(false);
@@ -119,12 +119,8 @@ export default function SignupPage() {
 
       <div className="relative z-10 mx-auto flex min-h-[calc(100vh-96px)] w-full max-w-7xl flex-col items-center justify-center gap-16 px-8 py-12 sm:px-16 lg:flex-row lg:items-center lg:justify-between">
         <div className="max-w-md">
-          <h1 className="text-4xl font-extrabold leading-tight sm:text-5xl">
-            Create your organization
-          </h1>
-          <p className="mt-4 text-lg text-gray-400">
-            Set up your company&apos;s workspace in a few minutes
-          </p>
+          <h1 className="text-4xl font-extrabold leading-tight sm:text-5xl">Create your organization</h1>
+          <p className="mt-4 text-lg text-gray-400">Set up your company&apos;s workspace in a few minutes</p>
           <div className="mt-6 flex items-center gap-2 text-sm text-gray-300">
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
             <span>Start your West African Workforce OS journey</span>
@@ -133,139 +129,95 @@ export default function SignupPage() {
 
         <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-2xl backdrop-blur-sm">
           <h2 className="text-2xl font-bold">Get started</h2>
-          <p className="mt-1 text-sm text-gray-400">
-            Create your admin account to begin setup
-          </p>
+          <p className="mt-1 text-sm text-gray-400">Create your admin account to begin setup</p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-6">
-            {errors.form && (
+            {errors.form ? (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 {errors.form}
               </div>
-            )}
+            ) : null}
 
             <div>
-              <label htmlFor="fullName" className="mb-2 block text-sm font-medium text-gray-200">
-                Full Name
-              </label>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="8" r="4" />
-                    <path d="M4 20c0-4 4-6 8-6s8 2 8 6" />
-                  </svg>
-                </span>
-                <input
-                  id="fullName"
-                  type="text"
-                  placeholder="e.g. Adewale Alabi"
-                  value={formData.fullName}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setFormData({ ...formData, fullName: e.target.value })
-                  }
-                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] py-3 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-                />
-              </div>
-              {errors.fullName && (
-                <p className="mt-1 text-xs text-red-400">{errors.fullName}</p>
-              )}
+              <label htmlFor="fullName" className="mb-2 block text-sm font-medium text-gray-200">Full Name</label>
+              <input
+                id="fullName"
+                type="text"
+                placeholder="e.g. Adewale Alabi"
+                value={formData.fullName}
+                onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                  setFormData({ ...formData, fullName: e.target.value });
+                }}
+                className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+              />
+              {errors.fullName ? <p className="mt-1 text-xs text-red-400">{errors.fullName}</p> : null}
             </div>
 
             <div>
-              <label htmlFor="workEmail" className="mb-2 block text-sm font-medium text-gray-200">
-                Work Email
-              </label>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="5" width="18" height="14" rx="2" />
-                    <path d="m3 7 9 6 9-6" />
-                  </svg>
-                </span>
-                <input
-                  id="workEmail"
-                  type="email"
-                  placeholder="e.g. adewale.alabi@zenithtech.ng"
-                  value={formData.workEmail}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setFormData({ ...formData, workEmail: e.target.value })
-                  }
-                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] py-3 pl-10 pr-4 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-                />
-              </div>
-              {errors.workEmail && (
-                <p className="mt-1 text-xs text-red-400">{errors.workEmail}</p>
-              )}
+              <label htmlFor="workEmail" className="mb-2 block text-sm font-medium text-gray-200">Work Email</label>
+              <input
+                id="workEmail"
+                type="email"
+                placeholder="e.g. adewale.alabi@zenithtech.ng"
+                value={formData.workEmail}
+                onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                  setFormData({ ...formData, workEmail: e.target.value });
+                }}
+                className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+              />
+              {errors.workEmail ? <p className="mt-1 text-xs text-red-400">{errors.workEmail}</p> : null}
             </div>
 
             <div>
-              <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-200">
-                Password
-              </label>
+              <label htmlFor="password" className="mb-2 block text-sm font-medium text-gray-200">Password</label>
               <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="4" y="11" width="16" height="9" rx="2" />
-                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                  </svg>
-                </span>
                 <input
                   id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="********"
                   value={formData.password}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setFormData({ ...formData, password: e.target.value })
-                  }
-                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] py-3 pl-10 pr-10 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                  onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                    setFormData({ ...formData, password: e.target.value });
+                  }}
+                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] py-3 pl-4 pr-10 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword((v: boolean) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={function () {
+                    setShowPassword(!showPassword);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-300"
                 >
-                  <EyeIcon open={showPassword} />
+                  {showPassword ? "Hide" : "Show"}
                 </button>
               </div>
-              {errors.password && (
-                <p className="mt-1 text-xs text-red-400">{errors.password}</p>
-              )}
+              {errors.password ? <p className="mt-1 text-xs text-red-400">{errors.password}</p> : null}
             </div>
 
             <div>
-              <label htmlFor="confirmPassword" className="mb-2 block text-sm font-medium text-gray-200">
-                Confirm Password
-              </label>
+              <label htmlFor="confirmPassword" className="mb-2 block text-sm font-medium text-gray-200">Confirm Password</label>
               <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="4" y="11" width="16" height="9" rx="2" />
-                    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                  </svg>
-                </span>
                 <input
                   id="confirmPassword"
                   type={showConfirmPassword ? "text" : "password"}
                   placeholder="********"
                   value={formData.confirmPassword}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setFormData({ ...formData, confirmPassword: e.target.value })
-                  }
-                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] py-3 pl-10 pr-10 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                  onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                    setFormData({ ...formData, confirmPassword: e.target.value });
+                  }}
+                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] py-3 pl-4 pr-10 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowConfirmPassword((v: boolean) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
-                  aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                  onClick={function () {
+                    setShowConfirmPassword(!showConfirmPassword);
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 hover:text-gray-300"
                 >
-                  <EyeIcon open={showConfirmPassword} />
+                  {showConfirmPassword ? "Hide" : "Show"}
                 </button>
               </div>
-              {errors.confirmPassword && (
-                <p className="mt-1 text-xs text-red-400">{errors.confirmPassword}</p>
-              )}
+              {errors.confirmPassword ? <p className="mt-1 text-xs text-red-400">{errors.confirmPassword}</p> : null}
             </div>
 
             <div>
@@ -273,21 +225,17 @@ export default function SignupPage() {
                 <input
                   type="checkbox"
                   checked={formData.agreeToTerms}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setFormData({ ...formData, agreeToTerms: e.target.checked })
-                  }
+                  onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                    setFormData({ ...formData, agreeToTerms: e.target.checked });
+                  }}
                   className="mt-0.5 h-4 w-4 rounded border-white/20 bg-[#0a0e1a] accent-indigo-500"
                 />
                 <span>
-                  I agree to the{" "}
-                  <a href="#" className="text-indigo-400 hover:text-indigo-300">Terms of Service</a>{" "}
-                  and{" "}
+                  I agree to the <a href="#" className="text-indigo-400 hover:text-indigo-300">Terms of Service</a> and{" "}
                   <a href="#" className="text-indigo-400 hover:text-indigo-300">Privacy Policy</a>
                 </span>
               </label>
-              {errors.agreeToTerms && (
-                <p className="mt-1 text-xs text-red-400">{errors.agreeToTerms}</p>
-              )}
+              {errors.agreeToTerms ? <p className="mt-1 text-xs text-red-400">{errors.agreeToTerms}</p> : null}
             </div>
 
             <button
@@ -305,33 +253,6 @@ export default function SignupPage() {
           </form>
         </div>
       </div>
-
-      <div className="relative z-10 flex flex-col items-center gap-1 px-8 pb-8 sm:flex-row sm:items-end sm:justify-between sm:px-16">
-        <div>
-          <p className="text-sm text-gray-400">Elevare Workforce OS - Enterprise Grade</p>
-          <p className="text-xs text-gray-600">Compliant with local labour structures</p>
-        </div>
-        <p className="text-xs text-gray-600 sm:absolute sm:left-1/2 sm:-translate-x-1/2">
-          Elevare Workforce OS (c) 2026
-        </p>
-      </div>
     </div>
-  );
-}
-
-function EyeIcon({ open }: { open: boolean }) {
-  if (open) {
-    return (
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-10-8-10-8a19.7 19.7 0 0 1 5.06-5.94M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 10 8 10 8a19.7 19.7 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-        <line x1="1" y1="1" x2="23" y2="23" />
-      </svg>
-    );
-  }
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
   );
 }
