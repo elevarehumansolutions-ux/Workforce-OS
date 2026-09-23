@@ -395,9 +395,26 @@ CREATE TABLE tasks (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ
 );
+
+CREATE TABLE task_blocks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    task_id UUID NOT NULL REFERENCES tasks(id),
+    blocked_by_user_id UUID NOT NULL REFERENCES users(id),
+    category TEXT NOT NULL CHECK (category IN ('awaiting_approval','awaiting_other_department','external_dependency','other')),
+    reason TEXT NOT NULL,
+    blocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    unblocked_at TIMESTAMPTZ,  -- null = still blocked
+    review_status TEXT NOT NULL DEFAULT 'pending' CHECK (review_status IN ('pending','approved','rejected')),
+    reviewed_by_user_id UUID REFERENCES users(id),
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ```
 
 **Design notes:**
+- **`task_blocks`, added 2026-09-22 (Jennifer's escalation/accountability submission, see `01_REQUIREMENTS.md` §6a and `08_DECISIONS.md`).** One table serves both the proactive case (an assignee marks a task blocked *before* it goes overdue, `unblocked_at` null while ongoing) and the reactive case (a task went overdue with no block recorded, the Overdue Celery Beat scan prompts, creating this row after the fact). Same `review_status` shape as `ai_suggestions` and membership deactivation, not a new pattern. `due_at` on `tasks` is never touched by this, "currently overdue" and "was this actually late for scoring" both become derived calculations that exclude any *approved* blocked duration, consistent with `due_at` being written once and never rewritten. A `pending` block holds that task out of KPI scoring entirely until reviewed, it is not scored provisionally and corrected later, since a closed period's `kpi_scores` must stay permanent history.
 - **One `tasks` table for both workflow-generated and standalone tasks.** `workflow_instance_id`/`workflow_step_id` are nullable so an ad hoc task (a manager just typing "follow up with vendor" with no template behind it) uses the exact same table and the exact same dashboard, rather than needing a second parallel task system.
 - **"Overdue" is not a stored status, it's derived: `status IN ('open','in_progress') AND due_at < now()`.** It isn't a state anyone chooses, it's a fact that becomes true the moment the clock passes `due_at` while nobody's touched the status. Storing it as an enum value would mean either a background job flipping it constantly, or it going stale between checks. Computing it at query/read time is simpler and always correct.
 - **Late completion is also derived, from history, not stored as a flag: `completed_at > due_at`.** Since both timestamps are just sitting on the row, "was this done on time" is answerable forever, even long after the task is closed, which is exactly what has to feed the performance-scoring calculation later.
