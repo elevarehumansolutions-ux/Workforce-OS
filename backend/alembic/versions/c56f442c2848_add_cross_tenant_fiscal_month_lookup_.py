@@ -1,4 +1,4 @@
-"""add cross-tenant fiscal month lookup function for quarterly review
+"""add cross-tenant fiscal month lookup function for quarterly review.
 
 Revision ID: c56f442c2848
 Revises: 61454952170a
@@ -8,7 +8,6 @@ Create Date: 2026-09-27 21:19:07.989212
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
