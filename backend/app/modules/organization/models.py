@@ -18,6 +18,7 @@ from sqlalchemy import (
     UUID,
     Boolean,
     CheckConstraint,
+    Computed,
     Date,
     DateTime,
     DECIMAL,
@@ -25,15 +26,19 @@ from sqlalchemy import (
     Index,
     String,
     Text,
+    column,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .enums import CriticalityType, EmployeeStatus, EmploymentType, RiskLevel
 from app.core.database import BaseModel
+from app.core.text import normalized_name_expr
 
 if TYPE_CHECKING:
     from app.modules.tenancy_identity.models import Organization, User
     from app.modules.okrs.models import OKR
+    from app.modules.ai.models import AISuggestion
 
 
 class Location(BaseModel):
@@ -90,9 +95,25 @@ class Department(BaseModel):
     Organization-scoped (RLS restricts rows to the caller's current org) and
     soft-deletable. Holds one or more positions; deletion is blocked while
     active positions still reference it (enforced in the service layer).
+
+    Names are unique per organization among non-deleted departments,
+    compared on a normalized key (case, spacing and Unicode variants of
+    the same name count as the same name) — enforced by a partial unique
+    index, so it holds under concurrent requests too. A deleted
+    department's name can be reused. See 08_DECISIONS.md 2026-09-24.
     """
 
     __tablename__ = "departments"
+
+    __table_args__ = (
+        Index(
+            "uq_departments_org_name_active",
+            "organization_id",
+            "name_normalized",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+    )
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -106,6 +127,15 @@ class Department(BaseModel):
         Text,
         nullable=False,
         doc="Name of the department"
+    )
+
+    name_normalized: Mapped[str] = mapped_column(
+        Text,
+        Computed(normalized_name_expr(column("name")), persisted=True),
+        doc=(
+            "Database-derived comparison key for name (never written by the "
+            "application) — what the per-organization uniqueness index matches on"
+        ),
     )
 
     is_critical: Mapped[bool] = mapped_column(
@@ -137,6 +167,9 @@ class Department(BaseModel):
     )
     okrs: Mapped[list["OKR"]] = relationship(
         "OKR", back_populates="department"
+    )
+    ai_suggestions: Mapped[list["AISuggestion"]] = relationship(
+        "AISuggestion", back_populates="department"
     )
 
 
@@ -236,6 +269,9 @@ class Position(BaseModel):
     )
     employees: Mapped[list["Employee"]] = relationship(
         "Employee", back_populates="position"
+    )
+    ai_suggestions: Mapped[list["AISuggestion"]] = relationship(
+        "AISuggestion", back_populates="position"
     )
 
 

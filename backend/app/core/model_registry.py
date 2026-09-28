@@ -41,6 +41,10 @@ from app.modules.okrs.models import (
     OKR,
     KeyResult,
 )
+from app.modules.ai.models import (
+    AISuggestion,
+    AIUsageLog,
+)
 
 __all__ = [
     "Organization",
@@ -60,4 +64,6 @@ __all__ = [
     "BusinessDNACoreValue",
     "OKR",
     "KeyResult",
+    "AISuggestion",
+    "AIUsageLog",
 ]

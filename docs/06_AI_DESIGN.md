@@ -45,6 +45,21 @@ Event-triggered Celery task, not scheduled (see `03_ARCHITECTURE.md` Background 
 
 `reviewed_*` columns mirror every `suggested_*` column, populated on both plain approval and edit, so "AI proposed X, human decided Y" is always a complete pair, never requiring a branch on `status` to know which column to trust. This exists because `01_REQUIREMENTS.md` §8 confirms approvals/corrections become future training data, once enough organizations have gone through the loop, this table is the raw material for eventually training a proprietary model, which is the actual reason the LLM-call approach was chosen over a rules table that would generate nothing worth learning from.
 
+## Model tiering (decided 2026-09-25)
+
+The shared LLM utility takes a **tier** (`fast` or `strong`), never a model id; `config.py` maps the tier to a model (`anthropic_model_fast` = Haiku 4.5, `anthropic_model_strong` = Sonnet 5). Simple pick-from-a-list jobs (`critical_position`) use `fast`; judgment/open-ended jobs (`revenue_allocation`, `missing_department`, executive summaries) use `strong`. Swapping a model is a config change. Every `ai_usage_log` row records the `model` that served it, and the cost estimate uses a per-model price table. Plan-based tiering (stronger model for higher-paying customers) is deliberately not built.
+
+## Guardrails against noise (decided 2026-09-25)
+
+An unrestricted LLM floods the queue with invented departments until HR stops reading it. Beyond "existing ids only", volume is capped **in code** (not just requested in the prompt), each cap a setting in `config.py`:
+
+| Guardrail | Setting | Default | Where enforced |
+|---|---|---|---|
+| Per-run cap, `missing_department` | `ai_max_missing_departments_per_run` | 3 | generation task (extras dropped) |
+| Per-run cap, `critical_position` per critical department | `ai_max_critical_positions_per_department_per_run` | 3 | generation task (extras dropped) |
+| Backlog cap: no new `missing_department` while this many are pending | `ai_max_pending_missing_departments` | 5 | `AISuggestionService.create_suggestion_if_eligible` (built; soft cap, racing runs can overshoot slightly) |
+| Prompt wording | n/a | n/a | "fewer is better; none is valid"; lists existing and already-rejected names |
+
 ## Not built for MVP
 
 Anything beyond the four suggestion types above, workforce insight generation, workload/productivity pattern detection, succession recommendations, is explicitly Phase 2/3 per `01_REQUIREMENTS.md` §8. No proprietary dataset or infrastructure for it should be built ahead of that need.

@@ -30,7 +30,7 @@ Built directly on `02_SYSTEM_DESIGN.md` (module ownership) and `04_DATABASE.md` 
 Mutations (`POST`/`PATCH`/`DELETE`, including offboard/reinstate) restricted to `hr_administrator`; `GET` (list and by-id) open to any authenticated org member. See `08_DECISIONS.md` 2026-09-21.
 
 - `POST|GET /locations`, `GET|PATCH|DELETE /locations/{id}`
-- `POST|GET /departments`, `GET|PATCH|DELETE /departments/{id}` (includes `is_critical`, `revenue_allocation_percentage`; `DELETE` blocked while active positions are still assigned, named reason, `08_DECISIONS.md` 2026-09-07)
+- `POST|GET /departments`, `GET|PATCH|DELETE /departments/{id}` (includes `is_critical`, `revenue_allocation_percentage`; `DELETE` blocked while active positions are still assigned, named reason, `08_DECISIONS.md` 2026-09-07; `POST`/`PATCH` return **409** if the name duplicates another non-deleted department in the organization, compared case/spacing/Unicode-insensitively, `08_DECISIONS.md` 2026-09-24)
 - `POST|GET /positions`, `GET|PATCH|DELETE /positions/{id}` (`DELETE` blocked while active employees hold it or other positions report to it, named reason)
 - `POST|GET /employees` (filter: `location_id`), `GET|PATCH /employees/{id}` — no `DELETE`, offboarding is the removal mechanism instead
 - `POST /employees/{id}/offboard` — sets the employee inactive and deactivates their `Membership` if they have login access, in one step. Not a generic status PATCH. See `08_DECISIONS.md` 2026-09-20.
@@ -51,9 +51,10 @@ Mutations (`POST`/`PATCH`/`DELETE`, including offboard/reinstate) restricted to 
 
 ## AI Suggestions
 
-- `GET /ai-suggestions` (filter: `status`, `suggestion_type`)
-- `POST /ai-suggestions/{id}/approve` — body optional. Empty body = approve as suggested (`status → approved`). Body with overriding fields = approve with corrections (`status → edited`). One endpoint, not two, because "approve" and "edit-then-approve" are the same action with an optional override, not two different actions. The server compares the body against `suggested_*` to decide which status to set and fills in `reviewed_*` either way, per the design already in `04_DATABASE.md`.
-- `POST /ai-suggestions/{id}/reject`
+- `GET /ai-suggestions` (filter: `status`, `suggestion_type`; `page`/`limit` offset pagination, newest first) — **HR Administrator or Business Executive** (confirmed 2026-09-24; see `08_DECISIONS.md`). Review actions below are open to the **same two roles**.
+- `POST /ai-suggestions/{id}/approve` — **no body.** Approves exactly as the AI proposed (`status → approved`) and applies it to the real position/department. (Changed 2026-09-24, `08_DECISIONS.md`: this was previously one endpoint with an optional override body; it is now two, see `/edit`.)
+- `POST /ai-suggestions/{id}/edit` — body: only the fields the reviewer is *changing* (`criticality_type`, `risk_level` for a `critical_position`; `revenue_allocation_percentage` for a `revenue_allocation`; `department_name` for a `missing_department`); anything left out keeps the AI's value. `status → edited`, then applied. **422** if a field doesn't apply to the suggestion's type, if the body is empty, or if every supplied value equals the AI's (that's an approve — call `/approve`). The client must send only real changes and call `/approve` when nothing changed.
+- `POST /ai-suggestions/{id}/reject` — no body. **404** if not visible to the caller's org; **409** if already reviewed (applies to approve/edit/reject alike).
 
 ## Performance
 

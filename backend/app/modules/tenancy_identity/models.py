@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from app.modules.organization.models import Location, Department, Position, Employee
     from app.modules.business_dna.models import BusinessDNA
     from app.modules.okrs.models import OKR
+    from app.modules.ai.models import AISuggestion, AIUsageLog
 
 
 class Organization(BaseModel):
@@ -89,6 +90,12 @@ class Organization(BaseModel):
     )
     okrs: Mapped[list[OKR]] = relationship(
         "OKR", back_populates="organization"
+    )
+    ai_suggestions: Mapped[list["AISuggestion"]] = relationship(
+        "AISuggestion", back_populates="organization"
+    )
+    ai_usage_logs: Mapped[list["AIUsageLog"]] = relationship(
+        "AIUsageLog", back_populates="organization"
     )
 
 

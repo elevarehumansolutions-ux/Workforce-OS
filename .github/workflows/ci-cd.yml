@@ -63,7 +63,8 @@ jobs:
       DEBUG: "true"
       CORS_ALLOWED_ORIGINS: '["http://localhost:5173"]'
       ANTHROPIC_API_KEY: unused-in-ci
-      ANTHROPIC_MODEL: claude-3-5-sonnet-20241022
+      ANTHROPIC_MODEL_FAST: claude-haiku-4-5-20251001
+      ANTHROPIC_MODEL_STRONG: claude-sonnet-5
       EMAIL_STUB_MODE: "true"
       EMAIL_VERIFICATION_TOKEN_EXPIRY: "24"
       PAYSTACK_SECRET_KEY: unused-in-ci

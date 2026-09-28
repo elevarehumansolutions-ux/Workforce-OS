@@ -177,6 +177,26 @@ class DepartmentRepository:
         )
         return await paginate(stmt, page, limit, self._db)
 
+    async def list_active_department_names(self, organization_id: uuid.UUID) -> list[str]:
+        """List every non-deleted department's name, for prompt context.
+
+        Used so a ``missing_department`` suggestion never proposes a name
+        that already exists — not paginated, same accepted limit as the
+        other prompt-context queries (bounded by org size).
+
+        Args:
+            organization_id: Organization to list department names for.
+
+        Returns:
+            The organization's non-deleted department names.
+        """
+        stmt = select(Department.name).where(
+            Department.organization_id == organization_id,
+            Department.deleted_at.is_(None),
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
     async def update_department(self, department: Department, data: dict) -> Department:
         """Apply a partial update. Caller (service layer) commits.
 
@@ -206,6 +226,58 @@ class DepartmentRepository:
         await self._db.flush()
         await self._db.refresh(department)
         return department
+
+    async def list_candidate_departments_for_revenue_allocation(
+        self, organization_id: uuid.UUID
+    ) -> list[Department]:
+        """Active, critical departments — the ones a revenue share can be proposed for.
+
+        Unlike positions, a department already carrying a percentage is
+        still a candidate: Business DNA or the org's structure can change
+        between runs, and this is where a re-proposal would come from. The
+        existing pending-duplicate index and rejection suppression are what
+        keep a re-run from nagging (08_DECISIONS.md 2026-09-22/23).
+
+        Args:
+            organization_id: Organization to look in.
+
+        Returns:
+            Matching ``Department`` rows, ordered by creation (with id as a
+            tie-breaker) so a retried run sees the same handles.
+        """
+        stmt = (
+            select(Department)
+            .where(
+                Department.organization_id == organization_id,
+                Department.deleted_at.is_(None),
+                Department.is_critical.is_(True),
+            )
+            .order_by(Department.created_at, Department.id)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def has_pending_ai_suggestion(self, department_id: uuid.UUID) -> bool:
+        """Check whether a pending AI suggestion still targets this department.
+
+        Used by the delete-blocked-while-referenced check. Queried through the
+        ``ai_suggestions`` relationship rather than by importing the AI module:
+        Org Structure sits underneath AI Suggestions in the dependency
+        direction (02_SYSTEM_DESIGN.md), so it must not depend on it in code.
+        The status literal below is ``SuggestionStatus.PENDING``'s value.
+
+        Args:
+            department_id: Id of the department to check.
+
+        Returns:
+            True if a suggestion with status ``pending`` references it.
+        """
+        stmt = select(Department.id).where(
+            Department.id == department_id,
+            Department.ai_suggestions.any(status="pending"),
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
     async def count_active_positions(self, department_id: uuid.UUID) -> int:
         """Count non-deleted positions still attached to this department.
@@ -319,6 +391,28 @@ class PositionRepository:
         await self._db.refresh(position)
         return position
 
+    async def has_pending_ai_suggestion(self, position_id: uuid.UUID) -> bool:
+        """Check whether a pending AI suggestion still targets this position.
+
+        Used by the delete-blocked-while-referenced check. Queried through the
+        ``ai_suggestions`` relationship rather than by importing the AI module:
+        Org Structure sits underneath AI Suggestions in the dependency
+        direction (02_SYSTEM_DESIGN.md), so it must not depend on it in code.
+        The status literal below is ``SuggestionStatus.PENDING``'s value.
+
+        Args:
+            position_id: Id of the position to check.
+
+        Returns:
+            True if a suggestion with status ``pending`` references it.
+        """
+        stmt = select(Position.id).where(
+            Position.id == position_id,
+            Position.ai_suggestions.any(status="pending"),
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
     async def count_active_employees(self, position_id: uuid.UUID) -> int:
         """Count non-deleted employees still holding this position.
 
@@ -354,6 +448,39 @@ class PositionRepository:
         )
         result = await self._db.execute(stmt)
         return len(result.scalars().all())
+    
+    async def list_candidate_positions_for_criticality(
+        self, organization_id: uuid.UUID
+    ) -> list[tuple[Position, Department]]:
+        """Positions that could still be flagged critical, each with its department.
+
+        Candidates are active positions not yet critical, in active departments
+        HR has marked critical. Ordered by creation (with ids as tie-breakers)
+        so callers get a stable order run to run.
+
+        Args:
+            organization_id: Organization to look in.
+
+        Returns:
+            ``(position, department)`` pairs.
+        """
+        stmt = (
+            select(Position, Department)
+            .join(Department, Position.department_id == Department.id)
+            .where(
+                Position.organization_id == organization_id,
+                Position.deleted_at.is_(None),
+                Position.is_critical.is_(False),
+                Department.deleted_at.is_(None),
+                Department.is_critical.is_(True),
+            )
+            .order_by(Department.created_at, Department.id, Position.created_at, Position.id)
+        )
+
+        result = await self._db.execute(stmt)
+        return [
+            (position, department) for position, department in result.all()
+        ]
 
 
 class EmployeeRepository:

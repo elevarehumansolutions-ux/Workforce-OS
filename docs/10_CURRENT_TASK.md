@@ -1,50 +1,63 @@
 # Current Task
 
-**M7 — AI Suggestions Engine** (see `09_PROGRESS.md`)
+**M7 — AI Suggestions Engine — functionally complete, not yet merged.**
+See `09_PROGRESS.md`'s M7 section for what's built; `08_DECISIONS.md`'s
+2026-09-22 through 2026-09-28 entries for the reasoning behind every
+decision made along the way. Branch: `m7-ai-suggestions`.
 
-M6 (OKR) backend is merged to `main` (PR #13) and closed out — see
-`08_DECISIONS.md` 2026-09-21. M6 frontend is Uche's track, not blocking
-this milestone.
+## What's left before this milestone closes
 
-**Backend:** `ai_suggestions`, `ai_usage_log` (`04_DATABASE.md` Cluster 4).
-Shared internal LLM-calling utility (Claude, per `06_AI_DESIGN.md`),
-event-triggered Celery task fired from Org Structure/OKR services. Redis
-debounce (`NX EX 60`). Idempotent generation (partial unique index +
-`ON CONFLICT DO NOTHING`). ID-hallucination validation against real rows.
-`GET /ai-suggestions`, `POST /ai-suggestions/{id}/approve|reject`.
+1. **Worker/beat restart — done (2026-09-28).** `docker compose up -d
+   --force-recreate celery_worker celery_beat` run against dev; verified
+   with `celery -A app.core.celery_app inspect registered`: both
+   `generate_suggestions` and `quarterly_objective_review` now appear
+   alongside the three pre-existing email tasks; Beat's log shows a clean
+   start with no errors. **The VPS demo can't hit the same staleness bug**
+   — its deploy pipeline (`.github/workflows/ci-cd.yml`'s `deploy` job)
+   runs `docker compose ... up -d --build` on every merge to `main`, which
+   always rebuilds the image and recreates every container fresh,
+   `celery_worker`/`celery_beat` included. The staleness problem only
+   happened locally this session because files were edited without a
+   rebuild mid-session; a real deploy always rebuilds.
+2. **New env vars are all safe to be absent on the VPS.** `ANTHROPIC_MODEL_FAST`,
+   `ANTHROPIC_MODEL_STRONG`, and the three `AI_MAX_*` guardrail settings
+   all have Python defaults in `config.py` — a missing var just falls back
+   to the default, no crash. `Settings` also has `extra="ignore"`, so a
+   leftover, now-unused `ANTHROPIC_MODEL=...` line in the server's
+   `backend/.env` is harmless too. The one thing worth checking (not a
+   crash risk, a functionality one): `ANTHROPIC_API_KEY` on the server —
+   if it's still the placeholder, AI generation will fail at runtime with
+   an auth error the moment it's triggered, worth confirming before the
+   next demo. `anthropic==1.8.0` installs automatically via the deploy's
+   `--build` step. The new migrations (incl. the `SECURITY DEFINER`
+   function and the department-rename one, see item 4 below) apply
+   automatically via the deploy's `alembic upgrade head` step.
+3. **Tell Uche (frontend), non-blocking — doesn't hold up merging this
+   milestone:** the client decides which endpoint to call —
+   `POST .../approve` with no body when nothing changed, `POST .../edit`
+   with only the changed fields otherwise (it must diff, not resend the
+   whole form — `08_DECISIONS.md` 2026-09-24). Both list and review
+   actions are open to `hr_administrator` **and** `business_executive`
+   (2026-09-24/25).
+4. **VPS deploy note:** migration `61454952170a` renames any pre-existing
+   duplicate department names with a numeric suffix — expected on the next
+   deploy, not a bug if display names change.
+5. Standard workflow once the above are confirmed: review → commit → push
+   → PR → merge → delete branch → branch for whatever's next per
+   `09_PROGRESS.md` (M8 — KPIs).
 
-**Also in scope: the scheduled half of the "recurring, not one-time"
-requirement.** Event-triggered re-runs (a department marked critical, a new
-OKR saved) aren't the only trigger — the Quarterly Objective Review
-(`01_REQUIREMENTS.md` §4/workflow #4) is a separate, scheduled trigger: a
-Celery Beat job that reads each org's `organizations.fiscal_year_start_month`
-(already shipped in M2), scans for orgs whose fiscal quarter just ended, and
-re-runs suggestion generation additively.
+## Nice-to-haves, not built (deliberately, not overlooked)
 
-**Resolved (2026-09-22):** the rejected-suggestion regeneration question
-flagged in the 2026-09-18 review is settled — see `08_DECISIONS.md`
-2026-09-22. A rejected suggestion (same target, same `suggestion_type`) is
-suppressed from regenerating until the next Quarterly Objective Review for
-that org, not permanently and not on a fixed-duration cooldown. This needs
-to be designed into the idempotency logic (alongside the existing
-pending-duplicate index, `08_DECISIONS.md` 2026-09-07) from the start, not
-added after the generation code is written.
+- Uniqueness for `locations.name` / `positions.title` — same gap as the
+  department-name fix, less clear-cut, not requested.
+- Per-org-plan model tiering (a paying customer getting the stronger
+  model) — the `tier` argument leaves room for this later; not built.
+- Filtering the Quarterly Review scan by `subscription_status` (skipping
+  `cancelled`/`expired` orgs) — not requested, not built; every org is
+  scanned today.
 
-**Depends on:** M2 (`organizations.fiscal_year_start_month`) — done. M4
-(Org Structure) — done. M6 (suggestions read department/position/OKR
-context — `06_AI_DESIGN.md`'s `missing_department` row specifically reads
-existing OKRs as prompt context, a read dependency, not a foreign key) —
-done.
+## Study material
 
-## Next recommended action
-
-1. Build M7 backend: `ai_suggestions`/`ai_usage_log` models, RLS, the
-   shared LLM-calling utility with usage/cost logging (`08_DECISIONS.md`
-   2026-09-07), the event-triggered Celery task, the Quarterly Objective
-   Review Celery Beat job, and the two endpoints — idempotency design
-   incorporates both the pending-duplicate index (2026-09-07) and the
-   rejected-suggestion quarterly-cooldown suppression (2026-09-22) from
-   the start.
-2. Standard workflow once done: review → commit → push → PR → merge →
-   delete branch → branch `m8-kpis` (or whatever's next per
-   `09_PROGRESS.md`).
+A session-by-session study guide of everything decided, built, and
+mistaken along the way on M7 lives at `.claude/study/M7_STUDY_GUIDE.md`
+(git-ignored, not part of the public repo).

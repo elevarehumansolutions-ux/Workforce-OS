@@ -88,12 +88,19 @@ CREATE TABLE departments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
     name TEXT NOT NULL,
+    name_normalized TEXT NOT NULL GENERATED ALWAYS AS (
+        lower(regexp_replace(btrim(normalize(name, NFKC)), '\s+', ' ', 'g'))
+    ) STORED,                                    -- database-derived comparison key, never written by the app
     is_critical BOOLEAN NOT NULL DEFAULT false,
     revenue_allocation_percentage NUMERIC(6,2),  -- only meaningful if is_critical; can exceed 100
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ
 );
+
+CREATE UNIQUE INDEX uq_departments_org_name_active
+ON departments (organization_id, name_normalized)
+WHERE deleted_at IS NULL;
 
 CREATE TABLE positions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -214,15 +221,16 @@ CREATE TABLE key_results (
 CREATE TABLE ai_suggestions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
-    suggestion_type TEXT NOT NULL CHECK (suggestion_type IN ('critical_position','revenue_allocation','missing_department','kpi_weight')),
+    suggestion_type TEXT NOT NULL CHECK (suggestion_type IN ('critical_position','revenue_allocation','missing_department')),
     position_id UUID REFERENCES positions(id),                 -- set for 'critical_position'
     department_id UUID REFERENCES departments(id),              -- set for 'revenue_allocation'
-    kpi_id UUID REFERENCES kpis(id),                             -- set for 'kpi_weight'
     suggested_department_name TEXT,                              -- set for 'missing_department' only — no row exists yet
+    suggested_department_name_normalized TEXT GENERATED ALWAYS AS (
+        lower(regexp_replace(btrim(normalize(suggested_department_name, NFKC)), '\s+', ' ', 'g'))
+    ) STORED,                                                    -- database-derived comparison key, never written by the app
     suggested_criticality_type TEXT,
     suggested_risk_level TEXT,
     suggested_revenue_allocation_percentage NUMERIC(6,2),
-    suggested_weight NUMERIC(5,2),                               -- set for 'kpi_weight'
     rationale TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','edited','rejected')),
     reviewed_by_user_id UUID REFERENCES users(id),
@@ -231,16 +239,19 @@ CREATE TABLE ai_suggestions (
     reviewed_risk_level TEXT,                                     -- mirrors suggested_risk_level
     reviewed_revenue_allocation_percentage NUMERIC(6,2),          -- mirrors suggested_revenue_allocation_percentage
     reviewed_department_name TEXT,                                -- mirrors suggested_department_name
-    reviewed_weight NUMERIC(5,2),                                 -- mirrors suggested_weight
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (
-        (suggestion_type = 'critical_position' AND position_id IS NOT NULL) OR
-        (suggestion_type = 'revenue_allocation' AND department_id IS NOT NULL) OR
-        (suggestion_type = 'missing_department' AND suggested_department_name IS NOT NULL) OR
-        (suggestion_type = 'kpi_weight' AND kpi_id IS NOT NULL)
+        (suggestion_type = 'critical_position' AND position_id IS NOT NULL
+            AND suggested_criticality_type IS NOT NULL AND suggested_risk_level IS NOT NULL) OR
+        (suggestion_type = 'revenue_allocation' AND department_id IS NOT NULL
+            AND suggested_revenue_allocation_percentage IS NOT NULL) OR
+        (suggestion_type = 'missing_department' AND suggested_department_name IS NOT NULL)
     )
 );
 ```
+
+**M7/M8 phasing, settled during M7 implementation (2026-09-23):** the block above is what M7 actually builds — three suggestion types only. `kpi_id`, `suggested_weight`, `reviewed_weight`, and the `kpi_weight` value of `suggestion_type` (all described in the 2026-09-05 decision below) are added by a separate `ALTER TABLE` migration in M8, once `kpis` exists — a `CREATE TABLE` referencing `kpis(id)` before that table exists would fail outright, and `09_PROGRESS.md`'s M8 entry ("add `kpi_weight` as the fourth `suggestion_type`, reusing M7's engine") already implied this split, just not stated here explicitly until now. `updated_at` is also added here (BaseModel gives every table one, and unlike an append-only log this row genuinely mutates — status and the `reviewed_*` columns change after creation), a harmless addition the original hand-drafted sketch simply hadn't included.
 
 **Design notes:**
 - **`okrs`/`key_results` need nothing special for "additive, never clears."** That requirement, confirmed 2026-09-02, falls out of the schema for free: adding an objective mid-quarter is just inserting a new row, existing ones are untouched by default.
@@ -248,21 +259,29 @@ CREATE TABLE ai_suggestions (
 - **`ai_suggestions` is the new idea in this cluster.** Without it, `positions.is_critical` and `departments.revenue_allocation_percentage` would have to already be true the moment AI proposes them, skipping the "human approves" step the AI approach requires. This table holds the in-between state, proposed but not yet real, visible on the AI Suggestions review screen (Approve/Edit/Reject). Once HR approves or edits one, the application writes the final value onto the real `positions` or `departments` row; for a missing-department suggestion, onto a newly created `departments` row.
 - **One table for three suggestion types, not three tables.** A genuine tradeoff, not a clean answer: three separate tables would avoid the unused nullable columns per type, but would repeat the same pending/approved/edited/rejected review lifecycle three times over. One table was the more pragmatic call for MVP.
 - **A CHECK constraint enforces the type-to-column pairing** (`critical_position` requires `position_id`, `revenue_allocation` requires `department_id`, `missing_department` requires `suggested_department_name`) — without it, nothing would stop a nonsensical row like a `critical_position` suggestion with no position attached. Caught during the consistency pass on 2026-09-04, not part of the original draft.
+- **A `critical_position` suggestion must also carry `suggested_criticality_type` and `suggested_risk_level`, and a `revenue_allocation` one its `suggested_revenue_allocation_percentage` (2026-09-24)** — enforced by the same CHECK and mirrored in the create schema. Without them, approving one would flag a position critical with no description of why or how much. Both are required of the AI's answer; HR can still correct values on review (Edit). The approve write-through relies on this guarantee.
 ```sql
 CREATE UNIQUE INDEX idx_ai_suggestions_unique_pending
-ON ai_suggestions (organization_id, suggestion_type, position_id, department_id, kpi_id, suggested_department_name)
+ON ai_suggestions (organization_id, suggestion_type, position_id, department_id, suggested_department_name_normalized)
+NULLS NOT DISTINCT
 WHERE status = 'pending';
 ```
-- **The partial unique index above (2026-09-07) makes retried Celery generation jobs safe.** Without it, a retried "generate suggestions" job could create a second, duplicate pending suggestion for the same target. Postgres treats NULL columns as never conflicting, so this one index correctly enforces "one pending suggestion per target" across all four suggestion types without needing a separate index per type. Paired with `INSERT ... ON CONFLICT DO NOTHING` in the generation code, a retry becomes a safe no-op instead of a duplicate row.
+- **`suggested_department_name_normalized` (2026-09-23) — the index and the rejection lookup key on a derived comparison key, not the raw LLM-written name.** For `missing_department` the target's identity is free text, and an LLM won't reproduce it byte-for-byte across runs: a rejected "Customer Success" would come back as "Customer success" or "  Customer  Success", and both the pending-duplicate index and the rejected-suggestion suppression (`08_DECISIONS.md` 2026-09-22), comparing exactly, would treat it as a brand-new target — the same re-nagging the suppression rule exists to prevent. Standard practice (keep the display value, compare on a separate normalized key) applied as a Postgres generated column: NFKC Unicode normalization, trim, collapse internal whitespace, lowercase. Generated, not application-populated, so it can't drift from the source value and no write path can forget it; `suggested_department_name` itself stays exactly as the AI wrote it (display, and the unaltered signal for the training-data goal below). The same expression is defined once in `app/modules/ai/models.py` (`normalized_name_expr`) and reused for the query side, so the write side and read side can't disagree. **Scope of what this catches:** formatting noise (case, spacing, Unicode variants) — not synonyms or rewordings ("Customer Success Team" is a different key). Suppressing near-duplicate wording is a prompt-design concern for the generation step (e.g. telling the LLM which names were already rejected), not something a database key can do.
+- **The partial unique index above (2026-09-07) makes retried Celery generation jobs safe.** Without it, a retried "generate suggestions" job could create a second, duplicate pending suggestion for the same target. Paired with `INSERT ... ON CONFLICT DO NOTHING` in the generation code, a retry becomes a safe no-op instead of a duplicate row.
+- **`NULLS NOT DISTINCT` corrects a real bug found and verified against the dev DB during M7 implementation (2026-09-23).** This note originally claimed "Postgres treats NULL columns as never conflicting, so this one index correctly enforces one pending suggestion per target" — that has it backwards. Standard SQL unique-index semantics treat `NULL <> NULL` (never equal), so a composite unique index **never** fires when the differentiating columns are null. Every suggestion type here only populates one of `position_id`/`department_id`/`suggested_department_name`, leaving the other two null — meaning the index, as originally written, silently never caught a duplicate for *any* suggestion type, confirmed by directly inserting the same `critical_position`/`missing_department` target twice and watching both rows land. `NULLS NOT DISTINCT` (Postgres 15+; this project runs 16) makes the index treat two nulls in the same column as equal for uniqueness purposes, which is what the original description actually intended. Re-verified after the fix: an identical second insert is now correctly absorbed by `ON CONFLICT ... DO NOTHING`.
 - **`kpi_weight` added as a fourth `suggestion_type`, 2026-09-05**, closing a gap against `01_REQUIREMENTS.md` §7/§8: "AI suggests a starting split when KPIs are set up, HR approves/edits, same pattern used everywhere else." The original three types missed this entirely. Follows the exact same shape as the other three: a type-specific target (`kpi_id`), a suggested value, a reviewed value, and the same CHECK-constraint pairing.
-- **`reviewed_*` columns mirror each `suggested_*` column, added 2026-09-05.** This table isn't just a review queue, it's the raw material for eventually training a proprietary model once enough organizations have gone through it (see `01_REQUIREMENTS.md` §8, "approvals/corrections become future training data"). Without a place to record what HR actually decided, the table would only ever remember what the AI proposed, the single most valuable signal, "AI suggested X, human corrected it to Y", would be lost. `reviewed_*` gets populated whenever a decision is made, approved **or** edited, not only on edits, so anything reading this later for training data has one consistent column to read from, instead of branching on `status` to decide whether to trust `suggested_*` or `reviewed_*`. On `rejected`, `reviewed_*` stays null, there's no "correct" value to record, the rejection itself is the signal.
+- **`reviewed_*` columns mirror each `suggested_*` column, added 2026-09-05.** This table isn't just a review queue, it's the raw material for eventually training a proprietary model once enough organizations have gone through it (see `01_REQUIREMENTS.md` §8, "approvals/corrections become future training data"). Without a place to record what HR actually decided, the table would only ever remember what the AI proposed, the single most valuable signal, "AI suggested X, human corrected it to Y", would be lost. The mirrored *value* columns (`reviewed_criticality_type`, `reviewed_risk_level`, `reviewed_revenue_allocation_percentage`, `reviewed_department_name`, and M8's `reviewed_weight`) get populated whenever a decision is made, approved **or** edited, not only on edits, so anything reading this later for training data has one consistent set of columns to read from, instead of branching on `status` to decide whether to trust `suggested_*` or `reviewed_*`. On `rejected`, those mirrored value columns stay null, there's no "correct" value to record, the rejection itself is the signal.
+- **`reviewed_by_user_id`/`reviewed_at` are a different case from the mirrored value columns above, disambiguated during M7 implementation (2026-09-23): both are populated on every decision, including rejection.** They're plain audit fields (who, when), not a "what's the correct value" signal, so the "stays null on rejection" reasoning above doesn't apply to them, only to the mirrored `suggested_*`-shaped columns. This also isn't optional: the rejected-suggestion quarterly-suppression rule (`08_DECISIONS.md` 2026-09-22) compares a rejected row's `reviewed_at` against the org's current fiscal-quarter boundary to decide whether it's still suppressing regeneration — with no `reviewed_at` on a rejected row, that mechanism would have nothing to check.
 ```sql
 CREATE TABLE ai_usage_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
     purpose TEXT NOT NULL CHECK (purpose IN ('ai_suggestion_generation','executive_summary_generation')),
+    model TEXT NOT NULL,  -- model id that served the call, for per-model cost tracking (added 2026-09-25, model tiering)
     prompt_tokens INTEGER,
     completion_tokens INTEGER,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,  -- prompt-cache writes, 5m + 1h combined (added 2026-09-25)
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,   -- prompt-cache hits (added 2026-09-25)
     estimated_cost_usd NUMERIC(10,4),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
