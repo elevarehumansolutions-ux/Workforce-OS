@@ -88,6 +88,27 @@ class OKRRepository:
         stmt = stmt.order_by(OKR.created_at.asc())
         return await paginate(stmt, page, limit, self._db)
 
+    async def list_active_objective_titles(self, organization_id: uuid.UUID) -> list[str]:
+        """List every non-deleted objective's title, for prompt context.
+
+        Read-only prompt context for AI suggestion generation (``ai`` sits
+        above ``okrs`` in the dependency direction, same as it does above
+        ``organization``/``business_dna``) — not paginated, same accepted
+        limit as the other prompt-context queries.
+
+        Args:
+            organization_id: Organization to list objective titles for.
+
+        Returns:
+            The organization's non-deleted objective titles.
+        """
+        stmt = select(OKR.title).where(
+            OKR.organization_id == organization_id,
+            OKR.deleted_at.is_(None),
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
     async def update_okr(self, okr: OKR, data: dict) -> OKR:
         """Apply a partial update. Caller (service layer) commits.
 

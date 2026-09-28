@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_membership, get_db, require_org_role
 from app.core.schemas import PaginationResponse
+from app.core.triggers import trigger_ai_suggestion_generation
 from app.modules.tenancy_identity.models import Membership
 
 from .schemas import (
@@ -56,6 +57,13 @@ async def create_okr(
     service = OKRService(db)
     okr = await service.create_okr(caller.organization_id, caller.user_id, data.model_dump())
     await db.commit()
+    # A new objective is one of the two documented generation triggers
+    # (06_AI_DESIGN.md) — missing_department reads OKRs as prompt context,
+    # so a fresh objective can surface a gap that wasn't visible before.
+    # Editing an existing OKR's title isn't itself the same event, so only
+    # creation fires this, matching the "specific event, not every write"
+    # pattern already used for positions/departments.
+    await trigger_ai_suggestion_generation(caller.organization_id)
     return OKRResponse.model_validate(okr)
 
 

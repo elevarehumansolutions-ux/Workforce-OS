@@ -435,6 +435,63 @@ class KeyResultNotFoundException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class OrganizationNotFoundException(PlatformError):
+    """Raised when a lookup by organization id finds no matching row.
+
+    Also covers "exists, but isn't visible under the current RLS context" —
+    indistinguishable from not existing, same reasoning as
+    DepartmentNotFoundException.
+    """
+
+    def __init__(
+        self,
+        message: str = "Organization not found",
+        code: str = "ORGANIZATION_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class SuggestionNotFoundException(PlatformError):
+    """Raised when a lookup by AI suggestion id finds no matching row.
+
+    Also covers "exists, but belongs to a different org" — RLS makes that
+    indistinguishable from not existing, same reasoning as
+    DepartmentNotFoundException.
+    """
+
+    def __init__(
+        self,
+        message: str = "Suggestion not found",
+        code: str = "SUGGESTION_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class SuggestionAlreadyReviewedException(PlatformError):
+    """Raised when reviewing a suggestion that is no longer pending.
+
+    Only a pending suggestion can be approved, edited, or rejected. Also
+    what the losing reviewer sees when two people act on the same
+    suggestion at once (08_DECISIONS.md 2026-09-24).
+    """
+
+    def __init__(
+        self,
+        message: str = "Suggestion has already been reviewed",
+        code: str = "SUGGESTION_ALREADY_REVIEWED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class InternalServerErrorException(PlatformError):
     """Raised when an unexpected error occurs that isn't a known domain failure."""
 

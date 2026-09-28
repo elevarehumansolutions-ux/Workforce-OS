@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db, get_current_membership, require_org_role
 from app.core.schemas import PaginationResponse
+from app.core.triggers import trigger_ai_suggestion_generation
 from app.modules.tenancy_identity.models import Membership
 
 from .schemas import (
@@ -209,6 +210,8 @@ async def create_department(
         caller.organization_id, caller.user_id, data.model_dump()
     )
     await db.commit()
+    if department.is_critical:
+        await trigger_ai_suggestion_generation(caller.organization_id)
     return DepartmentResponse.model_validate(department)
 
 
@@ -294,6 +297,8 @@ async def update_department(
         department_id, caller.user_id, data.model_dump(exclude_unset=True)
     )
     await db.commit()
+    if department.is_critical:
+        await trigger_ai_suggestion_generation(caller.organization_id)
     return DepartmentResponse.model_validate(department)
 
 
@@ -355,6 +360,7 @@ async def create_position(
         caller.organization_id, caller.user_id, data.model_dump()
     )
     await db.commit()
+    await trigger_ai_suggestion_generation(caller.organization_id)
     return PositionResponse.model_validate(position)
 
 

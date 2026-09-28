@@ -9,9 +9,11 @@ after a successful call.
 import uuid
 
 from fastapi.encoders import jsonable_encoder
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
+    AlreadyExistsException,
     DepartmentNotFoundException,
     EmployeeNotFoundException,
     LocationNotFoundException,
@@ -42,6 +44,26 @@ def _snapshot(instance, fields) -> dict:
         A JSON-encodable dict mapping each field name to its current value.
     """
     return jsonable_encoder({field: getattr(instance, field, None) for field in fields})
+
+
+_DEPARTMENT_NAME_INDEX = "uq_departments_org_name_active"
+
+
+def _is_duplicate_department_name(error: IntegrityError) -> bool:
+    """Return whether an IntegrityError is the department-name uniqueness violation.
+
+    Matches on the violated index's name rather than assuming any
+    IntegrityError on ``departments`` means a duplicate name, so an
+    unrelated constraint failure is never mislabelled as one.
+
+    Args:
+        error: The IntegrityError raised by the database driver.
+
+    Returns:
+        True if the per-organization unique department-name index was violated.
+    """
+    diag = getattr(error.orig, "diag", None)
+    return getattr(diag, "constraint_name", None) == _DEPARTMENT_NAME_INDEX
 
 
 class LocationService:
@@ -189,8 +211,24 @@ class DepartmentService:
 
         Returns:
             The newly created ``Department``.
+
+        Raises:
+            AlreadyExistsException: If a non-deleted department with the same
+                (normalized) name already exists in the organization.
         """
-        department = await self._repo.create_department({**data, "organization_id": organization_id})
+        try:
+            # A SAVEPOINT, so a rejected insert doesn't abort the surrounding
+            # transaction (and with it the tenant context set for this request).
+            async with self._db.begin_nested():
+                department = await self._repo.create_department(
+                    {**data, "organization_id": organization_id}
+                )
+        except IntegrityError as error:
+            if _is_duplicate_department_name(error):
+                raise AlreadyExistsException(
+                    message=f"A department named '{data['name']}' already exists"
+                ) from error
+            raise
         await self._audit.log_action(
             organization_id=organization_id,
             actor_user_id=actor_user_id,
@@ -250,10 +288,20 @@ class DepartmentService:
         Raises:
             DepartmentNotFoundException: If no non-deleted department with
                 that id exists in the caller's org.
+            AlreadyExistsException: If renaming would duplicate another
+                non-deleted department's (normalized) name in the org.
         """
         department = await self.get_department_by_id(department_id)
         old_data = _snapshot(department, data.keys())
-        department = await self._repo.update_department(department, data)
+        try:
+            async with self._db.begin_nested():
+                department = await self._repo.update_department(department, data)
+        except IntegrityError as error:
+            if _is_duplicate_department_name(error):
+                raise AlreadyExistsException(
+                    message=f"A department named '{data['name']}' already exists"
+                ) from error
+            raise
         await self._audit.log_action(
             organization_id=department.organization_id,
             actor_user_id=actor_user_id,
@@ -265,7 +313,7 @@ class DepartmentService:
         return department
 
     async def delete_department(self, department_id: uuid.UUID, actor_user_id: uuid.UUID) -> Department:
-        """Soft-delete a department, blocking while it still has active positions.
+        """Soft-delete a department, blocking while it is still referenced.
 
         Deletion is blocked-while-referenced rather than cascaded
         (01_REQUIREMENTS.md §2, 08_DECISIONS.md 2026-09-07).
@@ -281,17 +329,21 @@ class DepartmentService:
             DepartmentNotFoundException: If no non-deleted department with
                 that id exists in the caller's org.
             ResourceInUseException: If the department still has active
-                positions assigned to it.
+                positions assigned to it, or a pending AI suggestion targets it.
         """
         # Blocked-while-referenced, not cascaded (01_REQUIREMENTS.md §2,
         # 08_DECISIONS.md 2026-09-07) — named reason, no silent allow.
         department = await self.get_department_by_id(department_id)
 
         active_positions = await self._repo.count_active_positions(department_id)
+        has_pending_suggestion = await self._repo.has_pending_ai_suggestion(department_id)
+        reasons = []
         if active_positions > 0:
-            raise ResourceInUseException(
-                message=f"Cannot delete department: {active_positions} active position(s) still assigned"
-            )
+            reasons.append(f"{active_positions} active position(s) still assigned")
+        if has_pending_suggestion:
+            reasons.append("a pending AI suggestion still targets it (review it first)")
+        if reasons:
+            raise ResourceInUseException(message=f"Cannot delete department: {'; '.join(reasons)}")
 
         old_data = _snapshot(department, Department.__table__.columns.keys())
         department = await self._repo.soft_delete_department(department)
@@ -405,9 +457,10 @@ class PositionService:
     async def delete_position(self, position_id: uuid.UUID, actor_user_id: uuid.UUID) -> Position:
         """Soft-delete a position, blocking while it is still referenced.
 
-        Blocked-while-referenced against two independent references: active
-        employees holding this position, and other positions reporting to
-        it. Both are checked and reported together in a single error.
+        Blocked-while-referenced against three independent references: active
+        employees holding this position, other positions reporting to it, and
+        a pending AI suggestion targeting it. All are checked and reported
+        together in a single error.
 
         Args:
             position_id: Id of the position to delete.
@@ -420,7 +473,8 @@ class PositionService:
             PositionNotFoundException: If no non-deleted position with that
                 id exists in the caller's org.
             ResourceInUseException: If the position still has active
-                employees assigned to it or positions reporting to it.
+                employees assigned to it, positions reporting to it, or a
+                pending AI suggestion targeting it.
         """
         # Same blocked-while-referenced rule as DepartmentService.delete_department,
         # checked against two independent references (active employees holding
@@ -429,11 +483,14 @@ class PositionService:
 
         active_employees = await self._repo.count_active_employees(position_id)
         direct_reports = await self._repo.count_direct_reports(position_id)
+        has_pending_suggestion = await self._repo.has_pending_ai_suggestion(position_id)
         reasons = []
         if active_employees > 0:
             reasons.append(f"{active_employees} active employee(s) still assigned")
         if direct_reports > 0:
             reasons.append(f"{direct_reports} position(s) still reporting to it")
+        if has_pending_suggestion:
+            reasons.append("a pending AI suggestion still targets it (review it first)")
         if reasons:
             raise ResourceInUseException(message=f"Cannot delete position: {'; '.join(reasons)}")
 

@@ -160,6 +160,35 @@ class OrganizationRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
     
+    async def list_fiscal_months_for_quarterly_review(self) -> list[tuple[uuid.UUID, int]]:
+        """List every organization's (id, fiscal_year_start_month), across all tenants.
+
+        The one deliberate exception to RLS in this codebase, and the only
+        place this repository reads across tenants. With no tenant context
+        set, ``organizations``' own RLS policy returns zero rows — there is
+        structurally no way to answer "which orgs are due for their
+        Quarterly Objective Review" (08_DECISIONS.md 2026-09-27) without
+        it, since that's inherently a cross-tenant question and the caller
+        (the Beat job) has no single org's context to set.
+
+        Calls a ``SECURITY DEFINER`` SQL function instead of querying
+        ``organizations`` directly: the function is owned by the
+        schema-owning role RLS already exempts, so it runs as its owner,
+        not its caller — ``elevare_app`` is granted ``EXECUTE`` on this one
+        narrow function, never ``BYPASSRLS`` on its own connection. See the
+        migration that creates it for the full reasoning; this keeps
+        07_SECURITY.md's rule genuinely intact, not routed around.
+
+        Returns:
+            Every organization's id paired with its fiscal year start
+            month (1-12) — nothing else about any organization.
+        """
+        result = await self._db.execute(
+            text("SELECT organization_id, fiscal_year_start_month "
+                 "FROM organization_fiscal_months_for_quarterly_review()")
+        )
+        return [(row.organization_id, row.fiscal_year_start_month) for row in result]
+
     async def update_organization(self, organization: Organization, data: dict) -> Organization:
         """Apply a partial update. Caller (service layer) commits.
 
@@ -293,6 +322,30 @@ class MembershipRepository:
         membership.role = role
         await self._db.flush()
         return membership
+
+    async def list_active_user_ids_by_role(
+        self, organization_id: uuid.UUID, role: str
+    ) -> list[uuid.UUID]:
+        """List the users holding one role in an organization, excluding deactivated ones.
+
+        Used to find who to notify for a role-scoped event (e.g. every HR
+        Administrator, when a new AI suggestion is ready) without a caller
+        having to know the deactivation rule itself.
+
+        Args:
+            organization_id: Organization to look in.
+            role: The membership role to match.
+
+        Returns:
+            The matching users' ids.
+        """
+        stmt = select(Membership.user_id).where(
+            Membership.organization_id == organization_id,
+            Membership.role == role,
+            Membership.deactivated_at.is_(None),
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
 
 
 class InviteRepository:
