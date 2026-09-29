@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from app.modules.tenancy_identity.models import Organization, User
     from app.modules.okrs.models import OKR
     from app.modules.ai.models import AISuggestion
+    from app.modules.kpis.models import KPI
 
 
 class Location(BaseModel):
@@ -86,6 +87,9 @@ class Location(BaseModel):
     )
     okrs: Mapped[list["OKR"]] = relationship(
         "OKR", back_populates="location"
+    )
+    kpis: Mapped[list["KPI"]] = relationship(
+        "KPI", back_populates="location"
     )
 
 
@@ -170,6 +174,9 @@ class Department(BaseModel):
     )
     ai_suggestions: Mapped[list["AISuggestion"]] = relationship(
         "AISuggestion", back_populates="department"
+    )
+    kpis: Mapped[list["KPI"]] = relationship(
+        "KPI", back_populates="department"
     )
 
 

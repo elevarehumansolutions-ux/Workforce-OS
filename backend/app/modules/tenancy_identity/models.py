@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from app.modules.business_dna.models import BusinessDNA
     from app.modules.okrs.models import OKR
     from app.modules.ai.models import AISuggestion, AIUsageLog
+    from app.modules.kpis.models import KPI, KPIScore
 
 
 class Organization(BaseModel):
@@ -96,6 +97,12 @@ class Organization(BaseModel):
     )
     ai_usage_logs: Mapped[list["AIUsageLog"]] = relationship(
         "AIUsageLog", back_populates="organization"
+    )
+    kpis: Mapped[list["KPI"]] = relationship(
+        "KPI", back_populates="organization"
+    )
+    kpi_scores: Mapped[list["KPIScore"]] = relationship(
+        "KPIScore", back_populates="organization"
     )
 
 
