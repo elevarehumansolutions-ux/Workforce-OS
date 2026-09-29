@@ -252,6 +252,26 @@ class NoActiveMembershipException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class KPIWeightConflictException(PlatformError):
+    """Raised when a department/location's KPI weights don't total 100%.
+
+    The caller must always pass an explicit ``message`` with the actual
+    computed total (e.g. "...The submitted list totals 90%.") — same
+    convention as ResourceInUseException above: the default here is a
+    generic fallback that should never actually surface to a client.
+    """
+
+    def __init__(
+        self,
+        message: str = "KPI weights for this department must total 100%.",
+        code: str = "KPI_WEIGHT_MISMATCH",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 # ---------------------------------------------------------------------------
 # Authorization  (HTTP 403 / 404)
 # ---------------------------------------------------------------------------
