@@ -70,14 +70,16 @@ async def approve_suggestion(
 ) -> AISuggestionResponse:
     """Approve a pending suggestion exactly as the AI proposed, and apply it.
 
-    Requires the HR Administrator role. No body — to change a value, use
-    ``/edit``. If applying it fails (e.g. a department with that name now
-    exists), the request rolls back and the suggestion stays pending.
+    Requires the HR Administrator or Business Executive role. No body — to
+    change a value, use ``/edit``. If applying it fails (e.g. a department
+    with that name now exists), the request rolls back and the suggestion
+    stays pending.
 
     Args:
         suggestion_id: Id of the suggestion to approve.
         db: Database session dependency.
-        caller: Caller's membership; must be an HR Administrator.
+        caller: Caller's membership; must be an HR Administrator or
+            Business Executive.
 
     Returns:
         The approved suggestion.
@@ -96,16 +98,17 @@ async def edit_suggestion(
 ) -> AISuggestionResponse:
     """Correct a pending suggestion's values, then apply the corrected version.
 
-    Requires the HR Administrator role. Send only the fields being changed;
-    anything left out keeps the AI's value. 422 if a field doesn't apply to
-    the suggestion's type, the body is empty, or nothing differs from the
-    AI's proposal (call ``/approve`` instead).
+    Requires the HR Administrator or Business Executive role. Send only the
+    fields being changed; anything left out keeps the AI's value. 422 if a
+    field doesn't apply to the suggestion's type, the body is empty, or
+    nothing differs from the AI's proposal (call ``/approve`` instead).
 
     Args:
         suggestion_id: Id of the suggestion to edit.
         edit: The fields being changed.
         db: Database session dependency.
-        caller: Caller's membership; must be an HR Administrator.
+        caller: Caller's membership; must be an HR Administrator or
+            Business Executive.
 
     Returns:
         The edited suggestion.
@@ -123,13 +126,15 @@ async def reject_suggestion(
 ) -> AISuggestionResponse:
     """Reject a pending suggestion.
 
-    Requires the HR Administrator role. Starts the quarterly suppression, so
-    the same suggestion isn't proposed again this fiscal quarter.
+    Requires the HR Administrator or Business Executive role. Starts the
+    quarterly suppression, so the same suggestion isn't proposed again this
+    fiscal quarter.
 
     Args:
         suggestion_id: Id of the suggestion to reject.
         db: Database session dependency.
-        caller: Caller's membership; must be an HR Administrator.
+        caller: Caller's membership; must be an HR Administrator or
+            Business Executive.
 
     Returns:
         The rejected suggestion.
