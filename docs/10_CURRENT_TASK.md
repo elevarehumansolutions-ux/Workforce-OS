@@ -1,63 +1,68 @@
 # Current Task
 
-**M7 — AI Suggestions Engine — functionally complete, not yet merged.**
-See `09_PROGRESS.md`'s M7 section for what's built; `08_DECISIONS.md`'s
-2026-09-22 through 2026-09-28 entries for the reasoning behind every
-decision made along the way. Branch: `m7-ai-suggestions`.
+**M8 — Performance: KPI Definitions & Weighting** (see `09_PROGRESS.md`)
 
-## What's left before this milestone closes
+M7 (AI Suggestions Engine) is merged to `main` (PR #25, 2026-09-28) and
+closed out — see `08_DECISIONS.md`'s 2026-09-22 through 2026-09-28 entries
+for the full history, and `.claude/study/M7_STUDY_GUIDE.md` for a
+session-by-session study guide if you want to revisit any of it. M8's
+frontend (KPI setup screens, the assembled onboarding wizard) is Uche's
+track, not blocking this milestone's backend.
 
-1. **Worker/beat restart — done (2026-09-28).** `docker compose up -d
-   --force-recreate celery_worker celery_beat` run against dev; verified
-   with `celery -A app.core.celery_app inspect registered`: both
-   `generate_suggestions` and `quarterly_objective_review` now appear
-   alongside the three pre-existing email tasks; Beat's log shows a clean
-   start with no errors. **The VPS demo can't hit the same staleness bug**
-   — its deploy pipeline (`.github/workflows/ci-cd.yml`'s `deploy` job)
-   runs `docker compose ... up -d --build` on every merge to `main`, which
-   always rebuilds the image and recreates every container fresh,
-   `celery_worker`/`celery_beat` included. The staleness problem only
-   happened locally this session because files were edited without a
-   rebuild mid-session; a real deploy always rebuilds.
-2. **New env vars are all safe to be absent on the VPS.** `ANTHROPIC_MODEL_FAST`,
-   `ANTHROPIC_MODEL_STRONG`, and the three `AI_MAX_*` guardrail settings
-   all have Python defaults in `config.py` — a missing var just falls back
-   to the default, no crash. `Settings` also has `extra="ignore"`, so a
-   leftover, now-unused `ANTHROPIC_MODEL=...` line in the server's
-   `backend/.env` is harmless too. The one thing worth checking (not a
-   crash risk, a functionality one): `ANTHROPIC_API_KEY` on the server —
-   if it's still the placeholder, AI generation will fail at runtime with
-   an auth error the moment it's triggered, worth confirming before the
-   next demo. `anthropic==1.8.0` installs automatically via the deploy's
-   `--build` step. The new migrations (incl. the `SECURITY DEFINER`
-   function and the department-rename one, see item 4 below) apply
-   automatically via the deploy's `alembic upgrade head` step.
-3. **Tell Uche (frontend), non-blocking — doesn't hold up merging this
-   milestone:** the client decides which endpoint to call —
-   `POST .../approve` with no body when nothing changed, `POST .../edit`
-   with only the changed fields otherwise (it must diff, not resend the
-   whole form — `08_DECISIONS.md` 2026-09-24). Both list and review
-   actions are open to `hr_administrator` **and** `business_executive`
-   (2026-09-24/25).
-4. **VPS deploy note:** migration `61454952170a` renames any pre-existing
-   duplicate department names with a numeric suffix — expected on the next
-   deploy, not a bug if display names change.
-5. Standard workflow once the above are confirmed: review → commit → push
-   → PR → merge → delete branch → branch for whatever's next per
-   `09_PROGRESS.md` (M8 — KPIs).
+## Backend scope
 
-## Nice-to-haves, not built (deliberately, not overlooked)
+**`kpis` and `kpi_scores`** (`04_DATABASE.md` Cluster 5):
+- `POST|GET|PATCH /kpis` (filter: `department_id`, `location_id`). A KPI
+  belongs to a department, optionally scoped to one `location_id` (null =
+  department-wide); `key_result_id` is nullable — not every KPI traces to
+  a specific Key Result.
+- **Weight-sums-to-100 validation, app-level, not a database constraint**
+  (`kpis.weight` only has a `CHECK (weight BETWEEN 0 AND 100)` per row —
+  Postgres has no clean row-level way to check a *group* of rows sums to
+  100). Enforce on create and edit within a department/location group;
+  **409 on drift**, matching this API's existing conflict-status
+  convention (`05_API_DESIGN.md`).
+- **Known gap already on record, not to be missed:** the same validation
+  needs to re-check the *remaining* KPIs after one is **deleted**, not
+  just on create/edit — three KPIs at 30/30/40 losing the 40-weight one
+  silently leaves the group at 60%, with nothing prompting a rebalance
+  (`09_PROGRESS.md`, flagged 2026-09-18).
+- `POST /kpis/{id}/scores` — record a period's actual value; the server
+  computes `score_percentage` (stored, not derived on read — the
+  actual-vs-target curve isn't always a straight ratio; some KPIs are
+  inverse, e.g. lower is better for "customer complaints"). One row per
+  KPI per scoring period (a quarter) in `kpi_scores`, which has **no**
+  `deleted_at` — a closed period's score is permanent history, a
+  correction is a new period's row, not an edit to the old one.
+- `GET /kpis/{id}/scores` — historical scores for one KPI.
 
-- Uniqueness for `locations.name` / `positions.title` — same gap as the
-  department-name fix, less clear-cut, not requested.
-- Per-org-plan model tiering (a paying customer getting the stronger
-  model) — the `tier` argument leaves room for this later; not built.
-- Filtering the Quarterly Review scan by `subscription_status` (skipping
-  `cancelled`/`expired` orgs) — not requested, not built; every org is
-  scanned today.
+**`kpi_weight`, the fourth `ai_suggestions.suggestion_type`, reusing M7's
+engine.** This is the milestone's main integration work, and M7 was built
+in a shape specifically meant to extend cleanly here — study
+`ai/generation.py`'s three existing chains (`critical_position`,
+`revenue_allocation`, `missing_department`) before designing this one,
+since it should mirror whichever of them is the closest analog rather than
+inventing new patterns. Needs: the answer schema, the prompt (KPI names +
+weights context), a candidate query (which department/location KPI groups
+are missing a suggested split, or have one worth re-proposing), the
+gather/select/orchestrate trio, wiring into `run_generation`, and a
+decision on whether/how it triggers (a KPI created is the obvious event,
+matching the "specific event, not every write" pattern already used for
+departments/positions/OKRs).
 
-## Study material
+**`GET /ai-usage`** (ships here per `09_PROGRESS.md`; its screen doesn't
+land until M13, paired with Billing History — not overlooked, just paired
+later). The org's own `ai_usage_log`, `hr_administrator`-only per
+`05_API_DESIGN.md`.
 
-A session-by-session study guide of everything decided, built, and
-mistaken along the way on M7 lives at `.claude/study/M7_STUDY_GUIDE.md`
-(git-ignored, not part of the public repo).
+## Depends on
+
+M6 (`key_result_id` exists) and M7 (the generation engine `kpi_weight`
+reuses) — both done.
+
+## Not this milestone's job
+
+Frontend: KPI setup per department, the AI-suggested weight split shown in
+the same review pattern as M7, and assembling the full onboarding wizard
+(Business DNA → Org Setup → OKRs → AI Suggestions for Critical Roles →
+KPIs → Invite Team). That's Uche's track.
