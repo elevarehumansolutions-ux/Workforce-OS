@@ -1,6 +1,8 @@
-"use client";
+﻿"use client";
 
-import { useState, FormEvent, KeyboardEvent } from "react";
+import { useState, useEffect, FormEvent, KeyboardEvent } from "react";
+import { useRouter } from "next/navigation";
+import { apiFetch, getAccessToken } from "@/lib/api";
 
 interface BusinessDnaFormData {
   companyName: string;
@@ -33,7 +35,27 @@ const INDUSTRY_OPTIONS = [
   "Other",
 ];
 
+interface MeResponse {
+  user: { account_status: string };
+}
+
 export default function BusinessDnaPage() {
+  const router = useRouter();
+
+  useEffect(function () {
+    if (!getAccessToken()) return;
+    apiFetch<MeResponse>("/me", { method: "GET" })
+      .then(function (me) {
+        if (me.user.account_status !== "verified") {
+          router.replace("/verify-email");
+        }
+      })
+      .catch(function () {
+        // If the check itself fails (e.g. offline), don't block the wizard.
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [formData, setFormData] = useState<BusinessDnaFormData>({
     companyName: "",
     industry: INDUSTRY_OPTIONS[0],
@@ -75,7 +97,7 @@ export default function BusinessDnaPage() {
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    console.log("Business DNA submitted:", formData);
+    router.push("/onboarding/org-setup");
   }
 
   return (

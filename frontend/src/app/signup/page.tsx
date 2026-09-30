@@ -81,7 +81,10 @@ export default function SignupPage() {
       });
 
       setAccessToken(data.access_token);
-      router.push("/onboarding/business-dna");
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("elevare_pending_verification_email", formData.workEmail);
+      }
+      router.push("/verify-email");
     } catch (err) {
       if (err instanceof ApiError) {
         if (Object.keys(err.fieldErrors).length > 0) {

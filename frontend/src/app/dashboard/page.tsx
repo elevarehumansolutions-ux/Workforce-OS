@@ -50,15 +50,21 @@ function SidebarShell(activeLabel: string) {
         </div>
         {SidebarNav(activeLabel)}
       </div>
-      <div className="flex items-center gap-3 border-t border-white/10 px-6 pt-4">
+      <a
+        href="/organizations"
+        className="flex items-center gap-3 border-t border-white/10 px-6 pt-4 transition hover:bg-white/5"
+      >
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-500 text-xs font-semibold text-white">
           NA
         </div>
-        <div>
+        <div className="flex-1">
           <p className="text-sm font-medium text-white">Ngozi Adeyemi</p>
           <p className="text-xs text-gray-500">Engineering Manager</p>
         </div>
-      </div>
+        <svg width="14" height="14" viewBox="0 0 20 20" fill="none" className="text-gray-500">
+          <path d="M6 8l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </a>
     </aside>
   );
 }
