@@ -1,4 +1,4 @@
-"""add kpis tracking_mode column
+"""Add kpis tracking_mode column.
 
 Revision ID: 5138cf77aaf2
 Revises: ba28e47d3238

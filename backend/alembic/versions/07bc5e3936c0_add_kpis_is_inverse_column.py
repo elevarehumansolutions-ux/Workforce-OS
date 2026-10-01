@@ -1,4 +1,4 @@
-"""add kpis is_inverse column
+"""Add kpis is_inverse column.
 
 Revision ID: 07bc5e3936c0
 Revises: 1deb2686d233

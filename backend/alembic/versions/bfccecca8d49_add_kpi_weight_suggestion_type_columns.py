@@ -1,4 +1,4 @@
-"""add kpi_weight suggestion type columns
+"""Add kpi_weight suggestion type columns.
 
 Revision ID: bfccecca8d49
 Revises: 07bc5e3936c0

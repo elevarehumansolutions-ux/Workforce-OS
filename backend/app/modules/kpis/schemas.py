@@ -9,6 +9,15 @@ from pydantic import BaseModel, ConfigDict
 from .enums import KPITrackingMode
 
 class KPICreate(BaseModel):
+    """Request body for creating a KPI.
+
+    ``organization_id`` is deliberately absent — resolved server-side
+    from the authenticated caller's membership, never supplied by the
+    client. ``tracking_mode`` is also absent: it defaults to ``'manual'``
+    at the database level, and nothing about creating a KPI through this
+    endpoint needs the caller to choose ``'task_count'`` yet.
+    """
+
     department_id: uuid.UUID
     location_id: uuid.UUID | None = None
     key_result_id: uuid.UUID | None = None
@@ -42,6 +51,14 @@ class KPIResponse(BaseModel):
 
 
 class KPIUpdate(BaseModel):
+    """Request body for partially updating a KPI. All fields optional.
+
+    ``department_id``/``location_id`` are deliberately absent — those
+    define which weight group a KPI belongs to, and moving a KPI between
+    groups isn't a plain edit (it would need to re-validate the new
+    group's total too, which nothing asked for).
+    """
+
     name: str | None = None
     description: str | None = None
     weight: decimal.Decimal | None = None

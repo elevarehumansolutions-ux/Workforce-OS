@@ -1,9 +1,9 @@
-"""Every KPI mutation writes an audit entry — the gap flagged in
-08_DECISIONS.md/09_PROGRESS.md, closed here.
+"""Every KPI mutation writes an audit entry.
 
-Scenario: Adaeze creates a KPI, edits it, records a score for it, and
-later removes it via the group reconcile. Each of those four actions
-must leave its own trace in audit_log.
+The gap flagged in 08_DECISIONS.md/09_PROGRESS.md, closed here. Scenario:
+Adaeze creates a KPI, edits it, records a score for it, and later
+removes it via the group reconcile — each of those four actions must
+leave its own trace in audit_log.
 """
 import uuid
 from datetime import date, timedelta
@@ -31,6 +31,7 @@ async def _audit_entries(db_session, entity_type, entity_id):
 
 @pytest.mark.asyncio
 async def test_create_kpi_writes_an_audit_entry(client, db_session):
+    """Creating a KPI logs a 'create' entry with the new fields as 'new'."""
     owner = await register_verified_and_login(client, email="kpi_audit1@example.com")
     h = _h(owner["access_token"])
     dept_id = (await client.post(DEPARTMENTS, json={"name": "Sales"}, headers=h)).json()["id"]
@@ -48,6 +49,7 @@ async def test_create_kpi_writes_an_audit_entry(client, db_session):
 
 @pytest.mark.asyncio
 async def test_update_kpi_writes_an_audit_entry_with_old_and_new(client, db_session):
+    """Editing a KPI logs an 'update' entry with both the old and new weight."""
     owner = await register_verified_and_login(client, email="kpi_audit2@example.com")
     h = _h(owner["access_token"])
     dept_id = (await client.post(DEPARTMENTS, json={"name": "Sales"}, headers=h)).json()["id"]
@@ -66,6 +68,7 @@ async def test_update_kpi_writes_an_audit_entry_with_old_and_new(client, db_sess
 
 @pytest.mark.asyncio
 async def test_reconcile_writes_create_update_and_delete_entries(client, db_session):
+    """The group reconcile logs one entry per KPI it touches, not one for the batch."""
     owner = await register_verified_and_login(client, email="kpi_audit3@example.com")
     h = _h(owner["access_token"])
     dept_id = (await client.post(DEPARTMENTS, json={"name": "Sales"}, headers=h)).json()["id"]
@@ -90,6 +93,7 @@ async def test_reconcile_writes_create_update_and_delete_entries(client, db_sess
 
 @pytest.mark.asyncio
 async def test_score_upsert_writes_create_then_update_entries(client, db_session):
+    """The first score call logs 'create'; a second call for the same period logs 'update'."""
     owner = await register_verified_and_login(client, email="kpi_audit4@example.com")
     h = _h(owner["access_token"])
     dept_id = (await client.post(DEPARTMENTS, json={"name": "Sales"}, headers=h)).json()["id"]

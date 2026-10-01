@@ -1,4 +1,4 @@
-"""add kpis and kpi_scores tables
+"""Add kpis and kpi_scores tables.
 
 Revision ID: ba28e47d3238
 Revises: c56f442c2848

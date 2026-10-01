@@ -1,9 +1,18 @@
+"""Business logic for the KPI module.
+
+Wraps KPIRepository/KPIScoreRepository, adding weight-sum validation,
+the group reconcile's create/update/delete diff, direction-aware score
+calculation, and audit logging around plain CRUD. Flushes via the
+repository but never commits — the router commits after a successful
+call, same convention as every other module.
+"""
+
 from app.core.exceptions import KPIScorePeriodClosedException
 from datetime import date
 import decimal
 import uuid
 from app.core.exceptions import KPINotFoundException
-from .schemas import KPIUpdate, KPIGroupUpdateRequest, KPIGroupUpdateResponse, KPIScoreCreate
+from .schemas import KPIUpdate, KPIGroupUpdateRequest, KPIScoreCreate
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +41,10 @@ def _snapshot(instance, fields) -> dict:
 
 
 class KPIService:
+    """Business logic for creating, reading, updating, and scoring KPIs."""
+
     def __init__(self, db: AsyncSession):
+        """Initialize the service with a session and its collaborators."""
         self._db = db
         self.kpi_repo = KPIRepository(db)
         self.score_repo = KPIScoreRepository(db)
@@ -42,6 +54,24 @@ class KPIService:
     async def create_kpi(
         self, organization_id: uuid.UUID, actor_user_id: uuid.UUID, kpi: KPICreate
     ) -> KPI:
+        """Create a KPI and record an audit entry.
+
+        Rejects (409) if adding it would push its department/location
+        group's weights over 100% — the group isn't required to sum to
+        exactly 100 here, only not exceed it, so a list can still be
+        built up one KPI at a time.
+
+        Args:
+            organization_id: Organization the new KPI belongs to.
+            actor_user_id: User performing the creation, for the audit log.
+            kpi: Field values for the new KPI.
+
+        Returns:
+            The newly created KPI.
+
+        Raises:
+            KPIWeightConflictException: If the group would exceed 100%.
+        """
         # List all kpis under the department
         existing_total = await self.kpi_repo.sum_weights_for_group(
             kpi.department_id,
@@ -72,6 +102,25 @@ class KPIService:
     async def update_kpi(
         self, kpi_id: uuid.UUID, actor_user_id: uuid.UUID, data: KPIUpdate
     ) -> KPI:
+        """Apply a partial update to a KPI and record an audit entry.
+
+        Only re-validates the weight group when ``weight`` is one of the
+        fields being changed.
+
+        Args:
+            kpi_id: Id of the KPI to update.
+            actor_user_id: User performing the update, for the audit log.
+            data: Fields to update; anything left out is untouched.
+
+        Returns:
+            The updated KPI.
+
+        Raises:
+            KPINotFoundException: If no non-deleted KPI with that id
+                exists in the caller's org.
+            KPIWeightConflictException: If a changed weight would push
+                the group over 100%.
+        """
         kpi = await self.kpi_repo.get_kpi_by_id(kpi_id)
         if kpi is None:
             raise KPINotFoundException()
@@ -113,6 +162,32 @@ class KPIService:
         location_id: uuid.UUID | None,
         request: KPIGroupUpdateRequest,
     ) -> list[KPI]:
+        """Reconcile a department/location's whole KPI list in one call.
+
+        An item with an ``id`` is updated, an item with no ``id`` is
+        created, and an existing KPI whose id is missing from the
+        submitted list is deleted — this is the only way to delete a
+        KPI. Records one audit entry per create/update/delete performed,
+        not one for the whole batch. The submitted list must sum to
+        exactly 100.
+
+        Args:
+            organization_id: Organization the group belongs to.
+            actor_user_id: User performing the reconcile, for the audit log.
+            department_id: The group's department.
+            location_id: The group's location, or ``None`` for the
+                department-wide group.
+            request: The whole desired KPI list for this group.
+
+        Returns:
+            The full resulting list of KPIs.
+
+        Raises:
+            KPIWeightConflictException: If the submitted list doesn't
+                sum to exactly 100.
+            KPINotFoundException: If a submitted item's id doesn't match
+                any KPI currently in this group.
+        """
         submitted_total = sum(item.weight for item in request.kpis)
         if submitted_total != 100:
             raise KPIWeightConflictException(
@@ -215,6 +290,29 @@ class KPIService:
         kpi_id: uuid.UUID,
         data: KPIScoreCreate,
     ) -> KPIScore:
+        """Upsert the current, still-open period's actual value for a KPI.
+
+        Repeatable while the period is still open, so progress is
+        visible mid-quarter, not just at close — each call updates the
+        same row and records its own audit entry (create the first
+        time, update after that). 409 once ``period_end`` has passed.
+
+        Args:
+            organization_id: Organization the KPI belongs to.
+            actor_user_id: User performing the upsert, for the audit log.
+            kpi_id: Id of the KPI this score is for.
+            data: The period and its actual value.
+
+        Returns:
+            The created or updated score, with ``score_percentage``
+            computed server-side.
+
+        Raises:
+            KPINotFoundException: If no non-deleted KPI with that id
+                exists in the caller's org.
+            KPIScorePeriodClosedException: If ``period_end`` has already
+                passed.
+        """
         kpi = await self.kpi_repo.get_kpi_by_id(kpi_id)
         if kpi is None:
             raise KPINotFoundException()

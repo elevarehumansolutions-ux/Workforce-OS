@@ -1,9 +1,9 @@
-"""The kpi_weight chain: filtering Claude's picks (incl. the sum-to-100
-tolerance), then the whole run.
+"""The kpi_weight chain: filtering Claude's picks, then the whole run.
 
-Scenario: Adaeze's Sales department has two KPIs. Claude — faked here —
-proposes a weight split; only a real, complete (summing to ~100) answer
-reaches the review queue.
+Covers the sum-to-100 tolerance check specific to this chain. Scenario:
+Adaeze's Sales department has two KPIs. Claude — faked here — proposes a
+weight split; only a real, complete (summing to ~100) answer reaches the
+review queue.
 """
 import uuid
 from decimal import Decimal

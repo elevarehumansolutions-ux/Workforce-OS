@@ -1,4 +1,4 @@
-"""add kpis description column
+"""Add kpis description column.
 
 Revision ID: 1deb2686d233
 Revises: 5138cf77aaf2
