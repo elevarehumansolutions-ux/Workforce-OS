@@ -18,13 +18,43 @@ from app.core.schemas import PaginationResponse
 from app.modules.tenancy_identity.models import Membership
 
 from .enums import SuggestionStatus, SuggestionType
-from .schemas import AISuggestionEditRequest, AISuggestionResponse
+from .repository import AIUsageLogRepository
+from .schemas import AISuggestionEditRequest, AISuggestionResponse, AIUsageLogResponse
 from .service import AISuggestionService
 
 router = APIRouter()
 
 _REVIEW_ROLES = ("hr_administrator", "business_executive")
 _READ_ROLES = ("hr_administrator", "business_executive")
+_USAGE_READ_ROLES = ("hr_administrator",)
+
+
+@router.get("/ai-usage", status_code=200)
+async def list_ai_usage(
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_USAGE_READ_ROLES)),
+) -> PaginationResponse:
+    """List the caller's organization's own LLM usage log, newest call first.
+
+    Requires the HR Administrator role — an org's own cost/usage visibility,
+    not a cross-tenant admin view (08_DECISIONS.md 2026-09-07).
+
+    Args:
+        page: 1-indexed page number.
+        limit: Maximum number of rows per page (1-100).
+        db: Database session dependency.
+        caller: Caller's membership, used for organization scoping.
+
+    Returns:
+        A paginated response of usage-log rows.
+    """
+    result = await AIUsageLogRepository(db).list_usage_logs(
+        caller.organization_id, page, limit
+    )
+    result.data = [AIUsageLogResponse.model_validate(row) for row in result.data]
+    return result
 
 
 @router.get("/ai-suggestions", status_code=200)

@@ -1,10 +1,12 @@
 """Generation of AI suggestions: gather context, ask Claude, ground the answer."""
 
+import logging
 import uuid
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +14,7 @@ from app.core.config import settings
 from app.core.exceptions import OrganizationNotFoundException
 from app.core.fiscal import get_fiscal_quarter_start
 from app.modules.business_dna.repository import BusinessDNARepository
+from app.modules.kpis.repository import KPIRepository
 from app.modules.okrs.repository import OKRRepository
 from app.modules.organization.repository import DepartmentRepository, PositionRepository
 from app.modules.tenancy_identity.repository import OrganizationRepository
@@ -23,11 +26,14 @@ from .prompts import (
     BusinessContext,
     PromptDepartment,
     PromptDepartmentHandle,
+    PromptKPIHandle,
     PromptPosition,
     build_critical_position_prompt,
+    build_kpi_weight_prompt,
     build_missing_department_prompt,
     build_revenue_allocation_prompt,
     critical_position_system_prompt,
+    kpi_weight_system_prompt,
     missing_department_system_prompt,
     revenue_allocation_system_prompt,
 )
@@ -37,12 +43,22 @@ from .schemas import (
     AISuggestionResponse,
     CriticalPositionAnswer,
     CriticalPositionPick,
+    KPIWeightAnswer,
+    KPIWeightPick,
     MissingDepartmentAnswer,
     MissingDepartmentPick,
     RevenueAllocationAnswer,
     RevenueAllocationPick,
 )
 from .service import AISuggestionService
+
+logger = logging.getLogger(__name__)
+
+# How far a group's resolved total may drift from 100 and still be used —
+# not zero, since Claude's arithmetic can round a cent off; not loose
+# either, since this is what tells a usable proposal apart from a broken
+# one worth dropping outright (see select_kpi_weight_picks).
+_KPI_WEIGHT_TOTAL_TOLERANCE = Decimal("0.5")
 
 
 @dataclass(frozen=True)
@@ -397,4 +413,149 @@ async def generate_missing_department_suggestions(
         )
         if suggestion is not None:
             created.append(suggestion)
+    return created
+
+
+@dataclass(frozen=True)
+class KPIWeightGroupContext:
+    """Everything one KPI-weight group's run needs, gathered up front."""
+
+    department_id: uuid.UUID
+    department_name: str
+    location_id: uuid.UUID | None
+    kpis: list[PromptKPIHandle]
+    handles: dict[str, uuid.UUID]
+
+
+async def gather_kpi_weight_contexts(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> list[KPIWeightGroupContext]:
+    """One context per department/location group worth proposing a weight split for.
+
+    Unlike the other three chains, there is no single "the context" —
+    each candidate group's KPI names only mean something within that one
+    group, so each needs its own handle set (K1, K2, ... restarting per
+    group, never shared across groups).
+    """
+    kpi_repo = KPIRepository(db)
+    groups = await kpi_repo.list_candidate_kpi_groups_for_weight_suggestion(organization_id)
+
+    contexts: list[KPIWeightGroupContext] = []
+    for department_id, department_name, location_id in groups:
+        kpis = await kpi_repo.list_kpis_in_group(department_id, location_id)
+        handles = make_handles([kpi.id for kpi in kpis], "K")
+        prompt_kpis = [
+            PromptKPIHandle(handle, kpi.name) for handle, kpi in zip(handles, kpis)
+        ]
+        contexts.append(
+            KPIWeightGroupContext(
+                department_id=department_id,
+                department_name=department_name,
+                location_id=location_id,
+                kpis=prompt_kpis,
+                handles=handles,
+            )
+        )
+    return contexts
+
+
+def select_kpi_weight_picks(
+    picks: Sequence[KPIWeightPick], context: KPIWeightGroupContext
+) -> list[tuple[uuid.UUID, KPIWeightPick]]:
+    """Ground Claude's picks for one group: real KPIs only, each at most once.
+
+    Unlike every other pick type, an individual pick isn't meaningful on
+    its own — the whole group's resolved weights have to sum to (close
+    to) 100, since this is a full re-split of the group, not independent
+    scores. A group whose resolved total drifts too far from 100 is
+    dropped **entirely**, not partially applied or auto-corrected: a
+    lopsided proposal is worse than none, since it would otherwise reach
+    review one KPI at a time with no way for the reviewer to see the
+    others went wrong too (08_DECISIONS.md 2026-09-30).
+
+    Raises:
+        LLMOutputError: Most of the picks point at KPIs that don't exist.
+    """
+    resolved = resolve_handles([pick.handle for pick in picks], context.handles)
+    allowed = set(resolved.ids)
+
+    chosen: list[tuple[uuid.UUID, KPIWeightPick]] = []
+    taken: set[uuid.UUID] = set()
+    for pick in picks:
+        kpi_id = context.handles.get(normalize_handle(pick.handle))
+        if kpi_id not in allowed or kpi_id in taken:
+            continue
+        taken.add(kpi_id)
+        chosen.append((kpi_id, pick))
+
+    total = sum((pick.suggested_weight for _, pick in chosen), Decimal("0"))
+    if not chosen or abs(total - 100) > _KPI_WEIGHT_TOTAL_TOLERANCE:
+        logger.warning(
+            "Dropping kpi_weight picks for department %s (location %s): "
+            "resolved total %s, not within tolerance of 100",
+            context.department_id, context.location_id, total,
+        )
+        return []
+    return chosen
+
+
+async def generate_kpi_weight_suggestions(
+    db: AsyncSession, organization_id: uuid.UUID
+) -> list[AISuggestionResponse]:
+    """Run one kpi-weight generation per candidate group for an organization.
+
+    Never commits: the caller (the Celery task) owns the transaction.
+    One Claude call per candidate group — unlike the other three chains,
+    a KPI's weight only means something within its own department/
+    location group, so groups can't share a single call the way
+    departments/positions do.
+
+    Returns:
+        The suggestions newly created by this run, across every
+        candidate group. Candidates skipped as duplicates, recently
+        rejected, or part of a dropped (off-total) group are not
+        included.
+    """
+    contexts = await gather_kpi_weight_contexts(db, organization_id)
+    if not contexts:
+        return []
+
+    dna = await BusinessDNARepository(db).get_business_dna_by_organization_id(organization_id)
+    business = (
+        BusinessContext(
+            industry=dna.industry,
+            products_services=dna.products_services_description,
+            revenue_drivers=dna.revenue_drivers,
+            operational_drivers=dna.operational_drivers,
+            customer_value_drivers=dna.customer_value_drivers,
+            capital_investment_amount=dna.capital_investment_amount,
+        )
+        if dna
+        else BusinessContext()
+    )
+
+    service = AISuggestionService(db)
+    created: list[AISuggestionResponse] = []
+    for context in contexts:
+        answer = await generate_structured(
+            db,
+            organization_id=organization_id,
+            purpose=AIUsagePurpose.AI_SUGGESTION_GENERATION,
+            tier=ModelTier.STRONG,
+            system=kpi_weight_system_prompt(),
+            prompt=build_kpi_weight_prompt(business, context.department_name, context.kpis),
+            output_type=KPIWeightAnswer,
+        )
+        for kpi_id, pick in select_kpi_weight_picks(answer.picks, context):
+            suggestion = await service.create_suggestion_if_eligible(
+                organization_id,
+                AISuggestionCreateRequest(
+                    suggestion_type=SuggestionType.KPI_WEIGHT,
+                    kpi_id=kpi_id,
+                    suggested_weight=pick.suggested_weight,
+                    rationale=pick.rationale,
+                ),
+            )
+            if suggestion is not None:
+                created.append(suggestion)
     return created

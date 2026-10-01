@@ -37,6 +37,8 @@ class AISuggestionCreateRequest(BaseModel):
     suggested_criticality_type: CriticalityType | None = None
     suggested_risk_level: RiskLevel | None = None
     suggested_revenue_allocation_percentage: Decimal | None = None
+    kpi_id: uuid.UUID | None = None
+    suggested_weight: Decimal | None = None
     rationale: NonBlankStr
 
     @model_validator(mode="after")
@@ -44,15 +46,17 @@ class AISuggestionCreateRequest(BaseModel):
         """Require the target this suggestion type points at, and what it must carry.
 
         A ``critical_position`` suggestion must also carry both
-        ``suggested_criticality_type`` and ``suggested_risk_level``, and a
+        ``suggested_criticality_type`` and ``suggested_risk_level``, a
         ``revenue_allocation`` one its percentage (08_DECISIONS.md
-        2026-09-24): approving one without them would apply nothing
+        2026-09-24), and a ``kpi_weight`` one its weight (08_DECISIONS.md
+        2026-09-30): approving one without them would apply nothing
         meaningful to the real row.
         """
         required = {
             SuggestionType.CRITICAL_POSITION.value: self.position_id,
             SuggestionType.REVENUE_ALLOCATION.value: self.department_id,
             SuggestionType.MISSING_DEPARTMENT.value: self.suggested_department_name,
+            SuggestionType.KPI_WEIGHT.value: self.kpi_id,
         }[self.suggestion_type]
         if required is None:
             raise ValueError(
@@ -68,6 +72,9 @@ class AISuggestionCreateRequest(BaseModel):
         elif self.suggestion_type == SuggestionType.REVENUE_ALLOCATION.value:
             if self.suggested_revenue_allocation_percentage is None:
                 missing.append("suggested_revenue_allocation_percentage")
+        elif self.suggestion_type == SuggestionType.KPI_WEIGHT.value:
+            if self.suggested_weight is None:
+                missing.append("suggested_weight")
         if missing:
             raise ValueError(
                 f"{self.suggestion_type} suggestions require: {', '.join(missing)}"
@@ -89,6 +96,8 @@ class AISuggestionResponse(BaseModel):
     suggested_criticality_type: str | None
     suggested_risk_level: str | None
     suggested_revenue_allocation_percentage: Decimal | None
+    kpi_id: uuid.UUID | None
+    suggested_weight: Decimal | None
     rationale: str
     status: str
     reviewed_by_user_id: uuid.UUID | None
@@ -97,6 +106,7 @@ class AISuggestionResponse(BaseModel):
     reviewed_risk_level: str | None
     reviewed_revenue_allocation_percentage: Decimal | None
     reviewed_department_name: str | None
+    reviewed_weight: Decimal | None
     created_at: datetime
     updated_at: datetime
 
@@ -110,6 +120,7 @@ class AISuggestionEditRequest(BaseModel):
     risk_level: RiskLevel | None = None
     revenue_allocation_percentage: Decimal | None = None
     department_name: NonBlankStr | None = None
+    weight: Decimal | None = None
 
     @model_validator(mode="after")
     def _at_least_one_field(self) -> "AISuggestionEditRequest":
@@ -121,6 +132,7 @@ class AISuggestionEditRequest(BaseModel):
                 self.risk_level,
                 self.revenue_allocation_percentage,
                 self.department_name,
+                self.weight,
             )
         ):
             raise ValueError("an edit must change at least one field")
@@ -189,4 +201,41 @@ class MissingDepartmentAnswer(BaseModel):
     """Claude's full answer for a missing-department run; an empty list is valid."""
 
     picks: list[MissingDepartmentPick]
+
+
+class KPIWeightPick(BaseModel):
+    """One existing KPI Claude proposes a weight for, and why.
+
+    Unlike every other pick type, these don't stand alone — the whole
+    point is that the picks returned for one department/location group
+    sum to 100 together (08_DECISIONS.md 2026-09-30). Checked at
+    selection time, not here on the individual pick.
+    """
+
+    handle: str
+    suggested_weight: Decimal
+    rationale: NonBlankStr
+
+
+class KPIWeightAnswer(BaseModel):
+    """Claude's full answer for one KPI-weight group; an empty list is valid."""
+
+    picks: list[KPIWeightPick]
+
+
+class AIUsageLogResponse(BaseModel):
+    """API representation of one LLM usage-log row, returned by GET /ai-usage."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    purpose: str
+    model: str
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    cache_write_tokens: int
+    cache_read_tokens: int
+    estimated_cost_usd: Decimal | None
+    created_at: datetime
 

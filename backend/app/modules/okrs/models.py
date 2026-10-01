@@ -20,6 +20,7 @@ from app.core.database import BaseModel
 if TYPE_CHECKING:
     from app.modules.organization.models import Department, Location
     from app.modules.tenancy_identity.models import Organization
+    from app.modules.kpis.models import KPI
 
 
 class OKR(BaseModel):
@@ -131,3 +132,4 @@ class KeyResult(BaseModel):
 
     # Relationships
     okr: Mapped["OKR"] = relationship("OKR", back_populates="key_results")
+    kpis: Mapped[list["KPI"]] = relationship("KPI", back_populates="key_result")

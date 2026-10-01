@@ -45,6 +45,10 @@ from app.modules.ai.models import (
     AISuggestion,
     AIUsageLog,
 )
+from app.modules.kpis.models import (
+    KPI,
+    KPIScore,
+)
 
 __all__ = [
     "Organization",
@@ -66,4 +70,6 @@ __all__ = [
     "KeyResult",
     "AISuggestion",
     "AIUsageLog",
+    "KPI",
+    "KPIScore",
 ]
