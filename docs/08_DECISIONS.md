@@ -723,7 +723,7 @@ New column: `kpis.tracking_mode` (`TEXT NOT NULL DEFAULT 'manual' CHECK (trackin
 
 **Gap closed same day:** `KPIService` had no audit-log calls at all when first flagged above. Fixed properly, not bolted on: `create_kpi`, `update_kpi`, `reconcile_kpis` (one entry per create/update/delete it performs, not one for the whole batch), and `upsert_score` (create vs. update, matching the method's own branching) all now call `AuditService.log_action()`, mirroring `OKRService`'s exact pattern (a shared `_snapshot()` helper for the "old" side of a diff, `entity_type="kpi"`/`"kpi_score"`). This changed every one of those methods' signatures to take `actor_user_id` — updated at every call site: `kpis/router.py` (now passes `caller.user_id`) and `ai/service.py`'s `_apply_reviewed_values` (a `kpi_weight` approval's write-through now passes its own `actor_user_id` through to `update_kpi`, so an approved suggestion's audit trail correctly attributes the change to the approving reviewer, not an anonymous actor). 4 new tests (`tests/kpis/test_kpi_audit_logging.py`) directly confirm entries land with the right action/old/new shape, not just that nothing broke; a 5th assertion added to the existing `kpi_weight` approve test. 408 passing (up from 404).
 
-**Impact:** `05_API_DESIGN.md` gets a new `## Performance` section (moved out of "not yet built"), `GET /ai-usage` moved to live, the AI Suggestions section updated for `kpi_weight`. `09_PROGRESS.md` M8 entry rewritten to reflect actual shipped state and the audit-logging gap. Full suite: **404 passing** (up from 381 at M7's close), verified by running it twice end to end, not just trusted from memory.
+**Impact:** `05_API_DESIGN.md` gets a new `## Performance` section (moved out of "not yet built"), `GET /ai-usage` moved to live, the AI Suggestions section updated for `kpi_weight`. `09_PROGRESS.md` M8 entry rewritten to reflect actual shipped state. Full suite: **408 passing** (up from 381 at M7's close, including the 4 audit-logging tests above), verified by running it end to end more than once, not just trusted from memory.
 
 ## 2026-09-30 — KPI mutation and read access settled: `hr_administrator`-only writes (except scores), reads open to any org member
 
@@ -738,5 +738,29 @@ New column: `kpis.tracking_mode` (`TEXT NOT NULL DEFAULT 'manual' CHECK (trackin
 **Gap found:** `04_DATABASE.md`'s design notes already said `score_percentage`'s calculation "handles inverse KPIs" (e.g. lower is better for "customer complaints") — but no field anywhere recorded which KPIs actually are inverse. The calculation had no way to know which formula to apply for a given KPI. Found while implementing the scores upsert service logic, before any calculation code was written against it.
 
 **Decision:** `kpis.is_inverse` (`BOOLEAN NOT NULL DEFAULT FALSE`), set at KPI creation like `tracking_mode`. `FALSE`: `score_percentage = actual_value / target_value * 100`. `TRUE`: `score_percentage = target_value / actual_value * 100`.
+
+**Impact:** `04_DATABASE.md` Cluster 5 `kpis` table gets the column and a design note. Model/migration built and verified against the real dev DB. `kpis/schemas.py`'s `KPICreate`/`KPIResponse`/`KPIGroupItem` get the field.
+
+## 2026-10-01 — M8's new code brought to zero `ruff` errors, same lesson as the 2026-09-28 entry
+
+**Cause:** `ruff` isn't installed in the dev container at all (`backend/Makefile`'s `lint` target has never actually been runnable — a known, already-logged gap, see the 2026-09-21 Ruff docstring compliance pass entry). Every file written during this milestone's build-out was never checked against it until run directly on the host, where it turned out to be available. `ruff check .` (matching CI's exact invocation, same discipline as 2026-09-28) found 23 findings: missing or malformed docstrings — module, class, `__init__`, method, and test-function level — across `kpis/service.py`, `kpis/schemas.py`, both new `__init__.py` files, and two test files; the `D415` first-line-punctuation gap on all five new migrations' summary lines (the exact same finding as 2026-09-28, just on five new files instead of one); one genuinely unused import (`KPIGroupUpdateResponse` in `service.py`).
+
+**Fixed:** all 23. Reconfirmed with `ruff check .` from `backend/` — clean. Full suite (408) and `alembic check` reconfirmed afterward, not assumed unaffected by docstring-only changes.
+
+**Lesson, same as 2026-09-28's:** a dev environment missing a lint tool doesn't mean the code is clean, it means nobody's checked — worth actually running the real check before opening a PR, not assuming prior milestones' clean state still holds.
+
+**Impact:** `backend/alembic/versions/` (5 files), `backend/app/modules/kpis/{__init__,schemas,service}.py`, `backend/tests/{ai,kpis}/` (3 files). No behavior change — docstrings and one import only.
+
+## 2026-10-01 — M8 merged to `main`: two PRs, not one — the first accidentally shipped only the design phase
+
+**What happened:** PR #26 (`m8-kpis` → `main`) was opened and merged against an earlier push of the branch — the two commits from this milestone's *design* phase only (`760d3be`: the group-reconcile design; `ef0c5e1`: an unrelated stale-docstring fix carried over from M7's close-out). This happened before the actual implementation work (models, migrations, repository, service, router, the `kpi_weight` chain, `GET /ai-usage`, audit logging, the ruff pass — everything above this entry) was built later in the same working session. `main` ended up with the *decisions* about M8 but no working KPI backend at all — confirmed directly: `git ls-tree -r origin/main` showed no `backend/app/modules/kpis/` directory whatsoever right after PR #26.
+
+**Caught before being assumed complete:** when asked to "update the docs to reflect completion," `git log`/`git merge-base` were checked first rather than taking the request at face value — exactly the discipline named in M7's own study guide ("re-run `git status` instead of trusting the snapshot in the prompt"). The three (later four, after the `ruff` pass) commits still sitting unmerged on `m8-kpis` were pushed as-is and opened as a second PR, **#27**, which carries the actual implementation.
+
+**Decision:** M8 is complete as of **PR #27**, merged 2026-10-01. PR #26 is not wrong or reverted — it genuinely did merge the design decisions, which are real and correct — it's just not the milestone's whole story on its own, and this entry exists so a later reader isn't confused by `main`'s history showing two separate `m8-kpis` merges for what is, functionally, one milestone.
+
+**Not yet done:** `m8-kpis` has not been deleted (local or remote) as of this entry — the standard post-merge cleanup (`git checkout main && git pull`, delete the branch both places, branch again for M9) is still outstanding.
+
+**Impact:** `09_PROGRESS.md` M8 header updated to `✅ DONE & MERGED to main (2026-10-01, PR #27)`. `10_CURRENT_TASK.md` rewritten to point forward to M9 — Attendance, per this project's standing rule that the current-task doc describes what's next, not a recap of what just shipped.
 
 **Impact:** `04_DATABASE.md` Cluster 5 `kpis` table gets the column and a design note. Model/migration built and verified against the real dev DB (`is_inverse boolean not null default false`). `kpis/schemas.py`'s `KPICreate`/`KPIResponse`/`KPIGroupItem` need the field added next.
