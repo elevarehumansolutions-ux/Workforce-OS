@@ -28,7 +28,7 @@ Built directly on `02_SYSTEM_DESIGN.md` (module ownership) and `04_DATABASE.md` 
 
 ## What's actually live right now
 
-Only **seven modules** are mounted in `main.py` today: Identity/Memberships, Org Structure, Business DNA, OKR, AI Suggestions, Audit Log, Notifications. Everything under "Not yet built" further down (Performance/KPIs, Task, Workflow, Attendance) is designed but **returns 404 today, not a stub** — check `09_PROGRESS.md` for which milestone ships each one before building against it.
+**Eight modules** are mounted in `main.py` today: Identity/Memberships, Org Structure, Business DNA, OKR, Performance (KPIs), AI Suggestions, Audit Log, Notifications. Everything under "Not yet built" further down (Task, Workflow, Attendance, and Performance's own M10/M12-dependent pieces) is designed but **returns 404 today, not a stub** — check `09_PROGRESS.md` for which milestone ships each one before building against it.
 
 ## Identity
 
@@ -50,7 +50,9 @@ Only **seven modules** are mounted in `main.py` today: Identity/Memberships, Org
 - `GET /memberships` — list the org's people, offset-paginated. **HR Administrator only** — not open to every member, unlike most `GET` endpoints in this API.
 - `PATCH /memberships/{id}` — change a teammate's role and/or deactivate/reactivate them. **HR Administrator only.** A caller can't target their own membership this way, and can't deactivate the org's Owner.
 
-**Not yet built:** `GET /billing/history` and `GET /ai-usage`. Both are designed (see `04_DATABASE.md`) but neither is mounted in the code today — calling them 404s. `GET /ai-usage` ships in **M8**; its screen doesn't land until M13 (paired with Billing History). `GET /billing/history`'s own backend milestone isn't scheduled yet as of this audit.
+`GET /ai-usage` — the org's own `ai_usage_log`, newest call first, offset-paginated. **`hr_administrator`-only** (not open to `business_executive`, unlike AI suggestion review — this is the org's own cost/usage visibility, a narrower audience). Its screen doesn't land until M13 (paired with Billing History), not overlooked.
+
+**Not yet built:** `GET /billing/history`. Designed (see `04_DATABASE.md`) but not mounted in the code — calling it 404s. Its own backend milestone isn't scheduled yet as of this audit.
 
 ## Org Structure
 
@@ -76,11 +78,22 @@ Mutations (`POST`/`PATCH`/`DELETE`, including offboard/reinstate) restricted to 
 - `POST|GET /okrs` (filter: `department_id`, `location_id`), `GET|PATCH /okrs/{id}`. **`POST /okrs` enqueues AI suggestion generation** (a new objective is prompt context for the `missing_department` suggestion type); editing an existing OKR does not.
 - `POST|GET /okrs/{id}/key-results`, `PATCH /key-results/{id}` — same role gate and pagination envelope as the parent resource.
 
+## Performance
+
+Single-KPI `POST`/`PATCH` and the group reconcile are `hr_administrator`-only; `GET` open to any authenticated org member (an Employee in one department can read another department's KPIs, same precedent as OKRs/Business DNA). The scores upsert is the one exception — `hr_administrator` **or** `business_executive`, matching AI suggestion review (08_DECISIONS.md 2026-09-29/30).
+
+- `POST|GET /kpis` (filter: `department_id`, `location_id`), `GET|PATCH /kpis/{id}` — single-KPI create/read/edit; create and edit both validate the department/location group still sums to **at most** 100 after the change (409 `KPI_WEIGHT_MISMATCH` on drift, with the computed total in `message`). `is_inverse` (lower-is-better, e.g. "customer complaints") and `tracking_mode` (`manual`/`task_count`, only `manual` actually usable before M10) are both set here. **`POST /kpis` enqueues `kpi_weight` AI suggestion generation**, unconditionally, same pattern as positions.
+- `PUT /departments/{id}/kpis` (optional `location_id` query param) — reconciles a department/location's *entire* KPI list in one call: an item with an `id` is updated, an item with no `id` is created, an existing KPI whose `id` is missing from the submitted list is deleted. Validated as one atomic transaction against the **exactly** 100%-total rule (same `KPI_WEIGHT_MISMATCH` error); returns the full resulting list with real ids for newly-created KPIs, no follow-up `GET` needed. **This is the only way to delete a KPI — there is no standalone `DELETE /kpis/{id}`** (08_DECISIONS.md 2026-09-29). Also enqueues `kpi_weight` generation.
+- `POST /kpis/{id}/scores` — for a `manual`-tracking KPI: upsert the *current, still-open* period's actual value; server recalculates `score_percentage` on every call, honoring `is_inverse`. Repeatable while the quarter is running (so progress is visible mid-quarter, not just at close); 409 `KPI_SCORE_PERIOD_CLOSED` once `period_end` has passed — a correction after that point is a new period's row (08_DECISIONS.md 2026-09-29).
+- `GET /kpis/{id}/scores` — historical scores for one KPI, newest period first.
+
+**Not yet built — depends on Task (M10):** a live-progress read for a `task_count`-tracking KPI (count of completed tasks linked to it, within the current period, computed on read, no stored row), and the scheduled job that closes a `task_count` KPI out at quarter-end (same shape as the Quarterly Objective Review). `kpis.tracking_mode` exists now; both are M10/M12's job (08_DECISIONS.md 2026-09-30).
+
 ## AI Suggestions
 
 - `GET /ai-suggestions` (filter: `status`, `suggestion_type`; `page`/`limit` offset pagination, newest first) — **HR Administrator or Business Executive.** Review actions below are open to the **same two roles**.
-- `POST /ai-suggestions/{id}/approve` — **no body.** Approves exactly as the AI proposed (`status → approved`) and applies it to the real position/department.
-- `POST /ai-suggestions/{id}/edit` — body: only the fields the reviewer is *changing* (`criticality_type`, `risk_level` for a `critical_position`; `revenue_allocation_percentage` for a `revenue_allocation`; `department_name` for a `missing_department`); anything left out keeps the AI's own value. `status → edited`, then applied. **422** if a field doesn't apply to the suggestion's type, if the body is empty, or if every supplied value equals the AI's own (that's an approve — call `/approve` instead). **The frontend must diff the form and send only the fields that actually changed** — resending the whole form as "the edit" will 422 whenever the reviewer didn't change anything.
+- `POST /ai-suggestions/{id}/approve` — **no body.** Approves exactly as the AI proposed (`status → approved`) and applies it to the real position/department/KPI. For `kpi_weight`, this reuses `PATCH /kpis/{id}`'s own weight-sum validation — a proposal that would push its group over 100% is rejected (409) and the suggestion stays pending, same as every other write-through failure.
+- `POST /ai-suggestions/{id}/edit` — body: only the fields the reviewer is *changing* (`criticality_type`, `risk_level` for a `critical_position`; `revenue_allocation_percentage` for a `revenue_allocation`; `department_name` for a `missing_department`; `weight` for a `kpi_weight`); anything left out keeps the AI's own value. `status → edited`, then applied. **422** if a field doesn't apply to the suggestion's type, if the body is empty, or if every supplied value equals the AI's own (that's an approve — call `/approve` instead). **The frontend must diff the form and send only the fields that actually changed** — resending the whole form as "the edit" will 422 whenever the reviewer didn't change anything.
 - `POST /ai-suggestions/{id}/reject` — no body. Starts a quarterly suppression, so the same suggestion isn't proposed again this fiscal quarter. **404** if not visible to the caller's org; **409** if already reviewed (applies to approve/edit/reject alike — a second reviewer clicking the same button gets 409, not a silent overwrite).
 
 **Decision rule for the frontend, worth building into the UI directly:** if nothing on the form changed from the AI's proposal, call `/approve`. If anything changed, call `/edit` with only the changed fields. Don't always call `/edit` "to be safe" — an edit with nothing changed 422s by design.
@@ -101,12 +114,8 @@ Mutations (`POST`/`PATCH`/`DELETE`, including offboard/reinstate) restricted to 
 
 Nothing below this line exists as a real endpoint today — every path here 404s. These sections describe the intended shape for whichever milestone eventually builds them; check `09_PROGRESS.md` before writing frontend code against any of them, and don't scaffold API client code for these yet, since the shape may still change before it's actually built.
 
-### Performance (M8+)
+### Performance (M12, dashboards)
 
-- `POST|GET /kpis` (filter: `department_id`, `location_id`), `PATCH /kpis/{id}` — single-KPI create/read/edit; create and edit both validate the department/location group still sums to 100 after the change (409 `KPI_WEIGHT_MISMATCH` on drift).
-- `PUT /departments/{id}/kpis` (optional `location_id` query param) — reconciles a department/location's *entire* KPI list in one call: an item with an `id` is updated, an item with no `id` is created, an existing KPI whose `id` is missing from the submitted list is deleted. Validated as one atomic transaction against the 100%-total rule (same `KPI_WEIGHT_MISMATCH` error, with the computed total in `message`); returns the full resulting list with real ids for newly-created KPIs, no follow-up `GET` needed. **This is the only way to delete a KPI — there is no standalone `DELETE /kpis/{id}`** (see `08_DECISIONS.md` 2026-09-29).
-- `POST /kpis/{id}/scores` — record a period's actual value, server computes `score_percentage`.
-- `GET /kpis/{id}/scores` — historical scores for one KPI.
 - `GET /departments/{id}/performance-summary` — the quarterly rollup that feeds dashboards.
 - `GET /employees/leaderboard` (filter: `department_id`, `period`) — ranked employee scores.
 - `GET /company-performance-summary` (filter: `period`) — the headline dashboard section in one call.
