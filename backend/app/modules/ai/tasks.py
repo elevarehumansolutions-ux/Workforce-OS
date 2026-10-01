@@ -22,6 +22,7 @@ from app.modules.tenancy_identity.repository import MembershipRepository, Organi
 
 from .generation import (
     generate_critical_position_suggestions,
+    generate_kpi_weight_suggestions,
     generate_missing_department_suggestions,
     generate_revenue_allocation_suggestions,
 )
@@ -89,6 +90,7 @@ async def run_generation(db: AsyncSession, organization_id: uuid.UUID) -> int:
         *await generate_critical_position_suggestions(db, organization_id=organization_id),
         *await generate_revenue_allocation_suggestions(db, organization_id=organization_id),
         *await generate_missing_department_suggestions(db, organization_id=organization_id),
+        *await generate_kpi_weight_suggestions(db, organization_id=organization_id),
     ]
     if created:
         await _notify_hr_admins_of_new_suggestions(db, organization_id, len(created))

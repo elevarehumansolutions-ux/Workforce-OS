@@ -25,6 +25,8 @@ from app.core.fiscal import get_fiscal_quarter_start
 from app.core.schemas import PaginationResponse
 from app.modules.audit_and_notification.service import AuditService
 from app.modules.organization.service import PositionService, DepartmentService
+from app.modules.kpis.service import KPIService
+from app.modules.kpis.schemas import KPIUpdate
 from app.modules.tenancy_identity.repository import OrganizationRepository
 
 from .enums import SuggestionStatus, SuggestionType
@@ -36,6 +38,7 @@ _EDITABLE_FIELDS = {
     SuggestionType.CRITICAL_POSITION.value: {"criticality_type", "risk_level"},
     SuggestionType.REVENUE_ALLOCATION.value: {"revenue_allocation_percentage"},
     SuggestionType.MISSING_DEPARTMENT.value: {"department_name"},
+    SuggestionType.KPI_WEIGHT.value: {"weight"},
 }
 
 
@@ -49,6 +52,7 @@ class AISuggestionService:
         self._audit = AuditService(db)
         self._position_service = PositionService(db)
         self._department_service = DepartmentService(db)
+        self._kpi_service = KPIService(db)
 
     async def _raise_not_reviewable(self, suggestion_id: uuid.UUID) -> NoReturn:
         """Explain why an atomic review changed nothing: 404 if unseen, else 409."""
@@ -94,8 +98,20 @@ class AISuggestionService:
                 actor_user_id,
                 {"name": suggestion.reviewed_department_name},
             )
+        elif suggestion.suggestion_type == SuggestionType.KPI_WEIGHT.value:
+            # Reuses the exact weight-sum-to-100 validation KPIService
+            # already enforces on every edit (08_DECISIONS.md 2026-09-29/
+            # 2026-09-30) — no separate check needed here. If applying it
+            # would push the group over 100%, update_kpi raises
+            # KPIWeightConflictException, which rolls this approval back
+            # too, same as a failed write-through for the other three types.
+            await self._kpi_service.update_kpi(
+                suggestion.kpi_id,
+                actor_user_id,
+                KPIUpdate(weight=suggestion.reviewed_weight),
+            )
         else:
-            raise NotImplementedError(suggestion.suggestion_type)  # kpi_weight arrives in M8
+            raise NotImplementedError(suggestion.suggestion_type)
 
     async def create_suggestion_if_eligible(
         self,

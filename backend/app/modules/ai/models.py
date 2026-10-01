@@ -5,9 +5,9 @@ Contains:
   human review (approve/edit/reject) before it ever touches a real row.
 - :class:`AIUsageLog`: one row per LLM API call, for cost/usage tracking.
 
-M7 ships three suggestion types (``critical_position``,
-``revenue_allocation``, ``missing_department``); ``kpi_weight`` is added in
-M8 once ``kpis`` exists, via a later migration, not here.
+M7 shipped three suggestion types (``critical_position``,
+``revenue_allocation``, ``missing_department``); ``kpi_weight`` was added
+in M8 once ``kpis`` existed (08_DECISIONS.md 2026-09-30).
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ from .enums import AIUsagePurpose, SuggestionStatus, SuggestionType
 if TYPE_CHECKING:
     from app.modules.organization.models import Department, Position
     from app.modules.tenancy_identity.models import Organization, User
+    from app.modules.kpis.models import KPI
 
 
 class AISuggestion(BaseModel):
@@ -101,7 +102,9 @@ class AISuggestion(BaseModel):
             "AND suggested_criticality_type IS NOT NULL AND suggested_risk_level IS NOT NULL) OR "
             "(suggestion_type = 'revenue_allocation' AND department_id IS NOT NULL "
             "AND suggested_revenue_allocation_percentage IS NOT NULL) OR "
-            "(suggestion_type = 'missing_department' AND suggested_department_name IS NOT NULL)",
+            "(suggestion_type = 'missing_department' AND suggested_department_name IS NOT NULL) OR "
+            "(suggestion_type = 'kpi_weight' AND kpi_id IS NOT NULL "
+            "AND suggested_weight IS NOT NULL)",
             name="check_ai_suggestion_target_matches_type",
         ),
         Index(
@@ -111,6 +114,7 @@ class AISuggestion(BaseModel):
             "position_id",
             "department_id",
             "suggested_department_name_normalized",
+            "kpi_id",
             unique=True,
             postgresql_where=text("status = 'pending'"),
             postgresql_nulls_not_distinct=True,
@@ -183,6 +187,18 @@ class AISuggestion(BaseModel):
         )
     )
 
+    kpi_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("kpis.id"),
+        nullable=True,
+        index=True,
+        doc="Target KPI — set for 'kpi_weight'",
+    )
+
+    suggested_weight: Mapped[decimal.Decimal | None] = mapped_column(
+        DECIMAL(5, 2), nullable=True, doc="AI-proposed KPI weight"
+    )
+
     rationale: Mapped[str] = mapped_column(
         Text, nullable=False, doc="AI-generated explanation for the suggestion"
     )
@@ -242,6 +258,12 @@ class AISuggestion(BaseModel):
         doc="Final human-decided department name — mirrors suggested_department_name; null on rejection",
     )
 
+    reviewed_weight: Mapped[decimal.Decimal | None] = mapped_column(
+        DECIMAL(5, 2),
+        nullable=True,
+        doc="Final human-decided KPI weight — mirrors suggested_weight; null on rejection",
+    )
+
     # Relationships
     organization: Mapped["Organization"] = relationship(
         "Organization", back_populates="ai_suggestions"
@@ -251,6 +273,9 @@ class AISuggestion(BaseModel):
     )
     department: Mapped["Department | None"] = relationship(
         "Department", back_populates="ai_suggestions"
+    )
+    kpi: Mapped["KPI | None"] = relationship(
+        "KPI", back_populates="ai_suggestions"
     )
     reviewed_by_user: Mapped["User | None"] = relationship(
         "User", foreign_keys=[reviewed_by_user_id]

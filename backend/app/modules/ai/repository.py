@@ -44,10 +44,11 @@ class AISuggestionRepository:
         Uses ``INSERT ... ON CONFLICT DO NOTHING`` against the partial
         unique index on (``organization_id``, ``suggestion_type``,
         ``position_id``, ``department_id``,
-        ``suggested_department_name_normalized``) ``WHERE status =
-        'pending'`` (``08_DECISIONS.md`` 2026-09-07, corrected 2026-09-23
-        to add ``NULLS NOT DISTINCT`` and the normalized name). A retried
-        or duplicate generation call for the same target becomes a safe
+        ``suggested_department_name_normalized``, ``kpi_id``) ``WHERE
+        status = 'pending'`` (``08_DECISIONS.md`` 2026-09-07, corrected
+        2026-09-23 to add ``NULLS NOT DISTINCT`` and the normalized name;
+        ``kpi_id`` added 2026-09-30 for ``kpi_weight``). A retried or
+        duplicate generation call for the same target becomes a safe
         no-op instead of a duplicate row or a raised ``IntegrityError``.
 
         Does not handle the separate rejected-suggestion quarterly
@@ -74,6 +75,7 @@ class AISuggestionRepository:
                     AISuggestion.position_id,
                     AISuggestion.department_id,
                     AISuggestion.suggested_department_name_normalized,
+                    AISuggestion.kpi_id,
                 ],
                 index_where=(AISuggestion.status == SuggestionStatus.PENDING.value),
             )
@@ -283,6 +285,7 @@ class AISuggestionRepository:
                     AISuggestion.suggested_revenue_allocation_percentage
                 ),
                 reviewed_department_name=AISuggestion.suggested_department_name,
+                reviewed_weight=AISuggestion.suggested_weight,
             )
             .returning(AISuggestion)
             .execution_options(**_ATOMIC_UPDATE_OPTIONS)
@@ -290,7 +293,7 @@ class AISuggestionRepository:
         result = await self._db.execute(stmt)
         await self._db.flush()
         return result.scalar_one_or_none()
-    
+
     async def edit_pending_suggestion(
         self,
         suggestion_id: uuid.UUID,
@@ -300,6 +303,7 @@ class AISuggestionRepository:
         risk_level: str | None = None,
         revenue_allocation_percentage: decimal.Decimal | None = None,
         department_name: str | None = None,
+        weight: decimal.Decimal | None = None,
     ) -> AISuggestion | None:
         """Atomically record a human-edited decision, but only if still pending.
 
@@ -315,6 +319,7 @@ class AISuggestionRepository:
             risk_level: Reviewer's risk level, if changing it.
             revenue_allocation_percentage: Reviewer's percentage, if changing it.
             department_name: Reviewer's department name, if changing it.
+            weight: Reviewer's KPI weight, if changing it.
 
         Returns:
             The edited ``AISuggestion``, or ``None`` if nothing changed —
@@ -343,6 +348,9 @@ class AISuggestionRepository:
                 ),
                 reviewed_department_name=func.coalesce(
                     department_name, AISuggestion.suggested_department_name
+                ),
+                reviewed_weight=func.coalesce(
+                    weight, AISuggestion.suggested_weight
                 ),
             )
             .returning(AISuggestion)
@@ -414,3 +422,23 @@ class AIUsageLogRepository:
         self._db.add(row)
         await self._db.flush()
         return row
+
+    async def list_usage_logs(
+        self, organization_id: uuid.UUID, page: int = 1, limit: int = 20
+    ) -> PaginationResponse:
+        """List an organization's LLM usage log, newest call first.
+
+        Args:
+            organization_id: Organization to list usage for.
+            page: 1-indexed page number.
+            limit: Maximum number of rows per page.
+
+        Returns:
+            A paginated response wrapping the matching ``AIUsageLog`` rows.
+        """
+        stmt = (
+            select(AIUsageLog)
+            .where(AIUsageLog.organization_id == organization_id)
+            .order_by(AIUsageLog.created_at.desc())
+        )
+        return await paginate(stmt, page, limit, self._db)

@@ -16,6 +16,7 @@ from tests.conftest import register_verified_and_login, set_org_context
 from app.core.exceptions import (
     AlreadyExistsException,
     DepartmentNotFoundException,
+    KPIWeightConflictException,
     PositionNotFoundException,
     SuggestionAlreadyReviewedException,
     SuggestionNotFoundException,
@@ -23,6 +24,7 @@ from app.core.exceptions import (
 from app.modules.ai.schemas import AISuggestionCreateRequest
 from app.modules.ai.service import AISuggestionService
 from app.modules.audit_and_notification.models import AuditLog
+from app.modules.kpis.models import KPI
 from app.modules.organization.models import Department, Position
 
 
@@ -414,3 +416,109 @@ async def test_rejected_missing_department_cannot_be_approved(client, db_session
         await service.approve_suggestion(suggestion_id, user_id)
 
     assert await _department_names(db_session, org_id) == []
+
+
+async def _seed_kpi_weight(client, db_session, email, weight="40.00", second_kpi_weight="60.00"):
+    """Register an org with two KPIs (summing to 100) and a pending kpi_weight suggestion for the first."""
+    owner = await register_verified_and_login(client, email=email)
+    h = {"Authorization": f"Bearer {owner['access_token']}"}
+    org_id = uuid.UUID(owner["organization"]["id"])
+    user_id = uuid.UUID(owner["user"]["id"])
+    dept = await client.post("/api/v1/departments", json={"name": "Sales"}, headers=h)
+    department_id = dept.json()["id"]
+    k1 = await client.post(
+        "/api/v1/kpis",
+        json={"department_id": department_id, "name": "Deals closed", "weight": "30.00"},
+        headers=h,
+    )
+    await client.post(
+        "/api/v1/kpis",
+        json={"department_id": department_id, "name": "Pipeline value", "weight": second_kpi_weight},
+        headers=h,
+    )
+    kpi_id = uuid.UUID(k1.json()["id"])
+    await set_org_context(db_session, org_id)
+
+    service = AISuggestionService(db_session)
+    created = await service.create_suggestion_if_eligible(
+        org_id,
+        AISuggestionCreateRequest(
+            suggestion_type="kpi_weight",
+            kpi_id=kpi_id,
+            suggested_weight=Decimal(weight),
+            rationale="Core revenue driver for this team.",
+        ),
+    )
+    return service, org_id, user_id, kpi_id, created.id
+
+
+async def _kpi_weight(db_session, kpi_id):
+    return await db_session.scalar(select(KPI.weight).where(KPI.id == kpi_id))
+
+
+@pytest.mark.asyncio
+async def test_approve_kpi_weight_rejects_a_suggestion_that_would_exceed_100(client, db_session):
+    """Approving reuses KPIService's own weight-sum validation — it's not a bypass.
+
+    The group starts at 30 (first KPI) + 60 (second) = 90. The suggestion
+    proposes 50 for the first KPI, which would make the group
+    50 + 60 = 110 — over the cap, so it must be rejected, the same as if
+    someone had PATCHed that weight directly.
+    """
+    service, _, user_id, kpi_id, suggestion_id = await _seed_kpi_weight(
+        client, db_session, "ai_svc_kw1@example.com", weight="50.00"
+    )
+    assert await _kpi_weight(db_session, kpi_id) == Decimal("30.00")
+
+    with pytest.raises(KPIWeightConflictException):
+        await service.approve_suggestion(suggestion_id, user_id)
+
+    assert await _kpi_weight(db_session, kpi_id) == Decimal("30.00")
+
+
+@pytest.mark.asyncio
+async def test_approve_kpi_weight_within_the_groups_room_succeeds(client, db_session):
+    """A suggestion that doesn't push the group over 100 applies cleanly."""
+    service, _, user_id, kpi_id, suggestion_id = await _seed_kpi_weight(
+        client, db_session, "ai_svc_kw2@example.com", weight="20.00", second_kpi_weight="60.00"
+    )
+
+    result = await service.approve_suggestion(suggestion_id, user_id)
+
+    assert result.status == "approved"
+    assert result.reviewed_weight == Decimal("20.00")
+    assert await _kpi_weight(db_session, kpi_id) == Decimal("20.00")
+
+    (approval,) = await _audit_entries(db_session, "ai_suggestion", suggestion_id)
+    assert approval.action == "approve"
+    kpi_updates = await _audit_entries(db_session, "kpi", kpi_id)
+    assert any(entry.action == "update" for entry in kpi_updates)
+
+
+@pytest.mark.asyncio
+async def test_approve_kpi_weight_twice_is_a_conflict(client, db_session):
+    """The second approve is a 409 and the KPI keeps its first-approved weight."""
+    service, _, user_id, kpi_id, suggestion_id = await _seed_kpi_weight(
+        client, db_session, "ai_svc_kw3@example.com", weight="35.00", second_kpi_weight="65.00"
+    )
+    await service.approve_suggestion(suggestion_id, user_id)
+    assert await _kpi_weight(db_session, kpi_id) == Decimal("35.00")
+
+    with pytest.raises(SuggestionAlreadyReviewedException):
+        await service.approve_suggestion(suggestion_id, user_id)
+
+    assert await _kpi_weight(db_session, kpi_id) == Decimal("35.00")
+
+
+@pytest.mark.asyncio
+async def test_rejected_kpi_weight_cannot_be_approved_and_kpi_is_untouched(client, db_session):
+    """Reject-then-approve is a conflict and the KPI's weight never changes."""
+    service, _, user_id, kpi_id, suggestion_id = await _seed_kpi_weight(
+        client, db_session, "ai_svc_kw4@example.com", weight="35.00", second_kpi_weight="65.00"
+    )
+    await service.reject_suggestion(suggestion_id, user_id)
+
+    with pytest.raises(SuggestionAlreadyReviewedException):
+        await service.approve_suggestion(suggestion_id, user_id)
+
+    assert await _kpi_weight(db_session, kpi_id) == Decimal("30.00")

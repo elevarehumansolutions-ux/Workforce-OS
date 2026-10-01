@@ -7,12 +7,12 @@ class SuggestionType(str, Enum):
     """The kind of thing an AI suggestion proposes.
 
     Enforced as a database check constraint on ``ai_suggestions``.
-    ``kpi_weight`` is added in M8 once ``kpis`` exists — not a member yet.
     """
 
     CRITICAL_POSITION = "critical_position"
     REVENUE_ALLOCATION = "revenue_allocation"
     MISSING_DEPARTMENT = "missing_department"
+    KPI_WEIGHT = "kpi_weight"
 
 
 class SuggestionStatus(str, Enum):

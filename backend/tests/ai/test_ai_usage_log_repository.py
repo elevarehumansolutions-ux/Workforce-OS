@@ -93,3 +93,35 @@ async def test_another_organization_cannot_see_the_row(client, db_session):
 
     count = await db_session.scalar(select(func.count()).select_from(AIUsageLog))
     assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_list_usage_logs_is_paginated_and_org_scoped(client, db_session):
+    """list_usage_logs paginates and stays within one org.
+
+    Doesn't assert exact ordering between these particular rows: they're
+    all inserted in the same uncommitted transaction, and Postgres's
+    ``now()`` is transaction-scoped, not per-statement — same reasoning
+    already documented elsewhere in this codebase for same-``created_at``
+    ties (see the department-candidate-query test note, 08_DECISIONS.md).
+    The ``created_at.desc()`` ordering itself matches every other
+    ``list_*`` method in this codebase and isn't re-verified here.
+    """
+    org_a = await _org(client, "ai_usage5a@example.com")
+    org_b = await _org(client, "ai_usage5b@example.com")
+    await set_org_context(db_session, org_a)
+    repo = AIUsageLogRepository(db_session)
+
+    await repo.create_usage_log(**_call(org_a, model="claude-sonnet-5"))
+    await repo.create_usage_log(**_call(org_a, model="claude-fable-5-1"))
+    await repo.create_usage_log(**_call(org_a, model="claude-opus-5-5"))
+    await set_org_context(db_session, org_b)
+    await repo.create_usage_log(**_call(org_b, model="other org's model"))
+
+    await set_org_context(db_session, org_a)
+    page = await repo.list_usage_logs(org_a, page=1, limit=2)
+    assert page.pagination.total == 3
+    assert len(page.data) == 2
+    assert {row.model for row in page.data} <= {
+        "claude-sonnet-5", "claude-fable-5-1", "claude-opus-5-5"
+    }
