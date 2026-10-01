@@ -557,3 +557,31 @@ class ValidationException(PlatformError):
         """Initialise with platform error defaults."""
         super().__init__(message, code, status_code, details)
 
+
+class KPINotFoundException(PlatformError):
+    """Raised when a KPI id doesn't match any KPI visible to the caller."""
+
+    def __init__(
+        self,
+        message: str = "KPI not found",
+        code: str = "KPI_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class KPIScorePeriodClosedException(PlatformError):
+    """Raised when a score's period has already closed — locked history."""
+
+    def __init__(
+        self,
+        message: str = "This scoring period has already closed and cannot be edited.",
+        code: str = "KPI_SCORE_PERIOD_CLOSED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+

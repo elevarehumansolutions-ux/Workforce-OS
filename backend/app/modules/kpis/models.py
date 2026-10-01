@@ -12,15 +12,17 @@ import uuid
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DECIMAL, UUID, CheckConstraint, Date, DateTime, ForeignKey, Text
+from sqlalchemy import Boolean, DECIMAL, UUID, CheckConstraint, Date, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
+from .enums import KPITrackingMode
 
 if TYPE_CHECKING:
     from app.modules.tenancy_identity.models import Organization
     from app.modules.organization.models import Department, Location
     from app.modules.okrs.models import KeyResult
+    from app.modules.ai.models import AISuggestion
 
 
 class KPI(BaseModel):
@@ -44,6 +46,10 @@ class KPI(BaseModel):
     __table_args__ = (
         CheckConstraint(
             "weight >= 0 AND weight <= 100", name="check_kpi_weight_range"
+        ),
+        CheckConstraint(
+            f"tracking_mode IN {tuple(m.value for m in KPITrackingMode)}",
+            name="check_kpi_tracking_mode",
         ),
     )
 
@@ -83,10 +89,28 @@ class KPI(BaseModel):
         Text, nullable=False, doc="Name of the KPI"
     )
 
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Description of the KPI"
+    )
+
     weight: Mapped[decimal.Decimal] = mapped_column(
         DECIMAL(5, 2),
         nullable=False,
         doc="Weight of this KPI within its department/location group (0-100)",
+    )
+
+    is_inverse: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        doc=(
+            "Whether a lower actual_value is better for this KPI (e.g. "
+            "'customer complaints') — flips how score_percentage is "
+            "calculated from actual vs target"
+        ),
     )
 
     target_value: Mapped[decimal.Decimal | None] = mapped_column(
@@ -97,6 +121,18 @@ class KPI(BaseModel):
 
     unit: Mapped[str | None] = mapped_column(
         Text, nullable=True, doc="Unit the target/actual values are measured in"
+    )
+
+    tracking_mode: Mapped[KPITrackingMode] = mapped_column(
+        String(20),
+        nullable=False,
+        default=KPITrackingMode.MANUAL.value,
+        server_default=KPITrackingMode.MANUAL.value,
+        doc=(
+            "How this KPI's mid-quarter progress is known: 'manual' "
+            "(typed in via POST /kpis/{id}/scores) or 'task_count' (live "
+            "count of completed tasks linked to this KPI)"
+        ),
     )
 
     deleted_at: Mapped[datetime | None] = mapped_column(
@@ -121,6 +157,9 @@ class KPI(BaseModel):
     )
     scores: Mapped[list["KPIScore"]] = relationship(
         "KPIScore", back_populates="kpi"
+    )
+    ai_suggestions: Mapped[list["AISuggestion"]] = relationship(
+        "AISuggestion", back_populates="kpi"
     )
 
 
