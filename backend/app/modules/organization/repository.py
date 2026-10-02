@@ -11,9 +11,12 @@ from datetime import datetime, UTC
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.pagination import paginate
 from app.core.schemas import PaginationResponse
+from app.modules.tenancy_identity.models import Membership
+
 from .models import Location, Department, Position, Employee
 
 
@@ -522,6 +525,66 @@ class EmployeeRepository:
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_employee_by_user_id(self, user_id: uuid.UUID) -> Employee | None:
+        """Get the non-deleted employee linked to a user, if any.
+
+        RLS already restricts this to the caller's current org, so the
+        result is "the employee this user is in this org", matching the
+        partial unique index on ``(organization_id, user_id)``.
+
+        Args:
+            user_id: Id of the user to look up.
+
+        Returns:
+            The linked non-deleted ``Employee``, or ``None`` if the user
+            has no employee record in this org.
+        """
+        stmt = select(Employee).where(
+            Employee.user_id == user_id,
+            Employee.deleted_at.is_(None),
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_members_without_employee(
+        self, organization_id: uuid.UUID, page: int = 1, limit: int = 20
+    ) -> PaginationResponse:
+        """List active org members who have no employee record, oldest first.
+
+        These are the people HR can still link to an employee: a registered
+        founder, or anyone invited through Team Management.
+
+        Args:
+            organization_id: Organization to list members for.
+            page: 1-indexed page number.
+            limit: Maximum number of rows per page.
+
+        Returns:
+            A paginated response wrapping the matching ``Membership`` rows,
+            each with its user eager-loaded.
+        """
+        has_employee = (
+            select(Employee.id)
+            .where(
+                Employee.organization_id == organization_id,
+                Employee.user_id == Membership.user_id,
+                Employee.deleted_at.is_(None),
+            )
+            .exists()
+        )
+        stmt = (
+            select(Membership)
+            .options(selectinload(Membership.user))
+            .where(
+                Membership.organization_id == organization_id,
+                Membership.deactivated_at.is_(None),
+                ~has_employee,
+            )
+            .order_by(Membership.created_at.asc())
+        )
+        return await paginate(stmt, page, limit, self._db)
+
 
     async def list_employees(
         self,

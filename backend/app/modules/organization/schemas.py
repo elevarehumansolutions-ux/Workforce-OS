@@ -4,7 +4,10 @@ import decimal
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
+
+from app.core.schemas import NormalizedEmail
+from app.modules.tenancy_identity.enums import MembershipRole
 
 from .enums import CriticalityType, EmployeeStatus, EmploymentType, RiskLevel
 
@@ -137,12 +140,18 @@ class PositionResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class EmployeeCreateRequest(BaseModel):
-    """Request body for creating an employee."""
+    """Request body for creating an employee.
+
+    ``grant_login_access`` is the Add Employee screen's checkbox: when true,
+    ``role`` is required and the employee is also given login access in the
+    same call (an invite email, or a link to an existing account). It can't
+    be combined with ``user_id``, which links an existing member directly.
+    """
 
     position_id: uuid.UUID
     first_name: str
     last_name: str
-    work_email: str
+    work_email: NormalizedEmail
     start_date: date
     user_id: uuid.UUID | None = None
     manager_id: uuid.UUID | None = None
@@ -151,6 +160,17 @@ class EmployeeCreateRequest(BaseModel):
     phone_number: str | None = None
     address: str | None = None
     employment_type: EmploymentType | None = None
+    grant_login_access: bool = False
+    role: MembershipRole | None = None
+
+    @model_validator(mode="after")
+    def _check_login_access_fields(self) -> "EmployeeCreateRequest":
+        """Require a role with the checkbox, and refuse the checkbox with a user_id."""
+        if self.grant_login_access and self.role is None:
+            raise ValueError("role is required when grant_login_access is true")
+        if self.grant_login_access and self.user_id is not None:
+            raise ValueError("grant_login_access cannot be combined with user_id")
+        return self
 
 
 class EmployeeUpdateRequest(BaseModel):
@@ -164,7 +184,7 @@ class EmployeeUpdateRequest(BaseModel):
     position_id: uuid.UUID | None = None
     first_name: str | None = None
     last_name: str | None = None
-    work_email: str | None = None
+    work_email: NormalizedEmail | None = None
     start_date: date | None = None
     manager_id: uuid.UUID | None = None
     location_id: uuid.UUID | None = None
@@ -176,6 +196,18 @@ class EmployeeUpdateRequest(BaseModel):
     def has_updates(self) -> bool:
         """Return whether any field was explicitly set on this request."""
         return self.model_dump(exclude_unset=True) != {}
+
+
+class EmployeeLinkUserRequest(BaseModel):
+    """Request body for linking a login to an existing employee."""
+
+    user_id: uuid.UUID
+
+
+class EmployeeGrantLoginRequest(BaseModel):
+    """Request body for giving an employee login access ("Send invite")."""
+
+    role: MembershipRole
 
 
 class EmployeeResponse(BaseModel):
@@ -201,3 +233,15 @@ class EmployeeResponse(BaseModel):
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class EmployeeGrantLoginResponse(BaseModel):
+    """Result of giving an employee login access.
+
+    ``outcome`` is ``"invited"`` (invite email sent), ``"added"`` (existing
+    account added to the org and linked) or ``"linked"`` (existing org
+    member linked, role unchanged).
+    """
+
+    outcome: str
+    employee: EmployeeResponse

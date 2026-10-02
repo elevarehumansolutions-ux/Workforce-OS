@@ -764,3 +764,54 @@ New column: `kpis.tracking_mode` (`TEXT NOT NULL DEFAULT 'manual' CHECK (trackin
 **Impact:** `09_PROGRESS.md` M8 header updated to `✅ DONE & MERGED to main (2026-10-01, PR #27)`. `10_CURRENT_TASK.md` rewritten to point forward to M9 — Attendance, per this project's standing rule that the current-task doc describes what's next, not a recap of what just shipped.
 
 **Impact:** `04_DATABASE.md` Cluster 5 `kpis` table gets the column and a design note. Model/migration built and verified against the real dev DB (`is_inverse boolean not null default false`). `kpis/schemas.py`'s `KPICreate`/`KPIResponse`/`KPIGroupItem` need the field added next.
+
+## 2026-10-01 — M9 Attendance: forgotten clock-out handled by a nightly system auto-close at midnight (org timezone)
+
+**Gap being resolved:** "currently clocked in" is derived from `clock_out_at IS NULL`, so a forgotten clock-out would stay open indefinitely (`09_PROGRESS.md` M9, flagged 2026-09-18).
+
+**Decision (design only, not yet built):**
+- **A Celery Beat job closes any still-open shift at midnight in the organization's timezone.** The written `clock_out_at` is that cutoff, and the row is marked as a system action, not an employee action. Scoped to standard office (9-to-5) businesses, matching the 2026-09-02 cut of shift scheduling. Shift-based customers (e.g. 24-hour supermarket shifts) are a Phase 3 problem, solved by schedule-driven cutoffs, not a bigger global number.
+- **Employees do not submit their own leave time.** Rejected: self-reported times invite favourable adjustment. The system records only what it observes.
+- **New `organizations.timezone` column** (per-org, not a hardcoded Africa/Lagos) — "end of day" is meaningless without it, and none exists today.
+- **`attendance_records` needs new columns** beyond `04_DATABASE.md`'s current `clock_in_at`/`clock_out_at`: `closed_by` (`employee`/`system`) and a reason. Exact modelling of "unverified" still open.
+- **One open record per employee, enforced by the database** (partial unique index on `employee_id WHERE clock_out_at IS NULL`), not just service code, so two simultaneous clock-ins cannot both succeed. A repeat clock-in while one is open is an idempotent retry or a clear 409; which of the two is not yet chosen.
+- **Notification on auto-close:** in-app only for M9, via `notify()` (category `system`), to the employee and their manager. Email is separate work (`notify()` does not send email today) and not decided.
+- **System-closed rows are guesses.** A future ML model of per-employee leave times must exclude them from training data.
+
+**Deferred, documented for later (not M9):**
+- **Correction of system-closed records by HR** (approval workflow, audit trail preserving the original value) — pairs with payroll, Phase 2.
+- **Buddy-punching detection** (someone clocking in as a colleague): `known_devices` table, a new device raises a review flag rather than blocking, trusted multi-device exception, IP range or geofence as a stronger signal than browser fingerprints. Capture IP and user-agent on each record cheaply when attendance is built. Device data is personal data, so it needs the same NDPA legal review as M14.
+
+**Impact:** `09_PROGRESS.md` M9 entry updated. `04_DATABASE.md` Cluster 7 and Cluster 1 (`timezone`) still need updating when the schema is built.
+
+## 2026-10-01 — M9 prerequisite: attendance keys on the employee record, not the role — and nobody who signs up through the normal flow can get one
+
+**Decision:** `POST /attendance/clock-in` resolves the caller's `employees` row via `employees.user_id` in their org. No employee record means a clear error (`NO_EMPLOYEE_PROFILE`), not a 500 and not an implicit profile. Role plays no part: an HR administrator, manager or business executive can clock in if (and only if) they also have an employee record. Auto-creating an employee profile from a role was rejected: `employees.position_id`, names and work email are `NOT NULL`, so it would invent junk data that also feeds M7's critical-role suggestions.
+
+**Gap found (M4, required for completeness):** the normal flow never produces an employee record for the person who registers (Owner/HR) or for anyone invited by role. Registration creates only a user and membership; `EmployeeCreate` accepts an optional `user_id` (`organization/schemas.py`), but `EmployeeService.create_employee` does no validation on it (user in org, not already linked to another employee, email consistency), and nothing in the schema stops two employees pointing at one user. Elevare is a real tenant #1 using the normal signup flow, not a seeded demo, so this is hit on day one.
+
+**Fix, both required:**
+- **A.** Add Employee can link an *existing* org member (one with a membership but no employee row). Validate: user belongs to the org, is not already linked, and the link is unique per `(organization_id, user_id)` at the database level.
+- **B.** A self-service path so the Owner/HR can create their own employee profile during onboarding, calling the same endpoint as A. Who may do this (the Owner is not necessarily `hr_administrator`) needs checking against `core/dependencies.py` when built.
+
+**Impact:** `09_PROGRESS.md` M4 gets the gap entry. Built first in the M9 branch, before attendance itself.
+
+**Addendum (same day, supersedes the "Fix, both required" list above):** tracing the real flow showed the invite system (`POST /memberships` → `POST /auth/accept-invite`) is implemented and tested but never connected to employees, and `POST /employees` has no "grant login access" behaviour at all — the checkbox in `04_DATABASE.md` had no backend. Decisions, all confirmed:
+- **The invite carries the employee** (`invites.employee_id`), rather than matching on email at accept time — robust to typos, case differences and shared emails.
+- **Acceptance never fails because of the link.** If the employee was offboarded, deleted or linked in the meantime, `accept-invite` still succeeds and HR links manually.
+- **One operation, two entry points:** `POST /employees/{id}/grant-login` ("Send invite" on an employee row, also the resend path) and the `grant_login_access` + `role` fields on `POST /employees`.
+- **`user_id` is one-way.** `PATCH /employees` cannot touch it (the update schema has no such field); only create and `link-user`/`grant-login` set it, never clear or swap it — offboarding finds the login to deactivate through `employee.user_id`.
+- **Linking is refused for deactivated memberships** (`MEMBERSHIP_DEACTIVATED`, 409): reinstate them instead.
+- **A repeated invite to a pending email replaces the earlier one** (already true in `create_invite`); the missing piece was a deliberate resend action, which `grant-login` provides.
+- **Corrected:** the separate "(B) create my own profile" endpoint is dropped — the founder is `hr_administrator` and can already create an employee with their own `user_id`.
+Full task list in `09_PROGRESS.md` M4.
+
+## 2026-10-02 — Email normalization, and reactivation split out of invites
+
+**Email normalization (required for completeness, found while building grant-login):** emails were stored and compared as typed, so `Chidi@x.com` and `chidi@x.com` were different accounts, and an invite to one never matched a user registered as the other. **Decision:** one canonical form, trimmed and lower-cased, enforced at three layers so no single slip can reintroduce the problem — (1) a shared `NormalizedEmail` type (`core/schemas.py`) on every client-supplied email: register, login, resend-verification, forgot-password, invite, and employee `work_email` (previously a bare `str`, so it is now also validated as an email); (2) the user and pending-invite lookups normalize their input too; (3) `CHECK (email = lower(btrim(email)))` on `users.email`, `invites.email` and `employees.work_email`, so even a write that bypasses the schemas fails. The existing `UNIQUE` on `users.email` therefore becomes case-insensitive uniqueness with no extra index. Migration `1f55b227d9d9` lower-cases existing rows; if two existing users differ only by case it **stops and lists them** instead of choosing one, and it retires all but the newest of any duplicate pending invites. Tested against deliberately messy data, not only a clean DB.
+
+**Reactivation is no longer a side effect of inviting:** `invite_teammate` used to silently reactivate a deactivated member and overwrite their role. That mixed two concerns and let an invite restore access with no checks or audit. **Decision:** inviting a deactivated member is a **409** `MEMBERSHIP_DEACTIVATED`; `POST /memberships/{id}/reactivate` (optional `role`, omit to keep the old one) is the one way back. It is audit-logged and refuses someone whose employee record is offboarded, pointing to `POST /employees/{id}/reinstate`, so login access and employment status can't disagree. `grant-login` inherits the rule (a deactivated member is refused, not revived). `reinstate_employee` is unchanged.
+
+**Left as is, deliberately:** `PATCH /memberships/{id}` still accepts `is_deactivated: false` (a second route to reactivation, without `/reactivate`'s offboarded-employee guard) — removing it changes an existing contract the frontend may already use, so it stays, documented in `05_API_DESIGN.md` and `09_PROGRESS.md`, to be revisited with Uche. **Audit gap closed the same day:** `POST /memberships` and `PATCH /memberships/{id}` previously wrote no audit entries; they now do (`invite` without the token, `add`, `update`, `deactivate`, `reactivate`, each with old/new state).
+
+**Impact:** `05_API_DESIGN.md`, `09_PROGRESS.md` updated. Tests: `tests/authentication/test_email_normalization.py` (6), `tests/memberships/test_membership_reactivation.py` (5), the old invite-reactivation test rewritten to assert the refusal plus the new endpoint.

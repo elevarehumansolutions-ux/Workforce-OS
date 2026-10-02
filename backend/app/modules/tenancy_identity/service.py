@@ -6,13 +6,28 @@ richer logic (guardrails, invite-vs-membership branching) in
 MembershipService.update_membership and .invite_teammate.
 """
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from .repository import UserRepository, OrganizationRepository, MembershipRepository, InviteRepository
 from sqlalchemy.ext.asyncio import AsyncSession
 from .models import User, Organization, Membership, Invite
-from app.core.security import generate_token, hash_token
 from app.core.config import settings
+from app.core.exceptions import (
+    AlreadyExistsException,
+    MembershipDeactivatedException,
+    MembershipNotDeactivatedException,
+)
+from app.core.security import generate_token, hash_token
+from app.modules.audit_and_notification.service import AuditService
+
+
+def _membership_snapshot(membership: Membership) -> dict:
+    """The audit-relevant state of a membership: its role and deactivation time."""
+    return {
+        "role": str(getattr(membership.role, "value", membership.role)),
+        "deactivated_at": membership.deactivated_at.isoformat() if membership.deactivated_at else None,
+    }
 
 
 class UserService:
@@ -115,6 +130,7 @@ class MembershipService:
         self._repo = MembershipRepository(db)
         self._user_repo = UserRepository(db)
         self._invite_repo = InviteRepository(db)
+        self._audit = AuditService(db)
 
     async def create_membership(self, membership: dict) -> Membership:
         """Create a new membership.
@@ -149,6 +165,22 @@ class MembershipService:
             The matching ``Membership``, or ``None`` if not found.
         """
         return await self._repo.get_membership(user_id, organization_id)
+
+    async def get_membership_by_email(self, email: str, organization_id) -> Membership | None:
+        """Get the membership an email's user holds in one organization.
+
+        Args:
+            email: Email address of the user.
+            organization_id: Id of the organization.
+
+        Returns:
+            The matching ``Membership``, or ``None`` if no user has that
+            email or the user is not a member of the organization.
+        """
+        user = await self._user_repo.get_user_by_email(email)
+        if user is None:
+            return None
+        return await self._repo.get_membership(user.id, organization_id)
 
     async def get_membership_by_id(self, membership_id) -> Membership | None:
         """Get a single membership by its own id.
@@ -225,6 +257,8 @@ class MembershipService:
         if is_deactivated and target.is_owner:
             raise PermissionDeniedException("Cannot deactivate the organization's Owner")
 
+        old = _membership_snapshot(target)
+
         if role is not None:
             target.role = role
 
@@ -235,6 +269,57 @@ class MembershipService:
             target.deactivated_at = datetime.now(UTC) if is_deactivated else None
 
         await self._db.flush()
+        if is_deactivated is None:
+            action = "update"
+        else:
+            action = "deactivate" if is_deactivated else "reactivate"
+        await self._audit.log_action(
+            organization_id=target.organization_id,
+            actor_user_id=caller.user_id,
+            action=action,
+            entity_type="membership",
+            entity_id=target.id,
+            changes={"old": old, "new": _membership_snapshot(target)},
+        )
+        return target
+
+    async def reactivate_membership(
+        self, target: Membership, caller: Membership, role: str | None = None
+    ) -> Membership:
+        """Restore a deactivated membership, optionally with a new role.
+
+        The one place a deactivated person comes back through Team
+        Management. Audit-logged, since it restores someone's access.
+
+        Args:
+            target: The deactivated membership to restore.
+            caller: The acting membership, recorded in the audit log.
+            role: New role to set, or ``None`` to keep the one they had.
+
+        Returns:
+            The reactivated ``Membership``, with its user eager-loaded.
+
+        Raises:
+            MembershipNotDeactivatedException: If the membership is already
+                active.
+        """
+        if target.deactivated_at is None:
+            raise MembershipNotDeactivatedException()
+
+        old = _membership_snapshot(target)
+        target.deactivated_at = None
+        if role is not None:
+            target.role = role
+        await self._db.flush()
+        await self._audit.log_action(
+            organization_id=target.organization_id,
+            actor_user_id=caller.user_id,
+            action="reactivate",
+            entity_type="membership",
+            entity_id=target.id,
+            changes={"old": old, "new": _membership_snapshot(target)},
+        )
+        await self._db.refresh(target, attribute_names=["user"])
         return target
 
     async def invite_teammate(
@@ -243,14 +328,13 @@ class MembershipService:
         invited_by_user_id,
         email: str,
         role: str,
+        employee_id: uuid.UUID | None = None,
     ) -> tuple[str, Membership | Invite]:
         """Add an existing user to the org immediately, or create a pending invite.
 
-        A pending Invite is created for an email with no account yet. If
-        the email already has a deactivated membership in this org, it is
-        reactivated in place rather than inserting a second row (the
-        (organization_id, user_id) uniqueness constraint would otherwise be
-        violated).
+        A pending Invite is created for an email with no account yet. An
+        email whose membership in this org is deactivated is refused:
+        bringing someone back is ``reactivate_membership``, not an invite.
 
         Args:
             organization_id: Organization the teammate is being added to.
@@ -258,6 +342,10 @@ class MembershipService:
                 on the ``Invite`` row when one is created.
             email: Invitee's email address.
             role: Role to grant the teammate.
+            employee_id: Employee the invite is for, stored on the ``Invite``
+                so accepting it can link the new user to that employee.
+                Ignored when the email already has an account, since no
+                invite is created then.
 
         Returns:
             A tuple of ``("added", Membership)`` or ``("invited", Invite)`` —
@@ -267,6 +355,8 @@ class MembershipService:
         Raises:
             AlreadyExistsException: If the invitee already has an active
                 membership in the organization.
+            MembershipDeactivatedException: If the invitee's membership in
+                the organization is deactivated.
         """
         existing_user = await self._user_repo.get_user_by_email(email)
 
@@ -274,19 +364,18 @@ class MembershipService:
             existing_membership = await self._repo.get_membership(existing_user.id, organization_id)
             if existing_membership:
                 if existing_membership.deactivated_at is None:
-                    from app.core.exceptions import AlreadyExistsException
                     raise AlreadyExistsException(message="This person is already a member of your organization")
 
-                # Previously deactivated from this org — reactivate the
-                # existing row rather than trying to insert a second one
-                # (organization_id, user_id) is unique, a fresh INSERT
-                # would violate that constraint even though the person is
-                # no longer active here.
-                existing_membership.deactivated_at = None
-                existing_membership.role = role
-                await self._db.flush()
-                await self._db.refresh(existing_membership, attribute_names=["user"])
-                return "added", existing_membership
+                # Deactivated here: inviting is not how they come back.
+                # Reactivation is its own action (reactivate_membership),
+                # so an invite never silently restores access or rewrites
+                # a role (08_DECISIONS.md 2026-10-02).
+                raise MembershipDeactivatedException(
+                    message=(
+                        "This person was deactivated in your organization; "
+                        "reactivate them instead of inviting them again"
+                    )
+                )
 
             membership = await self._repo.create_membership({
                 "user_id": existing_user.id,
@@ -298,6 +387,14 @@ class MembershipService:
             # attributes, not relationships — without this, serializing
             # membership.user hits a synchronous lazy-load (MissingGreenlet).
             await self._db.refresh(membership, attribute_names=["user"])
+            await self._audit.log_action(
+                organization_id=organization_id,
+                actor_user_id=invited_by_user_id,
+                action="add",
+                entity_type="membership",
+                entity_id=membership.id,
+                changes={"old": None, "new": {**_membership_snapshot(membership), "email": email}},
+            )
             return "added", membership
 
         raw_token = generate_token()
@@ -306,6 +403,7 @@ class MembershipService:
             "email": email,
             "role": role,
             "invited_by_user_id": invited_by_user_id,
+            "employee_id": employee_id,
             "token": hash_token(raw_token),
             "expires_at": datetime.now(UTC) + timedelta(days=settings.invite_expiry),
         })
@@ -313,6 +411,22 @@ class MembershipService:
         # persisted (only the hash is), so this is the one place it's
         # available after creation.
         invite.raw_token = raw_token
+        # Never the token itself — only who was invited, as what, and for whom.
+        await self._audit.log_action(
+            organization_id=organization_id,
+            actor_user_id=invited_by_user_id,
+            action="invite",
+            entity_type="invite",
+            entity_id=invite.id,
+            changes={
+                "old": None,
+                "new": {
+                    "email": email,
+                    "role": role,
+                    "employee_id": str(employee_id) if employee_id else None,
+                },
+            },
+        )
         return "invited", invite
 
     async def get_invite_by_token(self, hashed_token: str) -> Invite | None:

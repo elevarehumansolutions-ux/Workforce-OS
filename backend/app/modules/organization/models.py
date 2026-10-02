@@ -292,13 +292,22 @@ class Employee(BaseModel):
     which may differ from the structural ``reports_to`` chain on their
     position. ``employment_type`` and ``status`` are constrained at the
     database level to the values of the ``EmploymentType`` and
-    ``EmployeeStatus`` enums.
+    ``EmployeeStatus`` enums. At most one non-deleted employee may be
+    linked to a given user per organization, enforced by a partial unique
+    index so it holds under concurrent requests too.
     """
 
     __tablename__ = "employees"
 
     __table_args__ = (
         Index("idx_employees_org_location", "organization_id", "location_id"),
+        Index(
+            "uq_employees_org_user_active",
+            "organization_id",
+            "user_id",
+            unique=True,
+            postgresql_where=text("user_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
         CheckConstraint(
             f"employment_type IN {tuple(e.value for e in EmploymentType)}",
             name="check_employee_employment_type",
@@ -306,6 +315,10 @@ class Employee(BaseModel):
         CheckConstraint(
             f"status IN {tuple(s.value for s in EmployeeStatus)}",
             name="check_employee_status",
+        ),
+        CheckConstraint(
+            "work_email = lower(btrim(work_email))",
+            name="check_employee_work_email_normalized",
         ),
     )
 

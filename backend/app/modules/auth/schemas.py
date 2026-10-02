@@ -1,7 +1,8 @@
 """Pydantic request/response schemas for the auth module's endpoints."""
 
-from pydantic import BaseModel, EmailStr, model_validator, Field
+from pydantic import BaseModel, model_validator, Field
 import re
+from app.core.schemas import NormalizedEmail
 from app.modules.tenancy_identity.schemas import (
     UserResponse,
     OrganizationResponse,
@@ -58,7 +59,7 @@ class RegisterRequest(BaseModel):
 
     """
     full_name: str = Field(..., min_length=6, max_length=255)
-    email: EmailStr
+    email: NormalizedEmail
     password: str = Field(..., min_length=8)
     confirm_password: str = Field(..., exclude=True)
     
@@ -94,7 +95,7 @@ class ResendVerificationRequest(BaseModel):
     which addresses are registered.
     """
 
-    email: EmailStr
+    email: NormalizedEmail
 
 
 class AuthResponse(BaseModel):
@@ -117,7 +118,7 @@ class LoginRequest(BaseModel):
     reset-password); applying them here would reject a legitimate existing
     user whose real password doesn't happen to satisfy today's rules.
     """
-    email: EmailStr
+    email: NormalizedEmail
     password: str = Field(..., min_length=1)
 
 
@@ -146,7 +147,7 @@ class ChangePasswordRequest(BaseModel):
 class ForgotPasswordRequest(BaseModel):
     """Payload for requesting a password reset link."""
 
-    email: EmailStr
+    email: NormalizedEmail
 
 
 class ResetPasswordRequest(BaseModel):

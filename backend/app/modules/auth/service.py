@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .security import hash_password, verify_password
 from app.core.security import generate_token, hash_token
 from app.core.schemas import MessageResponse
+from app.modules.organization.service import EmployeeService
 from app.modules.tenancy_identity.service import UserService, OrganizationService, MembershipService
 from app.modules.tenancy_identity.schemas import (
     UserResponse,
@@ -635,6 +636,13 @@ class AuthService:
         })
 
         org = await self._org_service.get_organization_by_id(invite.organization_id)
+
+        # An invite sent from an employee's row carries that employee: attach
+        # the new login to it. Best-effort by design — if the employee has
+        # since been offboarded or linked, acceptance still succeeds and HR
+        # links them by hand (EmployeeService.link_accepted_invite).
+        if invite.employee_id is not None:
+            await EmployeeService(self._db).link_accepted_invite(invite.employee_id, user.id)
 
         await self._membership_service.mark_invite_used(invite.id)
 

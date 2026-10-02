@@ -16,11 +16,14 @@ from app.core.config import settings
 from app.core.dependencies import get_db, require_org_role
 from app.core.exceptions import MembershipNotFoundException, ValidationException
 from app.core.schemas import PaginationResponse
+from app.modules.organization.enums import EmployeeStatus
+from app.modules.organization.repository import EmployeeRepository
 from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.schemas import (
     InviteTeammateRequest,
     InviteTeammateResponse,
     MembershipWithUserResponse,
+    ReactivateMembershipRequest,
     UpdateMembershipRequest,
 )
 from app.modules.tenancy_identity.service import MembershipService, OrganizationService
@@ -106,6 +109,59 @@ async def list_memberships(
     result = await service.get_org_memberships(caller.organization_id, page, limit)
     result.data = [MembershipWithUserResponse.model_validate(m) for m in result.data]
     return result
+
+
+@router.post("/memberships/{membership_id}/reactivate", status_code=200)
+async def reactivate_membership(
+    membership_id: uuid.UUID,
+    data: ReactivateMembershipRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_TEAM_MANAGEMENT_ROLES)),
+) -> MembershipWithUserResponse:
+    """Bring a deactivated teammate back, optionally with a new role.
+
+    The one way back for someone deactivated from this organization;
+    inviting them again is refused. Leaving ``role`` out restores the role
+    they had. Refused while the person's employee record is offboarded:
+    reinstate the employee instead (``POST /employees/{id}/reinstate``),
+    which restores login access in the same step, so the two never
+    disagree.
+
+    Requires the HR Administrator role.
+
+    Args:
+        membership_id: Id of the deactivated membership.
+        data: Optional new role.
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        The reactivated membership, with its user eager-loaded.
+
+    Raises:
+        MembershipNotFoundException: If no membership with that id exists
+            in the caller's org (translates to a 404 response).
+        MembershipNotDeactivatedException: If the membership is already
+            active (translates to a 409 response).
+        ValidationException: If the person is an offboarded employee
+            (translates to a 422 response).
+    """
+    service = MembershipService(db)
+    target = await service.get_membership_by_id(membership_id)
+    if target is None:
+        raise MembershipNotFoundException()
+
+    employee = await EmployeeRepository(db).get_employee_by_user_id(target.user_id)
+    if employee is not None and employee.status == EmployeeStatus.INACTIVE.value:
+        raise ValidationException(
+            "This person is an offboarded employee; reinstate the employee instead"
+        )
+
+    reactivated = await service.reactivate_membership(
+        target=target, caller=caller, role=data.role.value if data and data.role else None
+    )
+    await db.commit()
+    return MembershipWithUserResponse.model_validate(reactivated)
 
 
 @router.patch("/memberships/{membership_id}", status_code=200)

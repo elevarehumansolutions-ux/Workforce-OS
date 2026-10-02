@@ -6,20 +6,28 @@ any authenticated org member; mutations are gated to HR Administrator.
 """
 
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.dependencies import get_db, get_current_membership, require_org_role
 from app.core.schemas import PaginationResponse
 from app.core.triggers import trigger_ai_suggestion_generation
 from app.modules.tenancy_identity.models import Membership
+from app.modules.tenancy_identity.schemas import MembershipWithUserResponse
+from app.modules.tenancy_identity.service import OrganizationService
+from app.modules.tenancy_identity.tasks import dispatch_invite_email
 
 from .schemas import (
     DepartmentCreateRequest,
     DepartmentResponse,
     DepartmentUpdateRequest,
     EmployeeCreateRequest,
+    EmployeeGrantLoginRequest,
+    EmployeeGrantLoginResponse,
+    EmployeeLinkUserRequest,
     EmployeeResponse,
     EmployeeUpdateRequest,
     LocationCreateRequest,
@@ -38,6 +46,39 @@ router = APIRouter()
 # member (Managers/Employees plausibly need to browse the directory too).
 # Not written down anywhere in 05_API_DESIGN.md yet; flagging in-code.
 _ORG_STRUCTURE_WRITE_ROLES = ("hr_administrator",)
+
+
+async def _company_name(db: AsyncSession, organization_id: uuid.UUID) -> str | None:
+    """Look up the organization's name for the invite email.
+
+    Must run before the transaction commits: the org context that row-level
+    security needs is transaction-local, so it is gone afterwards.
+
+    Args:
+        db: Database session dependency.
+        organization_id: Organization to look up.
+
+    Returns:
+        The organization's name, or ``None`` if it has none yet.
+    """
+    org = await OrganizationService(db).get_organization_by_id(organization_id)
+    return org.name if org else None
+
+
+def _send_employee_invite(email: str, raw_token: str, company_name: str | None) -> None:
+    """Queue the invite email for an employee invited to log in.
+
+    Call only after the transaction has committed, so the email never
+    references an invite that was rolled back.
+
+    Args:
+        email: The employee's work email, the invite's recipient.
+        raw_token: The invite's unhashed token, only available right after
+            creation.
+        company_name: Organization name to show in the email.
+    """
+    invite_link = f"{settings.app_url}/accept-invite?token={quote(raw_token)}"
+    dispatch_invite_email.delay(email, invite_link, company_name)
 
 
 # ---------------------------------------------------------------------------
@@ -493,22 +534,82 @@ async def create_employee(
 ) -> EmployeeResponse:
     """Create an employee in the caller's organization.
 
+    With ``grant_login_access`` set, the employee is also given login access
+    in the same transaction: an invite email is sent to their work email, or
+    their existing account is linked. Either everything happens or nothing
+    does.
+
     Requires the HR Administrator role.
 
     Args:
-        data: Employee fields to create.
+        data: Employee fields to create, optionally with
+            ``grant_login_access`` and ``role``.
         db: Database session dependency.
         caller: Caller's membership; must be an HR Administrator.
 
     Returns:
         The newly created employee.
+
+    Raises:
+        UserNotFoundException: If ``user_id`` is not a member of the org
+            (translates to a 404 response).
+        MembershipDeactivatedException: If ``user_id``'s membership is
+            deactivated (translates to a 409 response).
+        EmployeeUserAlreadyLinkedException: If ``user_id`` is already linked
+            to another employee (translates to a 409 response).
     """
     service = EmployeeService(db)
-    employee = await service.create_employee(
-        caller.organization_id, caller.user_id, data.model_dump()
-    )
+    fields = data.model_dump(exclude={"grant_login_access", "role"})
+    raw_token = None
+    company_name = None
+    if not data.grant_login_access:
+        employee = await service.create_employee(caller.organization_id, caller.user_id, fields)
+    else:
+        # SAVEPOINT: if granting login fails, the employee created a moment
+        # earlier is rolled back with it, without discarding the
+        # transaction-scoped RLS org context (same reasoning as the
+        # business_dna upsert).
+        async with db.begin_nested():
+            employee = await service.create_employee(caller.organization_id, caller.user_id, fields)
+            _, employee, raw_token = await service.grant_login(
+                employee.id, data.role.value, caller.user_id
+            )
+        if raw_token is not None:
+            company_name = await _company_name(db, caller.organization_id)
     await db.commit()
+    if raw_token is not None:
+        _send_employee_invite(employee.work_email, raw_token, company_name)
     return EmployeeResponse.model_validate(employee)
+
+
+@router.get("/employees/unlinked-members", status_code=200)
+async def list_members_without_employee(
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_ORG_STRUCTURE_WRITE_ROLES)),
+) -> PaginationResponse:
+    """List active org members who have no employee record yet.
+
+    Feeds the "link an existing member" picker on Add Employee and the
+    link-user action. Declared before ``/employees/{employee_id}`` so the
+    path isn't read as an employee id.
+
+    Requires the HR Administrator role.
+
+    Args:
+        page: 1-indexed page number.
+        limit: Maximum number of rows per page (1-100).
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        A paginated response of memberships, each paired with its user.
+    """
+    service = EmployeeService(db)
+    result = await service.list_members_without_employee(caller.organization_id, page, limit)
+    result.data = [MembershipWithUserResponse.model_validate(m) for m in result.data]
+    return result
 
 
 @router.get("/employees", status_code=200)
@@ -596,6 +697,99 @@ async def update_employee(
     )
     await db.commit()
     return EmployeeResponse.model_validate(employee)
+
+
+@router.post("/employees/{employee_id}/link-user", status_code=200)
+async def link_employee_user(
+    employee_id: uuid.UUID,
+    data: EmployeeLinkUserRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_ORG_STRUCTURE_WRITE_ROLES)),
+) -> EmployeeResponse:
+    """Link an existing org member's login to an employee that has none.
+
+    Dedicated action — not a PATCH field. One-way: a linked login can't be
+    cleared or swapped, because offboarding finds the login to deactivate
+    through it. The user must be an active member of the org and not
+    already linked to another employee.
+
+    Requires the HR Administrator role.
+
+    Args:
+        employee_id: Id of the employee to link.
+        data: The ``user_id`` to link.
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        The updated employee.
+
+    Raises:
+        EmployeeNotFoundException: If no non-deleted employee with that id
+            exists in the caller's org (translates to a 404 response).
+        EmployeeAlreadyHasLoginException: If the employee already has a
+            login (translates to a 409 response).
+        UserNotFoundException: If the user isn't a member of the org
+            (translates to a 404 response).
+        MembershipDeactivatedException: If the user's membership is
+            deactivated (translates to a 409 response).
+        EmployeeUserAlreadyLinkedException: If the user is already linked
+            to another employee (translates to a 409 response).
+    """
+    service = EmployeeService(db)
+    employee = await service.link_user(employee_id, data.user_id, caller.user_id)
+    await db.commit()
+    return EmployeeResponse.model_validate(employee)
+
+
+@router.post("/employees/{employee_id}/grant-login", status_code=200)
+async def grant_employee_login(
+    employee_id: uuid.UUID,
+    data: EmployeeGrantLoginRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_ORG_STRUCTURE_WRITE_ROLES)),
+) -> EmployeeGrantLoginResponse:
+    """Give an employee login access ("Send invite"), or resend the invite.
+
+    Uses the employee's work email. If an existing account or org member
+    has it, the employee is linked straight away; otherwise an invite email
+    is sent, and accepting it links the new account to this employee.
+    Calling it again before the invite is accepted replaces the pending
+    invite with a fresh one (the old link stops working), so this is also
+    the resend action.
+
+    Requires the HR Administrator role.
+
+    Args:
+        employee_id: Id of the employee to give login access.
+        data: The ``role`` to grant.
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        The outcome (``invited``, ``added`` or ``linked``) and the employee.
+
+    Raises:
+        EmployeeNotFoundException: If no non-deleted employee with that id
+            exists in the caller's org (translates to a 404 response).
+        EmployeeAlreadyHasLoginException: If the employee already has a
+            login (translates to a 409 response).
+        ValidationException: If the employee is offboarded (translates to
+            a 422 response).
+    """
+    service = EmployeeService(db)
+    outcome, employee, raw_token = await service.grant_login(
+        employee_id, data.role.value, caller.user_id
+    )
+    company_name = (
+        await _company_name(db, caller.organization_id) if raw_token is not None else None
+    )
+    await db.commit()
+    if raw_token is not None:
+        _send_employee_invite(employee.work_email, raw_token, company_name)
+    return EmployeeGrantLoginResponse(
+        outcome=outcome, employee=EmployeeResponse.model_validate(employee)
+    )
 
 
 @router.post("/employees/{employee_id}/offboard", status_code=200)
