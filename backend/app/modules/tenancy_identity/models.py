@@ -66,6 +66,15 @@ class Organization(BaseModel):
         server_default="1",
     )
 
+    timezone: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="Africa/Lagos",
+        server_default="Africa/Lagos",
+        doc="IANA timezone name; decides where 'midnight' falls for this org's attendance auto-close",
+    )
+
+
     # Relationships
     memberships: Mapped[list["Membership"]] = relationship(back_populates="organization")
     audit_logs: Mapped[list[AuditLog]] = relationship(
@@ -120,6 +129,10 @@ class User(BaseModel):
         CheckConstraint(
             f"account_status IN {tuple(s.value for s in AccountStatus)}",
             name='check_account_status'
+        ),
+        CheckConstraint(
+            "email = lower(btrim(email))",
+            name='check_user_email_normalized'
         ),
     )
 
@@ -263,6 +276,10 @@ class Invite(BaseModel):
             f"role IN {tuple(r.value for r in MembershipRole)}",
             name='check_invite_role'
         ),
+        CheckConstraint(
+            "email = lower(btrim(email))",
+            name='check_invite_email_normalized'
+        ),
     )
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -276,3 +293,9 @@ class Invite(BaseModel):
     token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default='false')
+    employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey('employees.id'),
+        nullable=True,
+        doc="Employee this invite was sent for, linked to the new user on acceptance — null for a plain teammate invite"
+    )

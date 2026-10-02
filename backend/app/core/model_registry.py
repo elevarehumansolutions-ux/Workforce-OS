@@ -49,6 +49,7 @@ from app.modules.kpis.models import (
     KPI,
     KPIScore,
 )
+from app.modules.attendance.models import AttendanceRecord
 
 __all__ = [
     "Organization",
@@ -72,4 +73,5 @@ __all__ = [
     "AIUsageLog",
     "KPI",
     "KPIScore",
+    "AttendanceRecord",
 ]

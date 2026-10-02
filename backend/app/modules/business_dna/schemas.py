@@ -3,8 +3,9 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from zoneinfo import available_timezones
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -53,15 +54,18 @@ class BusinessDNAUpsertRequest(BaseModel):
     which have separate ``POST``/``PATCH`` verbs. ``organization_id`` is
     deliberately absent, same reasoning as the core-value request above.
 
-    ``organization_name`` is folded in here rather than a separate
-    endpoint, so the service can set ``organizations.name`` and upsert this
-    profile in one transaction — see 08_DECISIONS.md 2026-09-21. Every
+    ``organization_name`` and ``timezone`` are folded in here rather than a
+    separate endpoint, so the service can set them on ``organizations`` and
+    upsert this profile in one transaction — see 08_DECISIONS.md
+    2026-09-21 and 2026-10-02. ``timezone`` must be a real IANA name; it
+    decides where "midnight" falls for the attendance auto-close. Every
     field is optional since the onboarding wizard can be filled in and
     saved incrementally, matching the underlying columns, which are all
     nullable.
     """
 
     organization_name: str | None = None
+    timezone: str | None = None
     industry: str | None = None
     products_services_description: str | None = None
     vision: str | None = None
@@ -74,6 +78,16 @@ class BusinessDNAUpsertRequest(BaseModel):
     customer_value_drivers: str | None = None
     capital_investment_amount: Decimal | None = None
 
+    @field_validator("timezone")
+    @classmethod
+    def _timezone_must_be_a_real_iana_name(cls, value: str | None) -> str | None:
+        """Reject anything that isn't a real IANA timezone name, e.g. ``Africa/Lagos``."""
+        if value is not None and value not in available_timezones():
+            raise ValueError(
+                "timezone must be a valid IANA timezone name, e.g. 'Africa/Lagos'"
+            )
+        return value
+
 
 class BusinessDNAResponse(BaseModel):
     """API representation of an org's Business DNA profile.
@@ -84,9 +98,9 @@ class BusinessDNAResponse(BaseModel):
     before returning this schema; it isn't something this schema can decide
     on its own since Pydantic has no notion of the caller's role.
 
-    ``organization_name`` isn't a column on ``business_dna`` (it lives on
-    ``organizations.name``) — the service populates it from the
-    ``organization`` relationship when building this response.
+    ``organization_name`` and ``timezone`` aren't columns on
+    ``business_dna`` (they live on ``organizations``) — the router supplies
+    both when building this response.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -94,6 +108,7 @@ class BusinessDNAResponse(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     organization_name: str | None = None
+    timezone: str
     industry: str | None = None
     products_services_description: str | None = None
     vision: str | None = None

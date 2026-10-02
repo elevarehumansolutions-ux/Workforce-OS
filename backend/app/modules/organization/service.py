@@ -15,10 +15,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import (
     AlreadyExistsException,
     DepartmentNotFoundException,
+    EmployeeAlreadyHasLoginException,
     EmployeeNotFoundException,
+    EmployeeUserAlreadyLinkedException,
     LocationNotFoundException,
+    MembershipDeactivatedException,
     PositionNotFoundException,
     ResourceInUseException,
+    UserNotFoundException,
     ValidationException,
 )
 from app.core.schemas import PaginationResponse
@@ -516,6 +520,30 @@ class EmployeeService:
         self._repo = EmployeeRepository(db)
         self._audit = AuditService(db)
         self._membership_service = MembershipService(db)
+    
+    async def _validate_user_link(self, organization_id: uuid.UUID, user_id: uuid.UUID) -> None:
+        """Check a user can be linked to an employee in this organization.
+
+        Args:
+            organization_id: Organization the employee belongs to.
+            user_id: User being linked.
+
+        Raises:
+            UserNotFoundException: If the user has no membership in this
+                organization.
+            MembershipDeactivatedException: If the user's membership in
+                this organization is deactivated.
+            EmployeeUserAlreadyLinkedException: If another non-deleted
+                employee in this organization is already linked to the user.
+        """
+        membership = await self._membership_service.get_membership(user_id, organization_id)
+        if membership is None:
+            raise UserNotFoundException()
+        if membership.deactivated_at is not None:
+            raise MembershipDeactivatedException()
+
+        if await self._repo.get_employee_by_user_id(user_id) is not None:
+            raise EmployeeUserAlreadyLinkedException()
 
     async def create_employee(
         self, organization_id: uuid.UUID, actor_user_id: uuid.UUID, data: dict
@@ -530,6 +558,8 @@ class EmployeeService:
         Returns:
             The newly created ``Employee``.
         """
+        if data.get("user_id") is not None:
+            await self._validate_user_link(organization_id, data["user_id"])
         employee = await self._repo.create_employee({**data, "organization_id": organization_id})
         await self._audit.log_action(
             organization_id=organization_id,
@@ -579,6 +609,21 @@ class EmployeeService:
         """
         return await self._repo.list_employees(organization_id, location_id, page, limit)
 
+    async def list_members_without_employee(
+        self, organization_id: uuid.UUID, page: int = 1, limit: int = 20
+    ) -> PaginationResponse:
+        """List active org members who have no employee record.
+
+        Args:
+            organization_id: Organization to list members for.
+            page: 1-indexed page number.
+            limit: Maximum number of rows per page.
+
+        Returns:
+            A paginated response wrapping the matching ``Membership`` rows.
+        """
+        return await self._repo.list_members_without_employee(organization_id, page, limit)
+
     async def update_employee(
         self, employee_id: uuid.UUID, actor_user_id: uuid.UUID, data: dict
     ) -> Employee:
@@ -608,6 +653,156 @@ class EmployeeService:
             changes={"old": old_data, "new": jsonable_encoder(data)},
         )
         return employee
+
+    async def link_user(
+        self, employee_id: uuid.UUID, user_id: uuid.UUID, actor_user_id: uuid.UUID
+    ) -> Employee:
+        """Link a login to an existing employee that does not have one.
+
+        One-way by design: ``user_id`` is never cleared or swapped once set,
+        because offboarding finds the login to deactivate through it.
+
+        Args:
+            employee_id: Id of the employee to link.
+            user_id: User to link as this employee's login.
+            actor_user_id: User performing the link, for the audit log.
+
+        Returns:
+            The updated ``Employee``.
+
+        Raises:
+            EmployeeNotFoundException: If no non-deleted employee with that
+                id exists in the caller's org.
+            EmployeeAlreadyHasLoginException: If the employee already has a
+                login linked.
+        """
+        employee = await self.get_employee_by_id(employee_id)
+        if employee.user_id is not None:
+            raise EmployeeAlreadyHasLoginException()
+        return await self._attach_user(employee, user_id, actor_user_id)
+
+    async def _attach_user(
+        self, employee: Employee, user_id: uuid.UUID, actor_user_id: uuid.UUID
+    ) -> Employee:
+        """Validate a user, set it as the employee's login, and audit-log it.
+
+        Args:
+            employee: Employee with no login yet.
+            user_id: User to attach.
+            actor_user_id: User performing the link, for the audit log.
+
+        Returns:
+            The updated ``Employee``.
+
+        Raises:
+            UserNotFoundException: If the user is not a member of the org.
+            MembershipDeactivatedException: If the user's membership is
+                deactivated.
+            EmployeeUserAlreadyLinkedException: If another employee already
+                holds the user.
+        """
+        await self._validate_user_link(employee.organization_id, user_id)
+        employee = await self._repo.update_employee(employee, {"user_id": user_id})
+        await self._audit.log_action(
+            organization_id=employee.organization_id,
+            actor_user_id=actor_user_id,
+            action="link_user",
+            entity_type="employee",
+            entity_id=employee.id,
+            changes={"old": {"user_id": None}, "new": {"user_id": str(user_id)}},
+        )
+        return employee
+
+    async def grant_login(
+        self, employee_id: uuid.UUID, role: str, actor_user_id: uuid.UUID
+    ) -> tuple[str, Employee, str | None]:
+        """Give an employee login access: link their account or send an invite.
+
+        Uses the employee's ``work_email``. The outcome depends on that email:
+
+        - an active member of this org already has it: the employee is linked
+          to them now, their role is left unchanged (``"linked"``);
+        - a user has it but no membership here: they are added with ``role``
+          and linked now (``"added"``); a deactivated member is refused
+          instead, since bringing them back is the reactivate action;
+        - nobody has it: an invite carrying this employee is created
+          (``"invited"``); accepting it links the new user. Calling this
+          again replaces the pending invite, which is how a resend works.
+
+        Args:
+            employee_id: Employee to give login access.
+            role: Role to grant when a membership or invite is created.
+            actor_user_id: User performing the action, for the audit log.
+
+        Returns:
+            ``(outcome, employee, raw_invite_token)``; the token is set only
+            for ``"invited"``, so the caller can send the email after commit.
+
+        Raises:
+            EmployeeNotFoundException: If no non-deleted employee with that
+                id exists in the caller's org.
+            EmployeeAlreadyHasLoginException: If the employee already has a
+                login linked.
+            MembershipDeactivatedException: If the email belongs to a
+                member who is deactivated in this organization.
+            ValidationException: If the employee is offboarded.
+        """
+        employee = await self.get_employee_by_id(employee_id)
+        if employee.user_id is not None:
+            raise EmployeeAlreadyHasLoginException()
+        if employee.status == EmployeeStatus.INACTIVE.value:
+            raise ValidationException(message="Reinstate this employee before granting login access")
+
+        email = employee.work_email.strip()
+        existing = await self._membership_service.get_membership_by_email(email, employee.organization_id)
+        if existing is not None and existing.deactivated_at is None:
+            employee = await self._attach_user(employee, existing.user_id, actor_user_id)
+            return "linked", employee, None
+
+        outcome, result = await self._membership_service.invite_teammate(
+            organization_id=employee.organization_id,
+            invited_by_user_id=actor_user_id,
+            email=email,
+            role=role,
+            employee_id=employee.id,
+        )
+        if outcome == "added":
+            employee = await self._attach_user(employee, result.user_id, actor_user_id)
+            return "added", employee, None
+        return "invited", employee, result.raw_token
+
+    async def link_accepted_invite(self, employee_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        """Link a newly created user to the employee their invite was for.
+
+        Called while accepting an invite, so it must never raise: a person
+        who accepted a valid invite is not locked out because the employee
+        record changed in the meantime. If the employee is gone, offboarded,
+        or already has a login, nothing is linked and HR links manually.
+
+        Args:
+            employee_id: Employee stored on the accepted invite.
+            user_id: The user just created from the invite.
+
+        Returns:
+            ``True`` if the user was linked, ``False`` if it was skipped.
+        """
+        employee = await self._repo.get_employee_by_id(employee_id)
+        if (
+            employee is None
+            or employee.user_id is not None
+            or employee.status == EmployeeStatus.INACTIVE.value
+        ):
+            return False
+        await self._repo.update_employee(employee, {"user_id": user_id})
+        await self._audit.log_action(
+            organization_id=employee.organization_id,
+            actor_user_id=user_id,
+            action="link_user",
+            entity_type="employee",
+            entity_id=employee.id,
+            changes={"old": {"user_id": None}, "new": {"user_id": str(user_id)}},
+        )
+        return True
 
     async def offboard_employee(self, employee_id: uuid.UUID, caller: Membership) -> Employee:
         """Offboard an employee: set them inactive and deactivate their login.

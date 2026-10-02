@@ -46,7 +46,9 @@ Built directly on `02_SYSTEM_DESIGN.md` (module ownership) and `04_DATABASE.md` 
 - `GET /me` — current identity + every organization the caller belongs to. This is what feeds an org-switcher for a user with more than one membership.
 
 **Memberships** (`/memberships`, shipped in M2):
-- `POST /memberships` — add an existing user immediately, or invite an email with no account. **HR Administrator only** — not "Owner or HR Administrator": the founder is always registered *as* `hr_administrator`, so gating on that one role already covers them.
+- `POST /memberships` — add an existing user immediately, or invite an email with no account. **HR Administrator only** — not "Owner or HR Administrator": the founder is always registered *as* `hr_administrator`, so gating on that one role already covers them. Inviting someone whose membership is **deactivated** returns **409** `MEMBERSHIP_DEACTIVATED` — an invite never restores access or rewrites a role (changed 2026-10-02; it used to reactivate silently). Use `/reactivate` below.
+- `POST /memberships/{id}/reactivate` — bring a deactivated teammate back; optional body `{role}` (omit to restore the role they had). **HR Administrator only.** **409** `MEMBERSHIP_NOT_DEACTIVATED` if already active; **422** if the person's employee record is offboarded (use `POST /employees/{id}/reinstate`, which restores login in the same step). Audit-logged. `PATCH /memberships/{id}` with `is_deactivated: false` still works for now and does none of those checks — see `09_PROGRESS.md` M2.
+- **Emails are case-insensitive everywhere.** Every email a client sends (register, login, resend-verification, forgot-password, invite, employee `work_email`) is trimmed and lower-cased on input, looked up in that form, and the database rejects any stored email that isn't (`CHECK (email = lower(btrim(email)))`).
 - `GET /memberships` — list the org's people, offset-paginated. **HR Administrator only** — not open to every member, unlike most `GET` endpoints in this API.
 - `PATCH /memberships/{id}` — change a teammate's role and/or deactivate/reactivate them. **HR Administrator only.** A caller can't target their own membership this way, and can't deactivate the org's Owner.
 
@@ -62,12 +64,16 @@ Mutations (`POST`/`PATCH`/`DELETE`, including offboard/reinstate) restricted to 
 - `POST|GET /departments`, `GET|PATCH|DELETE /departments/{id}` — includes `is_critical`, `revenue_allocation_percentage`. `DELETE` returns **409** while active positions are still assigned, or a pending AI suggestion still targets it (the response's `message` names which reason(s) apply). `POST`/`PATCH` return **409** if the name duplicates another non-deleted department in the org (compared case/spacing/Unicode-insensitively — `"Sales"` and `"  sales "` collide). **Creating a department with `is_critical: true`, or updating one to become critical, enqueues AI suggestion generation** (see the Conventions note above).
 - `POST|GET /positions`, `GET|PATCH|DELETE /positions/{id}` — `DELETE` returns **409** while active employees hold it, other positions report to it, or a pending AI suggestion still targets it. **Every `POST /positions` enqueues AI suggestion generation**, unconditionally, regardless of whether its department is critical.
 - `POST|GET /employees` (filter: `location_id`), `GET|PATCH /employees/{id}` — no `DELETE`; offboarding is the removal mechanism instead.
+- `POST /employees` also takes `grant_login_access` + `role` (the Add Employee checkbox; `role` required with the flag, cannot be combined with `user_id`). It creates the employee and gives them login access in one all-or-nothing call (SAVEPOINT). Passing `user_id` instead links an existing org member directly; the user must be an active member of the org (404 `USER_NOT_FOUND` otherwise, 409 `MEMBERSHIP_DEACTIVATED`) and not already linked to another employee (409 `EMPLOYEE_USER_ALREADY_LINKED`).
+- `POST /employees/{id}/grant-login` (`hr_administrator`, body: `role`) — "Send invite". Uses the employee's `work_email`: an active org member with that email is linked now (`outcome: "linked"`, role unchanged); another existing account with no membership here is added with `role` and linked now (`"added"`); an existing member who is deactivated here is refused (**409** `MEMBERSHIP_DEACTIVATED`, reactivate them first); otherwise an invite carrying the employee is emailed (`"invited"`) and `POST /auth/accept-invite` links the new user to that employee. Calling it again replaces the pending invite (the old link stops working), so it is also the resend action. 409 `EMPLOYEE_ALREADY_HAS_LOGIN` if the employee already has a login; 422 if the employee is offboarded.
+- `POST /employees/{id}/link-user` (`hr_administrator`, body: `user_id`) — manual link of an existing org member to an employee with no login (e.g. the founder). Same validation as above. `user_id` is one-way everywhere: no endpoint clears or swaps it (offboarding finds the login to deactivate through it), and `PATCH /employees/{id}` cannot touch it.
+- `GET /employees/unlinked-members` (`hr_administrator`, offset-paginated) — active org members with no employee record, for the link picker.
 - `POST /employees/{id}/offboard` — sets the employee inactive and deactivates their `Membership` if they have login access, in one step. Not a generic status PATCH.
 - `POST /employees/{id}/reinstate` — reverses an offboard: restores active status and re-enables login access if it was deactivated.
 
 ## Business DNA
 
-- `GET|PUT /business-dna` — one row per org; `PUT` upserts (works for both the first save and every later edit, no separate create/update). `PUT` is `hr_administrator`-only; `GET` is open to any authenticated org member. `PUT`'s body also carries `organization_name`, written through to `organizations.name` in the same transaction.
+- `GET|PUT /business-dna` — one row per org; `PUT` upserts (works for both the first save and every later edit, no separate create/update). `PUT` is `hr_administrator`-only; `GET` is open to any authenticated org member. `PUT`'s body also carries `organization_name`, written through to `organizations.name` in the same transaction, and `timezone` (added 2026-10-02), written through to `organizations.timezone`: an IANA name spelled exactly (`Africa/Lagos`, not `africa/lagos`, `WAT` or `+01:00`), else **422**; an explicit `null` is ignored (the column is `NOT NULL`). It defaults to `Africa/Lagos` and decides where "midnight" falls for the attendance auto-close. Every response from `GET`/`PUT` carries `timezone` (always a string). Note `GET /business-dna` is still a 404 until the first `PUT`, so the current timezone can't be read before then.
 - **Field-level restriction, not a role gate on the whole endpoint:** `capital_investment_amount` in `GET /business-dna`'s response is `null` for every role except `hr_administrator`/`business_executive` — never a 403, the field is just empty for everyone else.
 - `POST|GET /business-dna/core-values`, `PATCH|DELETE /business-dna/core-values/{id}` — mutations `hr_administrator`-only, reads open to any authenticated org member. `DELETE` is a genuine hard delete (**204, no body**) — the one place in this whole API that isn't a soft delete.
 
@@ -110,6 +116,18 @@ Single-KPI `POST`/`PATCH` and the group reconcile are `hr_administrator`-only; `
 
 ---
 
+## Attendance
+
+Plain clock-in/clock-out. **Attendance belongs to the employee record, not the role:** any authenticated member who also has an employee record can clock in and out. Matched through `employees.user_id`; no employee record means **409 `NO_EMPLOYEE_PROFILE`** on every endpoint below (e.g. a founder until HR adds them as an employee).
+
+- `POST /attendance/clock-in` — no body. Response `{already_clocked_in, record}`. **Idempotent:** clocking in while already clocked in is not an error — it returns the existing open record with `already_clocked_in: true` (a double-tap, or two devices at once; the database guarantees one open record per employee). 422 if the employee has been offboarded.
+- `POST /attendance/clock-out` — no body. Returns the closed record (`closed_by: "employee"`). **Not idempotent:** **409 `NOT_CLOCKED_IN`** if there is no open record (including a second tap on Clock Out — the first clock-out time stands).
+- `GET /attendance` — offset-paginated, newest clock-in first. Filters: `employee_id`, `date_from`, `date_to` (calendar days, inclusive, `YYYY-MM-DD`). **Dates are days on the organization's wall clock — its `timezone` — not UTC**, so a 00:30 Lagos clock-in belongs to that Lagos day. `date_from` after `date_to` is **422**.
+  - No `employee_id` = the caller's own history. `hr_administrator` and `business_executive` may pass any employee of their organization; every other role asking for someone else gets **403**; an unknown employee, or one in another organization, is **404**.
+  - There is no separate "am I clocked in?" endpoint: the caller's newest record with `clock_out_at: null` means they are clocked in right now (`GET /attendance?limit=1`).
+- **Record shape:** `id, organization_id, employee_id, clock_in_at, clock_out_at (null = clocked in), closed_by ("employee" | "system" | null), close_reason, created_at, updated_at`. `closed_by: "system"` marks a record the **nightly auto-close** ended: an hourly Beat job closes every record that clocked in before the organization's most recent midnight (its own `timezone`), setting `clock_out_at` to that midnight, `close_reason: "Did not clock out"`. That time is a cutoff, not something the employee did, so show these rows differently. The employee and their manager (if they have logins) each get an in-app notification (category `system`, `link_type: "attendance_record"`, `link_id` = the record); no email. No endpoint: it is a background job.
+- Clock-in and clock-out each write an `audit_log` entry (`entity_type: attendance_record`); a repeat clock-in writes none.
+
 ## Not yet built — designed, not mounted in the code
 
 Nothing below this line exists as a real endpoint today — every path here 404s. These sections describe the intended shape for whichever milestone eventually builds them; check `09_PROGRESS.md` before writing frontend code against any of them, and don't scaffold API client code for these yet, since the shape may still change before it's actually built.
@@ -134,7 +152,6 @@ Nothing below this line exists as a real endpoint today — every path here 404s
 - `POST /workflow-instances` — starts a case (body: `template_id`, `subject`)
 - `GET /workflow-instances` (filter: `status`, `template_id`), `GET /workflow-instances/{id}`
 
-### Attendance (M9+)
+### Attendance — now live
 
-- `POST /attendance/clock-in`, `POST /attendance/clock-out`
-- `GET /attendance` (filter: `employee_id`, date range)
+Moved up to the `## Attendance` section above. Everything in M9 is built, including the nightly auto-close job (it has no endpoint).

@@ -39,13 +39,16 @@ class UserRepository:
     async def get_user_by_email(self, email: str) -> User | None:
         """Get a user by email address.
 
+        Emails are stored trimmed and lower-cased, so the lookup normalizes
+        its input the same way, whatever the caller passed.
+
         Args:
             email: Email address to look up.
 
         Returns:
             The matching ``User``, or ``None`` if not found.
         """
-        stmt = select(User).where(User.email == email)
+        stmt = select(User).where(User.email == email.strip().lower())
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -359,7 +362,7 @@ class InviteRepository:
         """Find an existing, not-yet-used invite for this email in this org."""
         stmt = select(Invite).where(
             Invite.organization_id == organization_id,
-            Invite.email == email,
+            Invite.email == email.strip().lower(),
             Invite.is_used.is_(False),
         )
         result = await self._db.execute(stmt)

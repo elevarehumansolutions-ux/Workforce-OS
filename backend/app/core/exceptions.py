@@ -585,3 +585,90 @@ class KPIScorePeriodClosedException(PlatformError):
         """Initialise with platform error defaults."""
         super().__init__(message, code, status_code, details)
 
+
+class EmployeeUserAlreadyLinkedException(PlatformError):
+    """Raised when a user is already linked to another employee in the org."""
+
+    def __init__(
+        self,
+        message: str = "This user is already linked to an employee in this organization",
+        code: str = "EMPLOYEE_USER_ALREADY_LINKED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class MembershipDeactivatedException(PlatformError):
+    """Raised when linking or inviting a user whose membership in the org is deactivated."""
+
+    def __init__(
+        self,
+        message: str = "This person's membership is deactivated; reactivate them first",
+        code: str = "MEMBERSHIP_DEACTIVATED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class NoEmployeeProfileException(PlatformError):
+    """Raised when a user with no employee record in the org tries to use attendance."""
+
+    def __init__(
+        self,
+        message: str = (
+            "Your account isn't linked to an employee record yet. "
+            "Ask your HR administrator to add you as an employee."
+        ),
+        code: str = "NO_EMPLOYEE_PROFILE",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class NotClockedInException(PlatformError):
+    """Raised when clocking out an employee who has no open attendance record."""
+
+    def __init__(
+        self,
+        message: str = "You're not clocked in, so there is nothing to clock out of.",
+        code: str = "NOT_CLOCKED_IN",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class MembershipNotDeactivatedException(PlatformError):
+    """Raised when reactivating a membership that is not deactivated."""
+
+    def __init__(
+        self,
+        message: str = "This membership is not deactivated",
+        code: str = "MEMBERSHIP_NOT_DEACTIVATED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class EmployeeAlreadyHasLoginException(PlatformError):
+    """Raised when linking a login to an employee that already has one."""
+
+    def __init__(
+        self,
+        message: str = "This employee already has a login linked",
+        code: str = "EMPLOYEE_ALREADY_HAS_LOGIN",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+

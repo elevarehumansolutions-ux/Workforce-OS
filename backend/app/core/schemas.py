@@ -4,9 +4,23 @@ Provides reusable response and error structures that are referenced by
 multiple apps rather than belonging to any single domain module.
 """
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel, EmailStr
+
+
+def _normalize_email(value: str) -> str:
+    """Return an email trimmed and lower-cased (the form stored everywhere)."""
+    return value.strip().lower()
+
+
+NormalizedEmail = Annotated[EmailStr, AfterValidator(_normalize_email)]
+"""A valid email address, trimmed and lower-cased on input.
+
+Use for every email a client sends. Emails are compared and stored in this
+one form, so ``Chidi@X.com`` and ``chidi@x.com`` are the same account
+(enforced in the database by ``CHECK (email = lower(btrim(email)))``).
+"""
 
 
 class ErrorDetail(BaseModel):

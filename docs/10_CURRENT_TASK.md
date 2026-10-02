@@ -1,35 +1,55 @@
 # Current Task
 
-**M8 — Performance: KPI Definitions & Weighting — backend functionally
-complete, not yet committed/PR'd/merged.** See `09_PROGRESS.md`'s M8 entry
-for what's built; `08_DECISIONS.md`'s 2026-09-29 through 2026-10-01 entries
-for the reasoning behind every decision made along the way. Branch:
-`m8-kpis`.
+**M9 — Attendance** (see `09_PROGRESS.md`)
 
-## What's left before this milestone closes
+M8 (Performance: KPI Definitions & Weighting) is merged to `main` (PR #27,
+2026-10-01) and closed out — see `08_DECISIONS.md`'s 2026-09-29 through
+2026-10-01 entries for the full design and implementation trail (note:
+PR #26 merged first, but only the design-phase commits; PR #27 carries
+the actual backend — both entries are there, read the last one first if
+short on time), and `.claude/study/M8_STUDY_GUIDE.md` for a session-by-
+session study guide if you want to revisit any of it. M9's frontend (the
+clock-in/out widget, removing the old shift-scheduling grid) is Uche's
+track, not blocking this milestone's backend.
 
-1. **Commit, push, PR, merge.** Everything from the design work
-   (`tracking_mode`, `is_inverse`, the group-reconcile design) through the
-   full implementation (models, migrations, repository, service, router,
-   the `kpi_weight` AI chain, `GET /ai-usage`, audit logging, tests) is
-   sitting uncommitted on `m8-kpis`.
-2. **Tell Uche, non-blocking — doesn't hold up merging this milestone:**
-   the group endpoint contract (`PUT /departments/{id}/kpis` — send the
-   whole desired KPI list, `id` present = update, absent = create, an
-   existing `id` missing from the list = delete; no standalone delete
-   endpoint exists). Also worth mentioning: the KPI setup step is a
-   natural fit for this same endpoint during onboarding, not mandated,
-   his call.
-3. Standard workflow once the above are settled: review → commit → push →
-   PR → merge → delete branch → branch for whatever's next per
-   `09_PROGRESS.md` (M9 — Attendance).
+**Housekeeping still open from M8, do this first:** `m8-kpis` has not
+been deleted yet, local or remote. `git checkout main && git pull origin
+main`, delete `m8-kpis` both places, then branch `m9-attendance` off the
+updated `main`.
+
+## Backend scope
+
+**`attendance_records`** (`04_DATABASE.md` Cluster 7):
+- `POST /attendance/clock-in`, `POST /attendance/clock-out`.
+- `GET /attendance` — an employee's own history (filter by date range).
+- **"Currently clocked in" is derived, not stored**: `clock_out_at IS
+  NULL` on the employee's most recent record. No separate status flag.
+
+**Needs a decision before building, not already settled — talk it
+through first, same working mode as M8:** what happens if someone clocks
+in and never clocks out (forgets, the tab closes, whatever)? Since
+"currently clocked in" is derived from `clock_out_at IS NULL`, an
+unclosed record just stays open indefinitely — silently still "clocked
+in" the next day, or the next week. Real options, none chosen yet:
+- Block a new clock-in while one is still open (force resolving the
+  stale one first — but resolving it *how*, and by whom?).
+- Auto-close at some cutoff (end of day? a fixed number of hours?) —
+  needs a real number, not an arbitrary one.
+- Allow a new clock-in regardless, leaving the old one open forever as
+  a visible anomaly someone has to notice and fix manually.
+
+Separately, but worth deciding in the same conversation: should clocking
+in while already clocked in (without clocking out first) be explicitly
+rejected with a real error, or does today's design already prevent it by
+construction? Confirm rather than assume.
+
+## Depends on
+
+M4 (`employee_id` exists) — done.
 
 ## Not this milestone's job
 
-Frontend: KPI setup per department, the AI-suggested weight split shown in
-the same review pattern as M7, and assembling the full onboarding wizard
-(Business DNA → Org Setup → OKRs → AI Suggestions for Critical Roles →
-KPIs → Invite Team). That's Uche's track. Also not this milestone's job:
-`task_count`'s live-progress read and its quarter-end close job (both
-need `tasks`, M10) — the design is already written down for whenever that
-lands.
+Frontend: the clock-in/out widget, and removing the old Morning/Evening/
+Night shift-scheduling grid from the Journey Walkthrough deck (MVP
+attendance is plain clock-in/clock-out only, `08_DECISIONS.md`
+2026-09-02). That's Uche's track.

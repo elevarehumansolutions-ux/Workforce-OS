@@ -305,13 +305,12 @@ async def test_patch_membership_deactivates_teammate(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_invite_teammate_reactivates_previously_deactivated_member(client, monkeypatch):
-    """Re-inviting a previously-deactivated member reactivates the same membership row.
+async def test_inviting_a_deactivated_member_is_refused_and_reactivate_restores_them(client, monkeypatch):
+    """Re-inviting a deactivated member is a 409; POST /memberships/{id}/reactivate is the way back.
 
-    Must reactivate that same row (service.py's invite_teammate,
-    deactivated_at branch), not error on the (organization_id, user_id)
-    unique constraint or create a second membership row for the same
-    person/org pair.
+    An invite must not silently restore access or rewrite a role
+    (08_DECISIONS.md 2026-10-02). Reactivation reuses the same membership
+    row, so there is still exactly one per person/org pair.
     """
     from tests.conftest import register_verified_and_login
     import app.modules.tenancy_identity.router as membership_router_module
@@ -345,19 +344,31 @@ async def test_invite_teammate_reactivates_previously_deactivated_member(client,
     assert deactivate_resp.status_code == 200
     assert deactivate_resp.json()["deactivated_at"] is not None
 
-    # Re-invite the same email, now an existing (but deactivated-here) user,
-    # with a different role — should reactivate, not fail or duplicate.
+    # Re-inviting the deactivated person is refused, and changes nothing.
     reinvite_resp = await client.post(
         MEMBERSHIPS,
         json={"email": "other11@example.com", "role": "manager"},
         headers=_auth_header(owner["access_token"]),
     )
-    assert reinvite_resp.status_code == 200
-    body = reinvite_resp.json()
-    assert body["status"] == "added"
-    assert body["membership"]["id"] == original_membership_id
-    assert body["membership"]["deactivated_at"] is None
-    assert body["membership"]["role"] == "manager"
+    assert reinvite_resp.status_code == 409
+    assert reinvite_resp.json()["code"] == "MEMBERSHIP_DEACTIVATED"
+    still_blocked = await client.post(
+        f"{AUTH}/login",
+        json={"email": "other11@example.com", "password": "Password123#"},
+    )
+    assert still_blocked.status_code == 403
+
+    # The dedicated action brings them back, with a different role.
+    reactivate_resp = await client.post(
+        f"{MEMBERSHIPS}/{original_membership_id}/reactivate",
+        json={"role": "manager"},
+        headers=_auth_header(owner["access_token"]),
+    )
+    assert reactivate_resp.status_code == 200
+    body = reactivate_resp.json()
+    assert body["id"] == original_membership_id
+    assert body["deactivated_at"] is None
+    assert body["role"] == "manager"
 
     # Reactivation actually restored access, not just the field.
     login_resp = await client.post(

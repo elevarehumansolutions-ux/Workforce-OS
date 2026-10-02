@@ -13,8 +13,9 @@ from uuid import UUID
 from pydantic import (
     BaseModel,
     ConfigDict,
-    EmailStr,
 )
+
+from app.core.schemas import NormalizedEmail
 
 from .enums import SubscriptionStatus, AuthProvider, MembershipRole, AccountStatus
 
@@ -134,8 +135,18 @@ class InviteTeammateResponse(BaseModel):
 class InviteTeammateRequest(BaseModel):
     """Payload for POST /memberships — invite or directly add a teammate."""
 
-    email: EmailStr
+    email: NormalizedEmail
     role: MembershipRole
+
+
+class ReactivateMembershipRequest(BaseModel):
+    """Payload for POST /memberships/{id}/reactivate.
+
+    ``role`` is optional: leave it out to restore the role the person had
+    when they were deactivated.
+    """
+
+    role: MembershipRole | None = None
 
 
 class UpdateMembershipRequest(BaseModel):

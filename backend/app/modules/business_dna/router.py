@@ -36,6 +36,7 @@ def _to_response(
     business_dna: BusinessDNA,
     core_values: list[BusinessDNACoreValue],
     organization_name: str | None,
+    timezone: str,
     caller_role: str,
 ) -> BusinessDNAResponse:
     """Build the response schema by hand, field by field.
@@ -58,6 +59,7 @@ def _to_response(
         id=business_dna.id,
         organization_id=business_dna.organization_id,
         organization_name=organization_name,
+        timezone=timezone,
         industry=business_dna.industry,
         products_services_description=business_dna.products_services_description,
         vision=business_dna.vision,
@@ -111,7 +113,9 @@ async def get_business_dna(
     core_values = await core_value_service.list_core_values(caller.organization_id)
     organization = await organization_repo.get_organization_by_id(caller.organization_id)
 
-    return _to_response(business_dna, core_values, organization.name, caller.role)
+    return _to_response(
+        business_dna, core_values, organization.name, organization.timezone, caller.role
+    )
 
 
 @router.put("/business-dna", status_code=200)
@@ -148,7 +152,9 @@ async def upsert_business_dna(
     core_values = await core_value_service.list_core_values(caller.organization_id)
     organization = await organization_repo.get_organization_by_id(caller.organization_id)
 
-    return _to_response(business_dna, core_values, organization.name, caller.role)
+    return _to_response(
+        business_dna, core_values, organization.name, organization.timezone, caller.role
+    )
 
 
 # ---------------------------------------------------------------------------
