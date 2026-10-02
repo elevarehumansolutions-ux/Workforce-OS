@@ -71,6 +71,28 @@ async def test_reactivate_keeps_the_previous_role_when_none_is_given(client, mon
 
 
 @pytest.mark.asyncio
+async def test_patch_no_longer_reactivates(client, monkeypatch):
+    """PATCH is_deactivated:false is a 422 pointing at /reactivate, and changes nothing."""
+    owner = await register_verified_and_login(client, email="react_owner0@example.com")
+    tm = await _teammate(client, monkeypatch, owner, "react_tm0@example.com")
+    membership_id = tm["membership"]["id"]
+    await _deactivate(client, owner, membership_id)
+
+    resp = await client.patch(
+        f"{MEMBERSHIPS}/{membership_id}",
+        json={"is_deactivated": False},
+        headers=_auth_header(owner["access_token"]),
+    )
+
+    assert resp.status_code == 422
+    assert "reactivate" in resp.text
+    login = await client.post(
+        f"{AUTH}/login", json={"email": "react_tm0@example.com", "password": "Password123#"}
+    )
+    assert login.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_reactivating_an_active_membership_is_a_conflict(client, monkeypatch):
     """Only a deactivated membership can be reactivated."""
     owner = await register_verified_and_login(client, email="react_owner2@example.com")

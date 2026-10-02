@@ -65,8 +65,8 @@ async def test_adding_an_existing_account_is_logged(client):
 
 
 @pytest.mark.asyncio
-async def test_role_change_deactivation_and_patch_reactivation_are_logged(client):
-    """PATCH logs 'update', 'deactivate' and 'reactivate' with the old and new state."""
+async def test_role_change_deactivation_and_reactivation_are_logged(client):
+    """PATCH logs 'update' and 'deactivate'; /reactivate logs 'reactivate'; each with old and new state."""
     owner = await register_verified_and_login(client, email="aud_owner3@example.com")
     await register_verified_and_login(client, email="aud_member3@example.com")
     h = _auth_header(owner["access_token"])
@@ -75,7 +75,7 @@ async def test_role_change_deactivation_and_patch_reactivation_are_logged(client
 
     await client.patch(f"{MEMBERSHIPS}/{membership_id}", json={"role": "manager"}, headers=h)
     await client.patch(f"{MEMBERSHIPS}/{membership_id}", json={"is_deactivated": True}, headers=h)
-    await client.patch(f"{MEMBERSHIPS}/{membership_id}", json={"is_deactivated": False}, headers=h)
+    await client.post(f"{MEMBERSHIPS}/{membership_id}/reactivate", headers=h)
 
     update = (await _entries(client, h, "membership", "update"))[0]
     assert update["changes"]["old"]["role"] == "employee"

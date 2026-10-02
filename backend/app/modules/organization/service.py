@@ -609,6 +609,26 @@ class EmployeeService:
         """
         return await self._repo.list_employees(organization_id, location_id, page, limit)
 
+    async def get_invite_statuses(self, employees: list[Employee]) -> dict[uuid.UUID, str]:
+        """Say which employees have an invite that hasn't been accepted yet.
+
+        Only employees without a login can be waiting on one, so those with
+        a ``user_id`` are skipped.
+
+        Args:
+            employees: Employees about to be returned to a client.
+
+        Returns:
+            ``{employee_id: "pending" | "expired"}``; employees with no
+            waiting invite are absent.
+        """
+        waiting_ids = [e.id for e in employees if e.user_id is None]
+        if not waiting_ids:
+            return {}
+        return await self._membership_service.get_employee_invite_statuses(
+            employees[0].organization_id, waiting_ids
+        )
+
     async def list_members_without_employee(
         self, organization_id: uuid.UUID, page: int = 1, limit: int = 20
     ) -> PaginationResponse:

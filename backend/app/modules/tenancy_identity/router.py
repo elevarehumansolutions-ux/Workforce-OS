@@ -171,7 +171,11 @@ async def update_membership(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(require_org_role(*_TEAM_MANAGEMENT_ROLES)),
 ) -> MembershipWithUserResponse:
-    """Change a teammate's role and/or deactivate/reactivate their account.
+    """Change a teammate's role and/or deactivate their account.
+
+    Only deactivation: ``is_deactivated`` accepts ``true`` and rejects
+    ``false`` (422). Bringing someone back is ``POST
+    /memberships/{id}/reactivate``.
 
     Requires the HR Administrator role. A caller can't target their own
     membership through this endpoint, and can't deactivate the
