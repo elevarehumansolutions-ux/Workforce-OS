@@ -30,6 +30,7 @@ from app.modules.business_dna.router import router as business_dna_router
 from app.modules.okrs.router import router as okrs_router
 from app.modules.kpis.router import router as kpis_router
 from app.modules.ai.router import router as ai_router
+from app.modules.attendance.router import router as attendance_router
 
 # Initialise Sentry before anything else
 # if settings.sentry_dsn:
@@ -179,3 +180,4 @@ app.include_router(business_dna_router, prefix="/api/v1", tags=["business-dna"])
 app.include_router(okrs_router, prefix="/api/v1", tags=["okrs"])
 app.include_router(kpis_router, prefix="/api/v1", tags=["kpis"])
 app.include_router(ai_router, prefix="/api/v1", tags=["ai-suggestions"])
+app.include_router(attendance_router, prefix="/api/v1", tags=["attendance"])

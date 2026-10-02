@@ -66,6 +66,15 @@ class Organization(BaseModel):
         server_default="1",
     )
 
+    timezone: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="Africa/Lagos",
+        server_default="Africa/Lagos",
+        doc="IANA timezone name; decides where 'midnight' falls for this org's attendance auto-close",
+    )
+
+
     # Relationships
     memberships: Mapped[list["Membership"]] = relationship(back_populates="organization")
     audit_logs: Mapped[list[AuditLog]] = relationship(

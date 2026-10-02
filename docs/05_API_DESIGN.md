@@ -73,7 +73,7 @@ Mutations (`POST`/`PATCH`/`DELETE`, including offboard/reinstate) restricted to 
 
 ## Business DNA
 
-- `GET|PUT /business-dna` — one row per org; `PUT` upserts (works for both the first save and every later edit, no separate create/update). `PUT` is `hr_administrator`-only; `GET` is open to any authenticated org member. `PUT`'s body also carries `organization_name`, written through to `organizations.name` in the same transaction.
+- `GET|PUT /business-dna` — one row per org; `PUT` upserts (works for both the first save and every later edit, no separate create/update). `PUT` is `hr_administrator`-only; `GET` is open to any authenticated org member. `PUT`'s body also carries `organization_name`, written through to `organizations.name` in the same transaction, and `timezone` (added 2026-10-02), written through to `organizations.timezone`: an IANA name spelled exactly (`Africa/Lagos`, not `africa/lagos`, `WAT` or `+01:00`), else **422**; an explicit `null` is ignored (the column is `NOT NULL`). It defaults to `Africa/Lagos` and decides where "midnight" falls for the attendance auto-close. Every response from `GET`/`PUT` carries `timezone` (always a string). Note `GET /business-dna` is still a 404 until the first `PUT`, so the current timezone can't be read before then.
 - **Field-level restriction, not a role gate on the whole endpoint:** `capital_investment_amount` in `GET /business-dna`'s response is `null` for every role except `hr_administrator`/`business_executive` — never a 403, the field is just empty for everyone else.
 - `POST|GET /business-dna/core-values`, `PATCH|DELETE /business-dna/core-values/{id}` — mutations `hr_administrator`-only, reads open to any authenticated org member. `DELETE` is a genuine hard delete (**204, no body**) — the one place in this whole API that isn't a soft delete.
 
@@ -116,6 +116,18 @@ Single-KPI `POST`/`PATCH` and the group reconcile are `hr_administrator`-only; `
 
 ---
 
+## Attendance
+
+Plain clock-in/clock-out. **Attendance belongs to the employee record, not the role:** any authenticated member who also has an employee record can clock in and out. Matched through `employees.user_id`; no employee record means **409 `NO_EMPLOYEE_PROFILE`** on every endpoint below (e.g. a founder until HR adds them as an employee).
+
+- `POST /attendance/clock-in` — no body. Response `{already_clocked_in, record}`. **Idempotent:** clocking in while already clocked in is not an error — it returns the existing open record with `already_clocked_in: true` (a double-tap, or two devices at once; the database guarantees one open record per employee). 422 if the employee has been offboarded.
+- `POST /attendance/clock-out` — no body. Returns the closed record (`closed_by: "employee"`). **Not idempotent:** **409 `NOT_CLOCKED_IN`** if there is no open record (including a second tap on Clock Out — the first clock-out time stands).
+- `GET /attendance` — offset-paginated, newest clock-in first. Filters: `employee_id`, `date_from`, `date_to` (calendar days, inclusive, `YYYY-MM-DD`). **Dates are days on the organization's wall clock — its `timezone` — not UTC**, so a 00:30 Lagos clock-in belongs to that Lagos day. `date_from` after `date_to` is **422**.
+  - No `employee_id` = the caller's own history. `hr_administrator` and `business_executive` may pass any employee of their organization; every other role asking for someone else gets **403**; an unknown employee, or one in another organization, is **404**.
+  - There is no separate "am I clocked in?" endpoint: the caller's newest record with `clock_out_at: null` means they are clocked in right now (`GET /attendance?limit=1`).
+- **Record shape:** `id, organization_id, employee_id, clock_in_at, clock_out_at (null = clocked in), closed_by ("employee" | "system" | null), close_reason, created_at, updated_at`. `closed_by: "system"` marks a record the **nightly auto-close** ended: an hourly Beat job closes every record that clocked in before the organization's most recent midnight (its own `timezone`), setting `clock_out_at` to that midnight, `close_reason: "Did not clock out"`. That time is a cutoff, not something the employee did, so show these rows differently. The employee and their manager (if they have logins) each get an in-app notification (category `system`, `link_type: "attendance_record"`, `link_id` = the record); no email. No endpoint: it is a background job.
+- Clock-in and clock-out each write an `audit_log` entry (`entity_type: attendance_record`); a repeat clock-in writes none.
+
 ## Not yet built — designed, not mounted in the code
 
 Nothing below this line exists as a real endpoint today — every path here 404s. These sections describe the intended shape for whichever milestone eventually builds them; check `09_PROGRESS.md` before writing frontend code against any of them, and don't scaffold API client code for these yet, since the shape may still change before it's actually built.
@@ -140,7 +152,6 @@ Nothing below this line exists as a real endpoint today — every path here 404s
 - `POST /workflow-instances` — starts a case (body: `template_id`, `subject`)
 - `GET /workflow-instances` (filter: `status`, `template_id`), `GET /workflow-instances/{id}`
 
-### Attendance (M9+)
+### Attendance — now live
 
-- `POST /attendance/clock-in`, `POST /attendance/clock-out`
-- `GET /attendance` (filter: `employee_id`, date range)
+Moved up to the `## Attendance` section above. Everything in M9 is built, including the nightly auto-close job (it has no endpoint).

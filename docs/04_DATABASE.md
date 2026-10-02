@@ -17,6 +17,7 @@ CREATE TABLE organizations (
     subscription_status TEXT NOT NULL DEFAULT 'trial' CHECK (subscription_status IN ('trial','active','expired','cancelled')),
     subscription_expires_at TIMESTAMPTZ,
     fiscal_year_start_month SMALLINT NOT NULL DEFAULT 1 CHECK (fiscal_year_start_month BETWEEN 1 AND 12),
+    timezone VARCHAR(64) NOT NULL DEFAULT 'Africa/Lagos',  -- IANA name; where "midnight" falls for the attendance auto-close (2026-10-02)
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -458,12 +459,22 @@ CREATE TABLE attendance_records (
     employee_id UUID NOT NULL REFERENCES employees(id),
     clock_in_at TIMESTAMPTZ NOT NULL,
     clock_out_at TIMESTAMPTZ,
+    closed_by VARCHAR(20) CHECK (closed_by IN ('employee', 'system')),   -- null while open (2026-10-02)
+    close_reason TEXT,                                                    -- why the system closed it; null for an employee clock-out
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((clock_out_at IS NULL AND closed_by IS NULL AND close_reason IS NULL)
+        OR (clock_out_at IS NOT NULL AND closed_by IS NOT NULL)),         -- open or fully closed, never half
+    CHECK (clock_out_at IS NULL OR clock_out_at >= clock_in_at)
 );
+-- At most one OPEN record per employee: the database settles simultaneous clock-ins.
+CREATE UNIQUE INDEX uq_attendance_one_open_per_employee ON attendance_records (employee_id) WHERE clock_out_at IS NULL;
+CREATE INDEX idx_attendance_employee_clock_in ON attendance_records (organization_id, employee_id, clock_in_at);
+-- RLS: tenant_isolation policy on organization_id, like every other tenant table.
 ```
 
 **Design notes:**
+- **`closed_by = 'system'` marks a guess.** The nightly auto-close writes the org's midnight cutoff as `clock_out_at`; scoring and payroll later should treat those rows differently from a real employee clock-out. "Unverified" is derived from `closed_by`, not stored as a second flag. Not soft-deletable: a record is a historical fact.
 - **One row per clock-in/clock-out pair, that's the whole table.** "Currently clocked in" is derived (`clock_out_at IS NULL`), the same pattern as Overdue in Cluster 6, a fact computed from timestamps rather than a status column someone has to remember to flip.
 - **No `location_id` here.** Plain clock-in/clock-out doesn't need to record where someone clocked in from for MVP, no geofencing or per-site attendance requirement has come up. If that ever matters, the employee's `location_id` is already sitting on their row in Cluster 2.
 - **This table only feeds the task-visibility rule already in §5**, "task list appears after clock-in," it's read, not written, by that check. No leave-status interaction — see the `employees.status` note in Cluster 2.

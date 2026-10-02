@@ -614,6 +614,37 @@ class MembershipDeactivatedException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class NoEmployeeProfileException(PlatformError):
+    """Raised when a user with no employee record in the org tries to use attendance."""
+
+    def __init__(
+        self,
+        message: str = (
+            "Your account isn't linked to an employee record yet. "
+            "Ask your HR administrator to add you as an employee."
+        ),
+        code: str = "NO_EMPLOYEE_PROFILE",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class NotClockedInException(PlatformError):
+    """Raised when clocking out an employee who has no open attendance record."""
+
+    def __init__(
+        self,
+        message: str = "You're not clocked in, so there is nothing to clock out of.",
+        code: str = "NOT_CLOCKED_IN",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class MembershipNotDeactivatedException(PlatformError):
     """Raised when reactivating a membership that is not deactivated."""
 

@@ -73,14 +73,16 @@ class BusinessDNAService:
         Args:
             organization_id: Organization the profile belongs to.
             actor_user_id: User performing the write, for the audit log.
-            data: Field values, including the optional ``organization_name``.
+            data: Field values, including the optional
+                ``organization_name`` and ``timezone``.
 
         Returns:
             The created or updated ``BusinessDNA``.
         """
-        # Pulled out first: this key belongs to `organizations.name`, not a
-        # business_dna column, and its write happens last (see below).
+        # Pulled out first: these keys belong to `organizations`, not to
+        # business_dna columns, and their write happens last (see below).
         organization_name = data.pop("organization_name", None)
+        timezone = data.pop("timezone", None)
 
         existing = await self._repo.get_business_dna_by_organization_id(organization_id)
 
@@ -119,9 +121,30 @@ class BusinessDNAService:
         # above is fully resolved means the rollback in the race-recovery
         # path (which rolls back this whole transaction) can never wipe out
         # a name change that already succeeded.
-        if organization_name is not None:
+        org_updates = {
+            key: value
+            for key, value in (("name", organization_name), ("timezone", timezone))
+            if value is not None
+        }
+        old_org_data = {}
+        if org_updates:
             organization = await self._org_repo.get_organization_by_id(organization_id)
-            await self._org_repo.update_organization(organization, {"name": organization_name})
+            old_org_data = _snapshot(organization, org_updates.keys())
+            await self._org_repo.update_organization(organization, org_updates)
+
+        # The organization-level changes belong in the audit trail too, under
+        # their own keys so they can't be mistaken for business_dna columns.
+        old_changes = dict(old_data) if old_data is not None else None
+        new_changes = jsonable_encoder(data)
+        if org_updates:
+            old_changes = {
+                **(old_changes or {}),
+                **{f"organization_{k}": v for k, v in old_org_data.items()},
+            }
+            new_changes = {
+                **new_changes,
+                **{f"organization_{k}": v for k, v in org_updates.items()},
+            }
 
         await self._audit.log_action(
             organization_id=organization_id,
@@ -129,7 +152,7 @@ class BusinessDNAService:
             action=action,
             entity_type="business_dna",
             entity_id=business_dna.id,
-            changes={"old": old_data, "new": jsonable_encoder(data)},
+            changes={"old": old_changes, "new": new_changes},
         )
         return business_dna
 

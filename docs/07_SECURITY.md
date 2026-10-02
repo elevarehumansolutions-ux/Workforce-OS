@@ -16,6 +16,17 @@ Consolidates security decisions already made across `08_DECISIONS.md`, `03_ARCHI
 - It's invoked only from standalone internal scripts (`scripts/admin/`), never exposed as an HTTP endpoint. No network-reachable path ever carries this level of access.
 - Every invocation writes an entry to `audit_log` (actor, action, timestamp), the same accountability every other mutating action in the system already gets.
 
+## Narrow cross-tenant reads for background jobs (added 2026-10-02, formalising a pattern first used 2026-09-28)
+
+A scheduled job has no tenant to start from, so it can't ask "which organizations need work?" under RLS. Rather than give the app role `BYPASSRLS` (see above), each such question gets one **`SECURITY DEFINER` SQL function**: it runs as the schema-owning role RLS already exempts, `elevare_app` is granted `EXECUTE` on that function only, and it returns the bare minimum. Everything after the discovery step happens per organization, under that organization's own RLS context. `rolbypassrls` and `rolsuper` stay `false` for the app role, verified directly (and asserted in `tests/attendance/test_attendance_auto_close.py`). Every function must `SET search_path = pg_catalog, public`.
+
+| Function | Used by | Reveals |
+|---|---|---|
+| `organization_fiscal_months_for_quarterly_review()` | Quarterly Objective Review Beat job | every organization's id and `fiscal_year_start_month` |
+| `organizations_with_open_attendance()` | Attendance auto-close Beat job | id and `timezone` of each organization with at least one open attendance record; no employee, time or count |
+
+Adding a third one is a deliberate decision to log in `08_DECISIONS.md`, not a convenience.
+
 ## Provisioning a new environment (added 2026-09-17, after the M2 RLS-enforcement gap)
 
 Role creation is manual, per-environment infrastructure work — it does not run automatically via Alembic or on deploy. Before pointing the app at a new Postgres database (staging, production, or any fresh dev instance), whoever owns that database must:
