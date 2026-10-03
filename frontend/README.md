@@ -1,43 +1,36 @@
-# Frontend
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-Reserved for Uche's Next.js app — this folder was previously a Vite/React
-scaffold from M1 planning, before the actual frontend stack (Next.js,
-client-rendered only, confirmed 2026-09-18, see `../docs/08_DECISIONS.md`)
-was settled. Cleared out since none of that scaffold applies to Next.js's
-project structure or tooling.
+## Getting Started
 
-## Getting started
+First, run the development server:
 
-Initialize your own Next.js project directly in this folder (e.g.
-`npx create-next-app@latest .`), commit it here.
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
 
-## What you need to know about the API
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-Full endpoint list: `../docs/05_API_DESIGN.md`. Auth/token design:
-`../docs/03_ARCHITECTURE.md`.
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-The short version, worth getting right from the start:
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-- **Every request needs `credentials: "include"`** (fetch) or the
-  equivalent in whatever client you use — the refresh token lives in an
-  `httpOnly` cookie, it won't be sent cross-origin without this. The
-  backend's `CORSMiddleware` already has `allow_credentials=True` set to
-  match.
-- **Access token goes in `localStorage`** after login, sent as
-  `Authorization: Bearer <token>` on every request. Short-lived (15 min);
-  `POST /auth/refresh` (using the httpOnly cookie) gets you a new one.
-- **Error responses are a flat JSON shape**, not nested:
-  ```json
-  { "code": "VALIDATION_ERROR", "status": "error", "message": "...", "details": [] }
-  ```
-  `details` is a list of `{field, message}` pairs, populated for validation
-  errors (400s), empty otherwise.
-- **CORS is origin-allowlisted**, not wildcard-open (required anyway —
-  browsers refuse wildcard origin + credentials together). Send Emmanuel
-  your deployed URL (Vercel preview/prod) once you have one, so it can be
-  added to `CORS_ALLOWED_ORIGINS`.
-- **Env var:** point at `NEXT_PUBLIC_API_BASE_URL` (Next.js only exposes
-  `NEXT_PUBLIC_*`-prefixed vars to browser code) — see `.env.example`.
+## Learn More
 
-None of this needs a proxy or server-side data fetching — the browser talks
-to the API directly, same as any regular client-side app.
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
