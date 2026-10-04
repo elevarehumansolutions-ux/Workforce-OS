@@ -166,6 +166,28 @@ class MembershipService:
         """
         return await self._repo.get_membership(user_id, organization_id)
 
+    async def get_employee_invite_statuses(
+        self, organization_id: uuid.UUID, employee_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """Say, per employee, whether an invite sent from their row is still waiting.
+
+        Args:
+            organization_id: Organization the employees belong to.
+            employee_ids: Employees to look up.
+
+        Returns:
+            ``{employee_id: "pending" | "expired"}`` for employees that have an
+            invite which hasn't been accepted: ``pending`` while its link
+            still works, ``expired`` once ``expires_at`` has passed. Employees
+            with no waiting invite are absent.
+        """
+        expiries = await self._invite_repo.list_unused_invite_expiries(organization_id, employee_ids)
+        now = datetime.now(UTC)
+        return {
+            employee_id: "pending" if expires_at > now else "expired"
+            for employee_id, expires_at in expiries.items()
+        }
+
     async def get_membership_by_email(self, email: str, organization_id) -> Membership | None:
         """Get the membership an email's user holds in one organization.
 

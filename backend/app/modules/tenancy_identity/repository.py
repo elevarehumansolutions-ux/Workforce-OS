@@ -6,6 +6,7 @@ router layer's responsibility.
 """
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import select, text
 
@@ -357,6 +358,33 @@ class InviteRepository:
     def __init__(self, db: AsyncSession):
         """Initialize the repository with an async session."""
         self._db = db
+
+    async def list_unused_invite_expiries(
+        self, organization_id: uuid.UUID, employee_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, datetime]:
+        """Map each employee to the expiry of their not-yet-accepted invite, if any.
+
+        An invite sent from an employee's row carries that employee's id.
+        Sending again replaces the earlier invite (it is marked used), so an
+        employee has at most one unused invite. Employees with none are
+        simply absent from the result.
+
+        Args:
+            organization_id: Organization the employees belong to.
+            employee_ids: Employees to look up.
+
+        Returns:
+            ``{employee_id: expires_at}`` for those with an unused invite.
+        """
+        if not employee_ids:
+            return {}
+        stmt = select(Invite.employee_id, Invite.expires_at).where(
+            Invite.organization_id == organization_id,
+            Invite.employee_id.in_(employee_ids),
+            Invite.is_used.is_(False),
+        )
+        result = await self._db.execute(stmt)
+        return {row.employee_id: row.expires_at for row in result}
 
     async def get_pending_invite(self, organization_id: uuid.UUID, email: str) -> Invite | None:
         """Find an existing, not-yet-used invite for this email in this org."""

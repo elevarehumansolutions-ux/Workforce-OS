@@ -6,10 +6,13 @@ invite carrying its employee through ``POST /auth/accept-invite``, and
 ``GET /employees/unlinked-members`` (08_DECISIONS.md 2026-10-01).
 """
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import update
+
+from app.modules.tenancy_identity.models import Invite
 
 DEPARTMENTS = "/api/v1/departments"
 POSITIONS = "/api/v1/positions"
@@ -332,3 +335,64 @@ async def test_a_repeated_teammate_invite_replaces_the_pending_one(client, invit
 
     assert first.status_code == 400
     assert second.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_invite_status_is_null_pending_expired_and_clears_on_acceptance(client, db_session, invite_emails):
+    """The directory can show a badge: nothing sent, waiting, lapsed, or accepted (back to null)."""
+    owner, h = await _owner(client, "gl_owner16@example.com")
+    position_id = await _setup_position(client, h)
+    emp = (await _employee(client, h, position_id, "chidi16@example.com")).json()
+    never = await client.get(f"{EMPLOYEES}/{emp['id']}", headers=h)
+
+    granted = await client.post(f"{EMPLOYEES}/{emp['id']}/grant-login", json={"role": "employee"}, headers=h)
+    pending_get = await client.get(f"{EMPLOYEES}/{emp['id']}", headers=h)
+    pending_list = await client.get(EMPLOYEES, headers=h)
+    await db_session.execute(
+        update(Invite).where(Invite.employee_id == uuid.UUID(emp["id"])).values(
+            expires_at=datetime.now(UTC) - timedelta(days=1)
+        )
+    )
+    expired = await client.get(f"{EMPLOYEES}/{emp['id']}", headers=h)
+    resent = await client.post(f"{EMPLOYEES}/{emp['id']}/grant-login", json={"role": "employee"}, headers=h)
+    accepted = await _accept(client, _token_from(invite_emails))
+    after = await client.get(f"{EMPLOYEES}/{emp['id']}", headers=h)
+
+    assert never.json()["invite_status"] is None
+    assert granted.json()["employee"]["invite_status"] == "pending"
+    assert pending_get.json()["invite_status"] == "pending"
+    assert [e["invite_status"] for e in pending_list.json()["data"] if e["id"] == emp["id"]] == ["pending"]
+    assert expired.json()["invite_status"] == "expired"
+    assert resent.json()["employee"]["invite_status"] == "pending"
+    assert accepted.status_code == 200
+    assert after.json()["user_id"] is not None
+    assert after.json()["invite_status"] is None
+
+
+@pytest.mark.asyncio
+async def test_invite_status_is_filled_in_on_create_offboard_and_reinstate_too(client, invite_emails):
+    """Every endpoint that returns an employee carries the status, so a client never loses the badge."""
+    owner, h = await _owner(client, "gl_owner17@example.com")
+    position_id = await _setup_position(client, h)
+
+    created = await _employee(
+        client, h, position_id, "chidi17@example.com", grant_login_access=True, role="employee"
+    )
+    offboarded = await client.post(f"{EMPLOYEES}/{created.json()['id']}/offboard", headers=h)
+    reinstated = await client.post(f"{EMPLOYEES}/{created.json()['id']}/reinstate", headers=h)
+    patched = await client.patch(f"{EMPLOYEES}/{created.json()['id']}", json={"first_name": "Chi"}, headers=h)
+
+    for resp in (created, offboarded, reinstated, patched):
+        assert resp.json()["invite_status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_an_employee_with_a_login_never_shows_an_invite_status(client, invite_emails):
+    """Linked straight away (no invite), so there is nothing waiting."""
+    owner, h = await _owner(client, "gl_owner18@example.com")
+    position_id = await _setup_position(client, h)
+    emp = (await _employee(client, h, position_id, "gl_owner18@example.com", user_id=owner["user"]["id"])).json()
+
+    resp = await client.get(f"{EMPLOYEES}/{emp['id']}", headers=h)
+
+    assert resp.json()["invite_status"] is None

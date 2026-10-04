@@ -1,55 +1,57 @@
 # Current Task
 
-**M9 — Attendance** (see `09_PROGRESS.md`)
+**M10 — Task** (see `09_PROGRESS.md`), after finishing M9's housekeeping.
 
-M8 (Performance: KPI Definitions & Weighting) is merged to `main` (PR #27,
-2026-10-01) and closed out — see `08_DECISIONS.md`'s 2026-09-29 through
-2026-10-01 entries for the full design and implementation trail (note:
-PR #26 merged first, but only the design-phase commits; PR #27 carries
-the actual backend — both entries are there, read the last one first if
-short on time), and `.claude/study/M8_STUDY_GUIDE.md` for a session-by-
-session study guide if you want to revisit any of it. M9's frontend (the
-clock-in/out widget, removing the old shift-scheduling grid) is Uche's
-track, not blocking this milestone's backend.
+M9 (Attendance) backend is built and committed on `m9-attendance`, not yet merged.
+See `docs/SESSION_HANDOFF.md` for exactly what shipped and `08_DECISIONS.md`'s
+2026-10-01 and 2026-10-02 entries for the design trail (including the
+prerequisite work it uncovered: login <-> employee linking, email
+normalization, reactivation split). `.claude/study/M9_STUDY_GUIDE.md` is the
+study guide. M9's frontend is Uche's track, tracked on the Trello board, not
+blocking this milestone's backend.
 
-**Housekeeping still open from M8, do this first:** `m8-kpis` has not
-been deleted yet, local or remote. `git checkout main && git pull origin
-main`, delete `m8-kpis` both places, then branch `m9-attendance` off the
-updated `main`.
+**Housekeeping, do this first:** `git push -u origin m9-attendance`, open the
+PR, merge it on GitHub; then `git checkout main && git pull origin main`,
+delete `m8-kpis` and `m9-attendance` (local + remote), and branch
+`m10-tasks` off the updated `main`.
 
 ## Backend scope
 
-**`attendance_records`** (`04_DATABASE.md` Cluster 7):
-- `POST /attendance/clock-in`, `POST /attendance/clock-out`.
-- `GET /attendance` — an employee's own history (filter by date range).
-- **"Currently clocked in" is derived, not stored**: `clock_out_at IS
-  NULL` on the employee's most recent record. No separate status flag.
+**`tasks`** (`04_DATABASE.md` Cluster 6) and **`task_blocks`**, per
+`09_PROGRESS.md` M10:
+- Standalone task CRUD, `POST /tasks/{id}/complete`, KPI-weight inheritance
+  (calls Performance's service, never queries `kpis` directly).
+- **Clock-in-gated task list:** the list is only visible once the employee is
+  clocked in. Attendance has no "is this employee clocked in?" method on its
+  service yet (only the repository's `get_open_record`); M10 will need one, and
+  it should go through `AttendanceService`, not a direct `attendance_records`
+  query.
+- Overdue as derived state, plus a Celery Beat scan that notifies the assignee
+  and the **department manager** when `due_at` passes.
+- Filters: department, assignee, status, kpi, overdue.
+- `task_blocks` and `POST /tasks/{id}/block|unblock`, plus the approve/reject
+  review lifecycle (same shape as `ai_suggestions`).
+- The live-progress read for `task_count`-tracking KPIs (08_DECISIONS.md 2026-09-30).
 
-**Needs a decision before building, not already settled — talk it
-through first, same working mode as M8:** what happens if someone clocks
-in and never clocks out (forgets, the tab closes, whatever)? Since
-"currently clocked in" is derived from `clock_out_at IS NULL`, an
-unclosed record just stays open indefinitely — silently still "clocked
-in" the next day, or the next week. Real options, none chosen yet:
-- Block a new clock-in while one is still open (force resolving the
-  stale one first — but resolving it *how*, and by whom?).
-- Auto-close at some cutoff (end of day? a fixed number of hours?) —
-  needs a real number, not an arbitrary one.
-- Allow a new clock-in regardless, leaving the old one open forever as
-  a visible anomaly someone has to notice and fix manually.
+## Decisions needed before building (not already settled, talk them through first)
 
-Separately, but worth deciding in the same conversation: should clocking
-in while already clocked in (without clocking out first) be explicitly
-rejected with a real error, or does today's design already prevent it by
-construction? Confirm rather than assume.
+1. **"Department manager" is not modelled anywhere** (found 2026-10-02):
+   `departments` has no manager/head column, yet the overdue scan and M11's
+   workflow routing both need one. Options in `09_PROGRESS.md` M10: an explicit
+   `departments.head_employee_id`, derive from the `manager` role in that
+   department, or derive from the top position's manager. Needs a product call.
+2. **Cancel and reassignment** (gaps flagged 2026-09-18): `tasks.status`
+   includes `cancelled` but no endpoint closes a task without counting it as
+   completed; nothing describes changing `assigned_to_employee_id` after creation.
+3. M9's two parked questions are answered and built (`invite_status` on employee
+   responses; `PATCH /memberships` no longer reactivates), see `SESSION_HANDOFF.md`.
 
 ## Depends on
 
-M4 (`employee_id` exists) — done.
+M8 (KPI weights) and M9 (clock-in check): both done.
 
 ## Not this milestone's job
 
-Frontend: the clock-in/out widget, and removing the old Morning/Evening/
-Night shift-scheduling grid from the Journey Walkthrough deck (MVP
-attendance is plain clock-in/clock-out only, `08_DECISIONS.md`
-2026-09-02). That's Uche's track.
+Frontend: the daily task list, Assign Task screen, block/unblock UI. That is
+Uche's track. When M10's endpoints change what a screen needs, update the
+Trello board in the same session (see `CLAUDE.md`, "Frontend impact").

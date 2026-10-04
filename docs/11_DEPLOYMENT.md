@@ -197,7 +197,10 @@ returns a valid response with no certificate warning), two follow-ups in
 
 Matches `09_PROGRESS.md`'s M15 entry, which this pulled a subset out of —
 the rest stays for later, not because it's forgotten:
-- No seed script / demo data with historical scoring periods.
+- No seed script, by decision (2026-10-01): Elevare is onboarded as tenant #1
+  through the normal signup flow, and scoring history accrues from real use.
+  What the trend and leaderboard screens show before any history exists is an
+  open question in `09_PROGRESS.md` M15.
 - No confirmed database backup strategy (the `postgres_data` volume
   persists across redeploys, but nothing ships it off the box).
 - No investor-facing polish pass — this is an internal working

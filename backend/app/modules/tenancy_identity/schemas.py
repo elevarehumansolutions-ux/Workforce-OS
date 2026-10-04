@@ -13,6 +13,7 @@ from uuid import UUID
 from pydantic import (
     BaseModel,
     ConfigDict,
+    field_validator,
 )
 
 from app.core.schemas import NormalizedEmail
@@ -152,13 +153,28 @@ class ReactivateMembershipRequest(BaseModel):
 class UpdateMembershipRequest(BaseModel):
     """Payload for PATCH /memberships/{id}.
 
-    Both fields optional and independent: change the role, deactivate/
-    reactivate the person's account, or both in one call. At least one must
-    be provided.
+    Both fields optional and independent: change the role, deactivate the
+    person, or both in one call. At least one must be provided.
+    ``is_deactivated`` only accepts ``true``: bringing someone back is its own
+    action, ``POST /memberships/{id}/reactivate`` (08_DECISIONS.md
+    2026-10-02), which has the checks and the audit entry a bare flag flip
+    would skip. The service's ``update_membership`` still supports ``False``
+    internally, for ``POST /employees/{id}/reinstate``.
     """
 
     role: MembershipRole | None = None
     is_deactivated: bool | None = None
+
+    @field_validator("is_deactivated")
+    @classmethod
+    def _only_deactivation_here(cls, value: bool | None) -> bool | None:
+        """Reject ``false``: reactivation has its own endpoint."""
+        if value is False:
+            raise ValueError(
+                "is_deactivated can only be true here; to bring someone back use "
+                "POST /memberships/{id}/reactivate"
+            )
+        return value
 
     def has_updates(self) -> bool:
         """Return whether at least one of role or is_deactivated was set."""

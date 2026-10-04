@@ -3,6 +3,7 @@
 import decimal
 import uuid
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -211,13 +212,20 @@ class EmployeeGrantLoginRequest(BaseModel):
 
 
 class EmployeeResponse(BaseModel):
-    """API representation of an employee, returned by employee endpoints."""
+    """API representation of an employee, returned by employee endpoints.
+
+    ``invite_status`` is not a column: it says whether a login invite sent
+    from this employee's row is still waiting. ``"pending"`` (the link still
+    works), ``"expired"`` (it lapsed; send it again), or ``null`` (no invite
+    waiting: the employee already has a login, or none was ever sent).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     organization_id: uuid.UUID
     user_id: uuid.UUID | None
+    invite_status: Literal["pending", "expired"] | None = None
     position_id: uuid.UUID
     manager_id: uuid.UUID | None
     location_id: uuid.UUID | None

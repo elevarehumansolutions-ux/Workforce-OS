@@ -37,6 +37,7 @@ from .schemas import (
     PositionResponse,
     PositionUpdateRequest,
 )
+from .models import Employee
 from .service import DepartmentService, EmployeeService, LocationService, PositionService
 
 router = APIRouter()
@@ -46,6 +47,33 @@ router = APIRouter()
 # member (Managers/Employees plausibly need to browse the directory too).
 # Not written down anywhere in 05_API_DESIGN.md yet; flagging in-code.
 _ORG_STRUCTURE_WRITE_ROLES = ("hr_administrator",)
+
+
+async def _employee_responses(
+    service: EmployeeService, employees: list[Employee]
+) -> list[EmployeeResponse]:
+    """Build employee responses, each with its ``invite_status`` filled in.
+
+    One lookup for the whole batch rather than one per employee, so a page
+    of the directory costs a single extra query.
+
+    Args:
+        service: The employee service, for the invite lookup.
+        employees: Employees to return to the client.
+
+    Returns:
+        A response per employee, in the same order.
+    """
+    statuses = await service.get_invite_statuses(employees)
+    responses = [EmployeeResponse.model_validate(employee) for employee in employees]
+    for response in responses:
+        response.invite_status = statuses.get(response.id)
+    return responses
+
+
+async def _employee_response(service: EmployeeService, employee: Employee) -> EmployeeResponse:
+    """Build one employee response with its ``invite_status`` filled in."""
+    return (await _employee_responses(service, [employee]))[0]
 
 
 async def _company_name(db: AsyncSession, organization_id: uuid.UUID) -> str | None:
@@ -579,7 +607,7 @@ async def create_employee(
     await db.commit()
     if raw_token is not None:
         _send_employee_invite(employee.work_email, raw_token, company_name)
-    return EmployeeResponse.model_validate(employee)
+    return await _employee_response(service, employee)
 
 
 @router.get("/employees/unlinked-members", status_code=200)
@@ -636,7 +664,7 @@ async def list_employees(
     """
     service = EmployeeService(db)
     result = await service.list_employees(caller.organization_id, location_id, page, limit)
-    result.data = [EmployeeResponse.model_validate(employee) for employee in result.data]
+    result.data = await _employee_responses(service, result.data)
     return result
 
 
@@ -664,7 +692,7 @@ async def get_employee(
     """
     service = EmployeeService(db)
     employee = await service.get_employee_by_id(employee_id)
-    return EmployeeResponse.model_validate(employee)
+    return await _employee_response(service, employee)
 
 
 @router.patch("/employees/{employee_id}", status_code=200)
@@ -696,7 +724,7 @@ async def update_employee(
         employee_id, caller.user_id, data.model_dump(exclude_unset=True)
     )
     await db.commit()
-    return EmployeeResponse.model_validate(employee)
+    return await _employee_response(service, employee)
 
 
 @router.post("/employees/{employee_id}/link-user", status_code=200)
@@ -739,7 +767,7 @@ async def link_employee_user(
     service = EmployeeService(db)
     employee = await service.link_user(employee_id, data.user_id, caller.user_id)
     await db.commit()
-    return EmployeeResponse.model_validate(employee)
+    return await _employee_response(service, employee)
 
 
 @router.post("/employees/{employee_id}/grant-login", status_code=200)
@@ -788,7 +816,7 @@ async def grant_employee_login(
     if raw_token is not None:
         _send_employee_invite(employee.work_email, raw_token, company_name)
     return EmployeeGrantLoginResponse(
-        outcome=outcome, employee=EmployeeResponse.model_validate(employee)
+        outcome=outcome, employee=await _employee_response(service, employee)
     )
 
 
@@ -827,7 +855,7 @@ async def offboard_employee(
     service = EmployeeService(db)
     employee = await service.offboard_employee(employee_id, caller)
     await db.commit()
-    return EmployeeResponse.model_validate(employee)
+    return await _employee_response(service, employee)
 
 
 @router.post("/employees/{employee_id}/reinstate", status_code=200)
@@ -860,4 +888,4 @@ async def reinstate_employee(
     service = EmployeeService(db)
     employee = await service.reinstate_employee(employee_id, caller)
     await db.commit()
-    return EmployeeResponse.model_validate(employee)
+    return await _employee_response(service, employee)
