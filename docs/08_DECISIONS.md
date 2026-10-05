@@ -833,6 +833,16 @@ Full task list in `09_PROGRESS.md` M4.
 
 **What happened with PR #28:** it merged before the last M9 commit (`3cebbec`, `invite_status` on employee responses, `PATCH /memberships` rejecting `is_deactivated:false`, the `10_CURRENT_TASK.md` rewrite) had been pushed. Caught on 2026-10-04 when `git branch -d m9-attendance` refused ("not fully merged"). The commit was cherry-picked onto `m9-followup-invite-status` off the current `main` and re-verified (196 tests across organization, memberships, attendance and authentication). **Until that follow-up merges, the deployed backend has neither change, while Uche's Trello cards and message already describe both.** Same shape as the M8 two-PR incident (2026-10-01): check `git log main..<branch>` before deleting a branch.
 
+## 2026-10-05 — Where AI-suggested departments appear: the AI Suggestions step, after OKRs (Option 1)
+
+**Decision (the user's, after weighing three options):** `missing_department` suggestions are reviewed in the wizard's existing **AI Suggestions** step, which comes after OKRs, next to the critical-role suggestions. They are *not* generated or shown on Setup Organization. The other options considered: (2) also trigger on Business DNA save and show a strip on Setup Organization; (3) leave department suggestions out of the MVP.
+
+**Why:** it needs no backend change (saving an OKR already triggers all suggestion types, debounced 60s), it matches `01_REQUIREMENTS.md` §4 where the suggestion is tied to the org's OKRs, and by that step the AI has Business DNA, the departments HR typed and the OKRs, so its suggestions can be specific. Option 2 stays possible later without undoing anything.
+
+**Revisit:** after all milestones are done, consider Option 2 (a one-line trigger in `PUT /business-dna`, one more debounced Claude call per onboarding) once real output quality is known. Recorded in `09_PROGRESS.md` M7 and M15.
+
+**What was learned getting here (all from reading the code and the server, 2026-10-04):** the AI is not the problem. The server's six `ai_usage_log` rows were the Quarterly Objective Review Beat job running on 1 and 2 October for three empty orgs, and the model correctly answered "none" with nothing to read. The real gap is the frontend: Business DNA, Setup Organization, OKRs, AI Suggestions, KPIs and Invite Team are not connected to the API (`09_PROGRESS.md`, "Frontend wiring status"). `missing_department` needs *content* (Business DNA, OKRs), not existing departments; it is the critical-position, revenue-allocation and KPI-weight types that need existing entities.
+
 ## 2026-10-06 — Frontend/backend domain split (Vercel + api.workforceos.online); a real deploy-automation bug found doing it
 
 **Decision:** `workforceos.online` (the apex) now points at the Vercel-hosted frontend; the backend moved to `api.workforceos.online`. DNS: a new `A` record for `api`, same VPS IP, DNS-only/unproxied — same reasoning as the original domain setup (`08_DECISIONS.md` 2026-09-22), Cloudflare's proxy would otherwise intercept Caddy's ACME HTTP-01 challenge. `Caddyfile` updated to serve `api.workforceos.online` instead of the bare domain.
