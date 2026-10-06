@@ -846,3 +846,9 @@ Full task list in `09_PROGRESS.md` M4.
 **Follow-up still needed, not yet done:** `backend/.env`'s `CORS_ALLOWED_ORIGINS`/`APP_URL` still need the real Vercel URL (currently placeholders, per the 2026-09-22 follow-up checklist in `11_DEPLOYMENT.md`) — tracked there, not repeated here.
 
 **Impact:** `Caddyfile`, `.github/workflows/ci-cd.yml`. No app code changed.
+
+## 2026-10-06 — CORS/APP_URL updated to the real frontend domain; Resend wired up for real, closing out the 2026-09-22 follow-up checklist
+**Decision:** both remaining items from that checklist are done. `backend/.env`: `CORS_ALLOWED_ORIGINS`/`APP_URL` now point at the real `https://workforceos.online` (no longer `localhost:3000`/a placeholder). Resend is live: `workforceos.online` verified in Resend's dashboard, a real `RESEND_API_KEY` set, `EMAIL_STUB_MODE=false`.
+**One real bug caught doing it:** `mail_from`'s default (`app/core/config.py`) was `"Elevare Workforce OS <noreply@elevare.com>"` — `elevare.com` is not a domain this project owns, and Resend would have rejected or bounced every send from an unverified domain. Fixed to `noreply@workforceos.online`. `.env.example` also never documented `RESEND_API_KEY`/`MAIL_FROM` at all despite `ResendEmailService` depending on both — added.
+**Verified, not assumed:** a real signup against the live site produced a real verification email, received and clicked successfully.
+**Impact:** `app/core/config.py`, `backend/.env.example`, `backend/.env` (server-only, not committed). `docs/11_DEPLOYMENT.md`'s follow-up checklist updated to reflect this is done.

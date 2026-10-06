@@ -227,17 +227,14 @@ scratch. Not urgent, no action needed today.
   practical risk while the audience is a handful of people who were
   personally invited; that stops being true if this environment's
   audience ever grows past "people we know."
-- **Follow-ups once the frontend is actually deployed to Vercel** (all
-  three are `backend/.env` changes, not code changes):
-  1. `CORS_ALLOWED_ORIGINS` — add the real Vercel URL (currently just
-     `["http://localhost:3000"]` for local frontend-dev testing).
-  2. `APP_URL` — change from the placeholder to the real Vercel URL (used
-     to build the links in verification/reset/invite emails — see
-     `app/core/email.py`).
-  3. Only after both of those are real: `EMAIL_STUB_MODE` can move to
-     `false` once a real email provider (Resend, per `00_PROJECT_CONTEXT.md`)
-     is actually wired up — not before, or real emails would go out with
-     broken links.
+- **Done (2026-10-06):** the frontend is deployed to Vercel at the real
+  `workforceos.online` apex (backend split to `api.workforceos.online` —
+  see `08_DECISIONS.md` same date), `CORS_ALLOWED_ORIGINS`/`APP_URL` point
+  at it, and Resend is wired up for real (`workforceos.online` verified in
+  Resend's dashboard, `RESEND_API_KEY` set, `MAIL_FROM` corrected from a
+  placeholder `elevare.com` address to `noreply@workforceos.online`,
+  `EMAIL_STUB_MODE=false`). Confirmed end-to-end: a real signup produced a
+  real verification email.
 - **Domain renewal price.** `workforceos.online` was bought at a
   promotional first-year price (~$2). Renewal the following year will be
   meaningfully higher (typically $12–20+ for this kind of TLD) — not a
