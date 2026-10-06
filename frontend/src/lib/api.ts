@@ -1,4 +1,4 @@
-﻿const ACCESS_TOKEN_KEY = "elevare_access_token";
+﻿﻿const ACCESS_TOKEN_KEY = "elevare_access_token";
 
 export interface FastApiValidationItem {
   loc: (string | number)[];
@@ -6,19 +6,49 @@ export interface FastApiValidationItem {
   type: string;
 }
 
+export interface ErrorDetailItem {
+  field: string;
+  message: string;
+}
+
 export interface ApiErrorBody {
+  // Plain FastAPI HTTPException responses (auth/login, request-validation
+  // errors) use this shape.
   detail?: string | FastApiValidationItem[];
+  // Our own PlatformError-raised business errors (backend/app/core/
+  // exceptions.py, handled in exception_handler.py) use this shape instead:
+  // {code, status, message, details}. `code` is the machine-readable
+  // upper-snake-case identifier (e.g. "EMPLOYEE_ALREADY_HAS_LOGIN",
+  // "MEMBERSHIP_DEACTIVATED") — several of these share an HTTP status code,
+  // so callers that need to tell them apart should branch on `code`, not
+  // just `status`.
+  code?: string;
+  message?: string;
+  details?: ErrorDetailItem[];
 }
 
 export class ApiError extends Error {
   status: number;
+  /** Machine-readable error code from a PlatformError response, e.g. "EMPLOYEE_ALREADY_HAS_LOGIN". Empty string if the backend didn't send one (plain FastAPI errors don't). */
+  code: string;
   fieldErrors: Record<string, string>;
 
   constructor(status: number, body: ApiErrorBody) {
     let message = "Request failed";
+    let code = "";
     const fieldErrors: Record<string, string> = {};
 
-    if (body && typeof body === "object" && body.detail) {
+    if (body && typeof body === "object" && typeof body.code === "string" && typeof body.message === "string") {
+      // {code, status, message, details} — our own PlatformError errors.
+      message = body.message;
+      code = body.code;
+      if (Array.isArray(body.details)) {
+        body.details.forEach(function (item) {
+          fieldErrors[item.field] = item.message;
+        });
+      }
+    } else if (body && typeof body === "object" && body.detail) {
+      // {detail} — plain FastAPI HTTPException / request-validation errors.
       if (typeof body.detail === "string") {
         message = body.detail;
       } else if (Array.isArray(body.detail)) {
@@ -37,6 +67,7 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
     this.fieldErrors = fieldErrors;
   }
 }

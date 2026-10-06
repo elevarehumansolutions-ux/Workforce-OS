@@ -1,6 +1,8 @@
 ﻿"use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch, ApiError } from "@/lib/api";
 
 const SIDEBAR_ITEMS: { label: string; href: string }[] = [
   { label: "Dashboard", href: "/dashboard" },
@@ -50,55 +52,207 @@ function SidebarShell(activeLabel: string) {
         </div>
         {SidebarNav(activeLabel)}
       </div>
-      <div className="flex items-center gap-3 border-t border-white/10 px-6 pt-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-500 text-xs font-semibold text-white">
-          NA
-        </div>
-        <div>
-          <p className="text-sm font-medium text-white">Ngozi Adeyemi</p>
-          <p className="text-xs text-gray-500">Engineering Manager</p>
-        </div>
-      </div>
     </aside>
   );
 }
 
-interface Employee {
-  id: string;
-  initials: string;
-  name: string;
-  email: string;
-  department: string;
-  jobTitle: string;
-  status: "Active" | "On Leave" | "Inactive";
-  joinDate: string;
-}
-
-const EMPLOYEES: Employee[] = [
-  { id: "1", initials: "AO", name: "Adaeze Okonkwo", email: "adaeze@zenith.com", department: "Engineering", jobTitle: "Senior Software Engineer", status: "Active", joinDate: "Mar 2024" },
-  { id: "2", initials: "TB", name: "Tunde Balogun", email: "tunde@zenith.com", department: "Sales", jobTitle: "Account Manager", status: "Active", joinDate: "Jan 2025" },
-  { id: "3", initials: "FA", name: "Fatima Abubakar", email: "fatima@zenith.com", department: "HR", jobTitle: "HR Coordinator", status: "On Leave", joinDate: "Jun 2023" },
-  { id: "4", initials: "EN", name: "Emeka Nwankwo", email: "emeka@zenith.com", department: "Engineering", jobTitle: "DevOps Engineer", status: "Active", joinDate: "Sep 2024" },
-  { id: "5", initials: "KA", name: "Kemi Adebayo", email: "kemi@zenith.com", department: "Finance", jobTitle: "Financial Analyst", status: "Active", joinDate: "Nov 2023" },
-  { id: "6", initials: "YI", name: "Yusuf Ibrahim", email: "yusuf@zenith.com", department: "Operations", jobTitle: "Operations Lead", status: "Inactive", joinDate: "Feb 2024" },
-  { id: "7", initials: "OC", name: "Obioma Chukwu", email: "obioma@zenith.com", department: "Engineering", jobTitle: "QA Engineer", status: "Active", joinDate: "Jul 2025" },
-  { id: "8", initials: "AE", name: "Amara Eze", email: "amara@zenith.com", department: "Customer Success", jobTitle: "Support Lead", status: "Active", joinDate: "Aug 2024" },
+const ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "employee", label: "Employee" },
+  { value: "manager", label: "Manager" },
+  { value: "hr_administrator", label: "HR Administrator" },
+  { value: "business_executive", label: "Business Executive" },
+  { value: "system_administrator", label: "System Administrator" },
 ];
 
-function StatusBadge(status: Employee["status"]) {
-  let badgeClass = "rounded-full px-2.5 py-1 text-xs font-medium ";
-  if (status === "Active") {
-    badgeClass = badgeClass + "bg-emerald-500/15 text-emerald-300";
-  } else if (status === "On Leave") {
-    badgeClass = badgeClass + "bg-cyan-500/15 text-cyan-300";
-  } else {
-    badgeClass = badgeClass + "bg-white/10 text-gray-400";
-  }
-  return <span className={badgeClass}>{status}</span>;
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+  has_next: boolean;
+  has_previous: boolean;
+}
+
+interface PaginatedResponse<T> {
+  data: T[];
+  pagination: Pagination;
+}
+
+interface Department {
+  id: string;
+  name: string;
+}
+
+interface Position {
+  id: string;
+  department_id: string;
+  title: string;
+}
+
+interface Location {
+  id: string;
+  name: string;
+}
+
+interface Employee {
+  id: string;
+  user_id: string | null;
+  invite_status: "pending" | "expired" | null;
+  position_id: string;
+  location_id: string | null;
+  first_name: string;
+  last_name: string;
+  work_email: string;
+  status: "active" | "inactive";
+  employment_type: string | null;
+}
+
+interface GrantLoginResponse {
+  outcome: "invited" | "added" | "linked";
+  employee: Employee;
+}
+
+function initialsFor(firstName: string, lastName: string): string {
+  const a = firstName.trim().charAt(0).toUpperCase();
+  const b = lastName.trim().charAt(0).toUpperCase();
+  return (a + b) || "?";
 }
 
 export default function EmployeeDirectoryPage() {
   const router = useRouter();
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [page, setPage] = useState(1);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+
+  const [inviteRowId, setInviteRowId] = useState<string | null>(null);
+  const [inviteRole, setInviteRole] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+  const [rowNotice, setRowNotice] = useState<{ id: string; text: string } | null>(null);
+
+  function load() {
+    setLoading(true);
+    setLoadError("");
+    Promise.all([
+      apiFetch<PaginatedResponse<Employee>>("/employees?page=" + page + "&limit=20", { method: "GET" }),
+      apiFetch<PaginatedResponse<Department>>("/departments?limit=100", { method: "GET" }),
+      apiFetch<PaginatedResponse<Position>>("/positions?limit=100", { method: "GET" }),
+      apiFetch<PaginatedResponse<Location>>("/locations?limit=100", { method: "GET" }),
+    ])
+      .then(function ([employeesRes, departmentsRes, positionsRes, locationsRes]) {
+        setEmployees(employeesRes.data);
+        setPagination(employeesRes.pagination);
+        setDepartments(departmentsRes.data);
+        setPositions(positionsRes.data);
+        setLocations(locationsRes.data);
+      })
+      .catch(function (err) {
+        setLoadError(err instanceof ApiError ? err.message : "Couldn't load the employee directory.");
+      })
+      .finally(function () {
+        setLoading(false);
+      });
+  }
+
+  useEffect(
+    function () {
+      // load() sets loading/error state synchronously before its fetches
+      // resolve, so paging shows the spinner right away instead of leaving
+      // the previous page's rows on screen while the new page loads.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      load();
+    },
+    // load is re-created every render (it closes over page), so listing it
+    // here would re-run this effect on every render instead of only when
+    // the page number actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [page]
+  );
+
+  function departmentNameFor(employee: Employee): string {
+    const position = positions.find(function (p) {
+      return p.id === employee.position_id;
+    });
+    if (!position) return "—";
+    const department = departments.find(function (d) {
+      return d.id === position.department_id;
+    });
+    return department ? department.name : "—";
+  }
+
+  function positionTitleFor(employee: Employee): string {
+    const position = positions.find(function (p) {
+      return p.id === employee.position_id;
+    });
+    return position ? position.title : "—";
+  }
+
+  function locationNameFor(employee: Employee): string {
+    if (!employee.location_id) return "—";
+    const location = locations.find(function (l) {
+      return l.id === employee.location_id;
+    });
+    return location ? location.name : "—";
+  }
+
+  function openInvitePicker(employeeId: string) {
+    setInviteError("");
+    setInviteRole("");
+    setInviteRowId(employeeId);
+  }
+
+  async function sendInvite(employeeId: string) {
+    if (!inviteRole) {
+      setInviteError("Pick a role first.");
+      return;
+    }
+    setInviteBusy(true);
+    setInviteError("");
+    try {
+      const result = await apiFetch<GrantLoginResponse>("/employees/" + employeeId + "/grant-login", {
+        method: "POST",
+        body: { role: inviteRole },
+      });
+      setEmployees(function (prev) {
+        return prev.map(function (e) {
+          return e.id === employeeId ? result.employee : e;
+        });
+      });
+      let noticeText = "Invite sent.";
+      if (result.outcome === "added") noticeText = "They already had an account — added and linked instantly.";
+      if (result.outcome === "linked") noticeText = "Linked instantly — they were already an active member.";
+      setRowNotice({ id: employeeId, text: noticeText });
+      setInviteRowId(null);
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "MEMBERSHIP_DEACTIVATED") {
+        setInviteError("Their membership is deactivated — reactivate them from Team Management first.");
+      } else if (err instanceof ApiError) {
+        setInviteError(err.message);
+      } else {
+        setInviteError("Couldn't send that invite. Please try again.");
+      }
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
+  const filteredEmployees = employees.filter(function (employee) {
+    if (statusFilter !== "all" && employee.status !== statusFilter) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      const name = (employee.first_name + " " + employee.last_name).toLowerCase();
+      if (!name.includes(q) && !employee.work_email.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="flex min-h-screen w-full bg-[#05070f] text-white">
@@ -109,20 +263,6 @@ export default function EmployeeDirectoryPage() {
           <div>
             <p className="text-xs text-gray-500">Dashboard &gt; Employees</p>
             <h1 className="text-xl font-bold text-white">Employees</h1>
-          </div>
-          <div className="flex items-center gap-4">
-            <button type="button" className="relative text-gray-400 hover:text-gray-200" aria-label="Notifications">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-              </svg>
-              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-semibold text-white">
-                1
-              </span>
-            </button>
-            <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300">
-              WOS MVP Ready
-            </span>
           </div>
         </div>
 
@@ -138,105 +278,213 @@ export default function EmployeeDirectoryPage() {
                 </span>
                 <input
                   type="text"
-                  placeholder="Search employees..."
+                  value={search}
+                  onChange={function (e) {
+                    setSearch(e.target.value);
+                  }}
+                  placeholder="Search this page by name or email..."
                   className="w-64 rounded-lg border border-white/10 bg-[#0a0e1a] py-2 pl-9 pr-4 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
                 />
               </div>
-              <select className="rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-sm text-gray-300 outline-none focus:border-indigo-500">
-                <option>Department: All</option>
-              </select>
-              <select className="rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-sm text-gray-300 outline-none focus:border-indigo-500">
-                <option>Status: All</option>
-              </select>
-              <select className="rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-sm text-gray-300 outline-none focus:border-indigo-500">
-                <option>Location: All</option>
+              <select
+                value={statusFilter}
+                onChange={function (e) {
+                  setStatusFilter(e.target.value);
+                }}
+                className="rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-sm text-gray-300 outline-none focus:border-indigo-500"
+              >
+                <option value="all">Status: All</option>
+                <option value="active">Active</option>
+                <option value="inactive">Offboarded</option>
               </select>
             </div>
             <button
               type="button"
-              onClick={() => router.push("/employees/add")}
+              onClick={function () {
+                router.push("/employees/add");
+              }}
               className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600"
             >
               + Add Employee
             </button>
           </div>
 
-          <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-[#0d1220]/80 shadow-xl">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-white/10 text-xs uppercase tracking-wide text-gray-500">
-                  <th className="px-6 py-3 font-medium">
-                    <input type="checkbox" className="h-4 w-4 rounded border-white/20 bg-[#0a0e1a] accent-indigo-500" />
-                  </th>
-                  <th className="px-6 py-3 font-medium">Employee</th>
-                  <th className="px-6 py-3 font-medium">Department</th>
-                  <th className="px-6 py-3 font-medium">Job Title</th>
-                  <th className="px-6 py-3 font-medium">Status</th>
-                  <th className="px-6 py-3 font-medium">Join Date</th>
-                  <th className="px-6 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {EMPLOYEES.map(function (employee) {
-                  return (
-                    <tr
-                      key={employee.id}
-                      className="cursor-pointer transition hover:bg-white/5"
-                      onClick={() => router.push("/employees/" + employee.id)}
-                    >
-                      <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" className="h-4 w-4 rounded border-white/20 bg-[#0a0e1a] accent-indigo-500" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-semibold text-indigo-300">
-                            {employee.initials}
+          {loading ? (
+            <div className="mt-6 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 text-sm text-gray-400 shadow-xl">
+              Loading employees…
+            </div>
+          ) : loadError ? (
+            <div className="mt-6 rounded-2xl border border-red-500/30 bg-red-500/10 p-8 text-sm text-red-300 shadow-xl">
+              {loadError}
+            </div>
+          ) : (
+            <div className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-[#0d1220]/80 shadow-xl">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-xs uppercase tracking-wide text-gray-500">
+                    <th className="px-6 py-3 font-medium">Employee</th>
+                    <th className="px-6 py-3 font-medium">Department</th>
+                    <th className="px-6 py-3 font-medium">Position</th>
+                    <th className="px-6 py-3 font-medium">Location</th>
+                    <th className="px-6 py-3 font-medium">Status</th>
+                    <th className="px-6 py-3 font-medium">Login</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {filteredEmployees.map(function (employee) {
+                    let statusBadgeClass = "rounded-full px-2.5 py-1 text-xs font-medium ";
+                    statusBadgeClass +=
+                      employee.status === "active"
+                        ? "bg-emerald-500/15 text-emerald-300"
+                        : "bg-white/10 text-gray-400";
+
+                    return (
+                      <tr key={employee.id} className="transition hover:bg-white/5">
+                        <td
+                          className="cursor-pointer px-6 py-4"
+                          onClick={function () {
+                            router.push("/employees/" + employee.id);
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-semibold text-indigo-300">
+                              {initialsFor(employee.first_name, employee.last_name)}
+                            </div>
+                            <div>
+                              <p className="font-medium text-white">
+                                {employee.first_name} {employee.last_name}
+                              </p>
+                              <p className="text-xs text-gray-500">{employee.work_email}</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium text-white">{employee.name}</p>
-                            <p className="text-xs text-gray-500">{employee.email}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-gray-300">{employee.department}</td>
-                      <td className="px-6 py-4 text-gray-300">{employee.jobTitle}</td>
-                      <td className="px-6 py-4">{StatusBadge(employee.status)}</td>
-                      <td className="px-6 py-4 text-gray-300">{employee.joinDate}</td>
-                      <td className="px-6 py-4 text-gray-500">
-                        <button type="button" onClick={(e) => e.stopPropagation()} aria-label="Row actions">
-                          &#8942;
-                        </button>
+                        </td>
+                        <td className="px-6 py-4 text-gray-300">{departmentNameFor(employee)}</td>
+                        <td className="px-6 py-4 text-gray-300">{positionTitleFor(employee)}</td>
+                        <td className="px-6 py-4 text-gray-300">{locationNameFor(employee)}</td>
+                        <td className="px-6 py-4">
+                          <span className={statusBadgeClass}>{employee.status === "active" ? "Active" : "Offboarded"}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          {rowNotice && rowNotice.id === employee.id ? (
+                            <p className="text-xs text-emerald-300">{rowNotice.text}</p>
+                          ) : employee.user_id ? (
+                            <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300">
+                              Has login
+                            </span>
+                          ) : inviteRowId === employee.id ? (
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={inviteRole}
+                                onChange={function (e) {
+                                  setInviteRole(e.target.value);
+                                }}
+                                className="rounded-lg border border-white/10 bg-[#0a0e1a] px-2 py-1.5 text-xs text-gray-300 outline-none focus:border-indigo-500"
+                              >
+                                <option value="">Role…</option>
+                                {ROLE_OPTIONS.map(function (opt) {
+                                  return (
+                                    <option key={opt.value} value={opt.value}>
+                                      {opt.label}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              <button
+                                type="button"
+                                disabled={inviteBusy}
+                                onClick={function () {
+                                  sendInvite(employee.id);
+                                }}
+                                className="rounded-lg bg-indigo-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-600 disabled:opacity-60"
+                              >
+                                {inviteBusy ? "…" : "Send"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={function () {
+                                  setInviteRowId(null);
+                                }}
+                                className="text-xs text-gray-500 hover:text-gray-300"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              {employee.invite_status === "pending" ? (
+                                <span className="rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-400">
+                                  Invite pending
+                                </span>
+                              ) : employee.invite_status === "expired" ? (
+                                <span className="rounded-full bg-red-500/15 px-2.5 py-1 text-xs font-medium text-red-300">
+                                  Invite expired
+                                </span>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={function () {
+                                  openInvitePicker(employee.id);
+                                }}
+                                className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs font-medium text-indigo-300 hover:bg-white/5"
+                              >
+                                {employee.invite_status ? "Resend invite" : "Send invite"}
+                              </button>
+                            </div>
+                          )}
+                          {inviteRowId === employee.id && inviteError ? (
+                            <p className="mt-1 text-xs text-red-400">{inviteError}</p>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredEmployees.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-8 text-center text-sm text-gray-500">
+                        No employees match this page&apos;s filters.
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-            <p>Showing 1-8 of 284 employees</p>
-            <div className="flex items-center gap-2">
-              <button type="button" className="rounded-lg border border-white/10 px-3 py-1.5 text-gray-400 hover:bg-white/5">
-                Previous
-              </button>
-              <button type="button" className="rounded-lg bg-indigo-500 px-3 py-1.5 font-medium text-white">
-                1
-              </button>
-              <button type="button" className="rounded-lg border border-white/10 px-3 py-1.5 text-gray-400 hover:bg-white/5">
-                2
-              </button>
-              <button type="button" className="rounded-lg border border-white/10 px-3 py-1.5 text-gray-400 hover:bg-white/5">
-                3
-              </button>
-              <button type="button" className="rounded-lg border border-white/10 px-3 py-1.5 text-gray-400 hover:bg-white/5">
-                Next
-              </button>
+                  ) : null}
+                </tbody>
+              </table>
             </div>
-          </div>
+          )}
+
+          {pagination ? (
+            <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
+              <p>
+                Showing page {pagination.page} of {pagination.total_pages} ({pagination.total} employees total)
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!pagination.has_previous}
+                  onClick={function () {
+                    setPage(function (p) {
+                      return p - 1;
+                    });
+                  }}
+                  className="rounded-lg border border-white/10 px-3 py-1.5 text-gray-400 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={!pagination.has_next}
+                  onClick={function () {
+                    setPage(function (p) {
+                      return p + 1;
+                    });
+                  }}
+                  className="rounded-lg border border-white/10 px-3 py-1.5 text-gray-400 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </main>
       </div>
     </div>
   );
 }
-
