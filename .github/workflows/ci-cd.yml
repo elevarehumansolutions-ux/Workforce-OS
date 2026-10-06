@@ -129,5 +129,10 @@ jobs:
             set -e
             cd /opt/elevare
             git pull origin main
-            docker compose -f docker-compose.prod.yml up -d --build
+            # --force-recreate matters for services like caddy, which use a
+            # plain `image:` (no `build:` key) with Caddyfile bind-mounted in
+            # — --build alone never rebuilds or restarts it, so a config-only
+            # change (e.g. a new domain in Caddyfile) would otherwise silently
+            # never take effect on a real deploy, only after a manual recreate.
+            docker compose -f docker-compose.prod.yml up -d --build --force-recreate
             docker compose -f docker-compose.prod.yml exec -T api alembic upgrade head
