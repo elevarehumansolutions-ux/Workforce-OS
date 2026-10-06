@@ -80,7 +80,7 @@ class Settings(BaseSettings):
 
     # Email delivery (Resend — see 00_PROJECT_CONTEXT.md)
     resend_api_key: str | None = None
-    mail_from: str = "Elevare Workforce OS <noreply@elevare.com>"
+    mail_from: str = "Elevare Workforce OS <noreply@workforceos.online>"
     invite_expiry: int = 7
 
     # Claude API KEY
