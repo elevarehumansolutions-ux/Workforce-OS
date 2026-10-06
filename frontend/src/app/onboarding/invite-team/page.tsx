@@ -1,14 +1,16 @@
-"use client";
+﻿"use client";
 
-import React, { useState, FormEvent } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch, ApiError } from "@/lib/api";
 
-interface Invite {
+type SentStatus = "invited" | "added";
+
+interface SentInvite {
   id: string;
   email: string;
   role: string;
-  department: string;
-  reportingManager: string;
+  status: SentStatus;
 }
 
 const ONBOARDING_STEPS = [
@@ -20,75 +22,66 @@ const ONBOARDING_STEPS = [
   "Invite Team",
 ];
 
-const ROLE_OPTIONS = ["Employee", "Manager", "HR Administrator", "Business Executive"];
-const DEPARTMENT_OPTIONS = [
-  "Engineering",
-  "Human Resources",
-  "Sales & Marketing",
-  "Finance",
-  "Operations",
+// Matches MembershipRole on the backend exactly — these are sent as-is in
+// the request body, so the value must be the real enum string, not a label.
+const ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: "employee", label: "Employee" },
+  { value: "manager", label: "Manager" },
+  { value: "hr_administrator", label: "HR Administrator" },
+  { value: "business_executive", label: "Business Executive" },
+  { value: "system_administrator", label: "System Administrator" },
 ];
-const MANAGER_OPTIONS = ["Adewale O.", "Ngozi A.", "Femi A.", "Tolu B."];
+
+const ROLE_LABELS: Record<string, string> = ROLE_OPTIONS.reduce(function (acc, opt) {
+  acc[opt.value] = opt.label;
+  return acc;
+}, {} as Record<string, string>);
 
 function makeId() {
   return Math.random().toString(36).slice(2, 10);
+}
+
+interface InviteTeammateResponse {
+  status: SentStatus;
+  membership?: { id: string } | null;
+  invite?: { id: string; email: string; role: string } | null;
 }
 
 export default function InviteTeamPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
-  const [department, setDepartment] = useState("");
-  const [reportingManager, setReportingManager] = useState("");
-  const [invites, setInvites] = useState<Invite[]>([
-    { id: makeId(), email: "ngozi@zenith.com", role: "Manager", department: "Engineering", reportingManager: "Adewale O." },
-    { id: makeId(), email: "femi.alao@zenith.com", role: "HR Administrator", department: "Human Resources", reportingManager: "Ngozi A." },
-    { id: makeId(), email: "kemi.a@zenith.com", role: "Employee", department: "Finance", reportingManager: "Femi A." },
-  ]);
+  const [sending, setSending] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [sentInvites, setSentInvites] = useState<SentInvite[]>([]);
 
-  function addInvite() {
-    if (!email.trim() || !role || !department || !reportingManager) {
-      window.alert("Please fill in email, role, department, and reporting manager before adding.");
+  async function addInvite() {
+    if (!email.trim() || !role) {
+      window.alert("Please fill in both email and role before adding.");
       return;
     }
-    setInvites([
-      ...invites,
-      {
-        id: makeId(),
-        email: email.trim(),
-        role: role,
-        department: department,
-        reportingManager: reportingManager,
-      },
-    ]);
-    setEmail("");
-    setRole("");
-    setDepartment("");
-    setReportingManager("");
+    setFormError("");
+    setSending(true);
+    try {
+      const result = await apiFetch<InviteTeammateResponse>("/memberships", {
+        method: "POST",
+        body: { email: email.trim(), role },
+      });
+      setSentInvites([
+        ...sentInvites,
+        { id: makeId(), email: email.trim(), role, status: result.status },
+      ]);
+      setEmail("");
+      setRole("");
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : "Couldn't send that invite.");
+    } finally {
+      setSending(false);
+    }
   }
 
-  function removeInvite(id: string) {
-    setInvites(
-      invites.filter(function (invite: Invite) {
-        return invite.id !== id;
-      })
-    );
-  }
-
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    // TODO: replace with a real call to the Identity module's
-    // membership-invite endpoint once the backend is ready.
-    console.log("Invites submitted:", invites);
-    // TODO: point this at the real dashboard route once it exists.
-    // Using /login for now as the end of the onboarding flow.
-    router.push("/login");
-  }
-
-  function handleSkip() {
-    // TODO: point this at the real dashboard route once it exists.
-    console.log("Skipped invites for now");
-    router.push("/login");
+  function handleContinue() {
+    router.push("/dashboard");
   }
 
   return (
@@ -152,12 +145,15 @@ export default function InviteTeamPage() {
           <p className="mt-2 text-gray-400">Bring in the people who will help run your organization</p>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="mt-8 space-y-6 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-2xl backdrop-blur-sm"
-        >
+        <div className="mt-8 space-y-6 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-2xl backdrop-blur-sm">
+          {formError ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {formError}
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
-            <div className="sm:col-span-2">
+            <div className="sm:col-span-3">
               <label className="mb-2 block text-sm font-medium text-gray-200">Email Address</label>
               <input
                 type="email"
@@ -169,7 +165,7 @@ export default function InviteTeamPage() {
                 className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
               />
             </div>
-            <div>
+            <div className="sm:col-span-2">
               <label className="mb-2 block text-sm font-medium text-gray-200">Role</label>
               <select
                 value={role}
@@ -181,80 +177,37 @@ export default function InviteTeamPage() {
                 <option value="">Select role</option>
                 {ROLE_OPTIONS.map(function (opt) {
                   return (
-                    <option key={opt} value={opt}>
-                      {opt}
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
                     </option>
                   );
                 })}
               </select>
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-200">Department</label>
-              <select
-                value={department}
-                onChange={function (e: React.ChangeEvent<HTMLSelectElement>) {
-                  setDepartment(e.target.value);
-                }}
-                className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-3 text-sm text-white outline-none focus:border-indigo-500"
-              >
-                <option value="">Select department</option>
-                {DEPARTMENT_OPTIONS.map(function (opt) {
-                  return (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-200">Reporting Manager</label>
-              <div className="flex gap-2">
-                <select
-                  value={reportingManager}
-                  onChange={function (e: React.ChangeEvent<HTMLSelectElement>) {
-                    setReportingManager(e.target.value);
-                  }}
-                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-3 text-sm text-white outline-none focus:border-indigo-500"
-                >
-                  <option value="">Select manager</option>
-                  {MANAGER_OPTIONS.map(function (opt) {
-                    return (
-                      <option key={opt} value={opt}>
-                        {opt}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
             </div>
           </div>
 
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={addInvite}
-              className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600"
-            >
-              + Add
-            </button>
-          </div>
+          <p className="text-xs text-gray-500">
+            Department and reporting manager aren&apos;t part of a team invite — those get set when
+            the person is added as an employee from the Employee Directory, after they&apos;ve joined.
+          </p>
 
           <button
             type="button"
-            className="text-sm font-medium text-indigo-400 hover:text-indigo-300"
+            onClick={addInvite}
+            disabled={sending}
+            className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            + Add Another
+            {sending ? "Sending…" : "+ Add"}
           </button>
 
           <div className="border-t border-white/10 pt-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold">{invites.length} invites added</h2>
-              <span className="text-sm text-gray-500">Review before sending</span>
+              <h2 className="text-base font-semibold">{sentInvites.length} invites sent</h2>
+              <span className="text-sm text-gray-500">Sent immediately — this is a running log</span>
             </div>
 
             <div className="mt-4 space-y-2">
-              {invites.map(function (invite: Invite) {
+              {sentInvites.map(function (invite: SentInvite) {
                 return (
                   <div
                     key={invite.id}
@@ -262,28 +215,19 @@ export default function InviteTeamPage() {
                   >
                     <div className="flex flex-wrap items-center gap-6 text-sm">
                       <span className="font-medium">{invite.email}</span>
-                      <span className="text-gray-400">{invite.role}</span>
-                      <span className="text-gray-400">{invite.department}</span>
-                      <span className="text-gray-400">{invite.reportingManager}</span>
+                      <span className="text-gray-400">{ROLE_LABELS[invite.role] || invite.role}</span>
                     </div>
-                    <div className="flex items-center gap-3">
+                    {invite.status === "invited" ? (
                       <span className="flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-400">
                         <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                         Invite Pending
                       </span>
-                      <button
-                        type="button"
-                        onClick={function () {
-                          removeInvite(invite.id);
-                        }}
-                        className="rounded-lg bg-red-500/15 p-2 text-red-400 hover:bg-red-500/25"
-                        aria-label="Remove invite"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z" />
-                        </svg>
-                      </button>
-                    </div>
+                    ) : (
+                      <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-400">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        Added — already had an account
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -293,25 +237,30 @@ export default function InviteTeamPage() {
           <div className="flex items-center justify-between border-t border-white/10 pt-6">
             <button
               type="button"
-              onClick={handleSkip}
-              className="text-sm font-medium text-gray-400 hover:text-gray-200"
+              onClick={function () {
+                router.push("/onboarding/kpis");
+              }}
+              className="flex items-center gap-2 text-sm font-medium text-gray-400 hover:text-gray-200"
             >
-              Skip for now
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 12H5M12 19l-7-7 7-7" />
+              </svg>
+              Go Back
             </button>
             <button
-              type="submit"
+              type="button"
+              onClick={handleContinue}
               className="flex items-center gap-2 rounded-lg bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
             >
-              Send Invites & Continue
+              {sentInvites.length > 0 ? "Finish" : "Skip for now"}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M5 12h14M13 5l7 7-7 7" />
               </svg>
             </button>
           </div>
-        </form>
-
-        <p className="mt-4 text-center text-sm text-gray-500">Draft saved automatically</p>
+        </div>
       </div>
     </div>
   );
 }
+

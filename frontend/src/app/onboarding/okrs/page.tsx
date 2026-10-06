@@ -1,18 +1,42 @@
-"use client";
+﻿"use client";
 
-import React, { useState, FormEvent } from "react";
+import React, { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch, ApiError } from "@/lib/api";
 
 interface KeyResult {
   id: string;
-  text: string;
+  description: string;
+  savedDescription: string;
 }
 
 interface Objective {
   id: string;
   title: string;
-  scope: string;
+  savedTitle: string;
+  departmentId: string | null;
   keyResults: KeyResult[];
+}
+
+interface Department {
+  id: string;
+  name: string;
+}
+
+interface OkrApiResponse {
+  id: string;
+  title: string;
+  department_id: string | null;
+}
+
+interface KeyResultApiResponse {
+  id: string;
+  description: string;
+}
+
+interface PaginatedResponse<T> {
+  data: T[];
+  pagination: { page: number; limit: number; total: number; total_pages: number };
 }
 
 const ONBOARDING_STEPS = [
@@ -24,139 +48,226 @@ const ONBOARDING_STEPS = [
   "Invite Team",
 ];
 
-const SCOPE_OPTIONS = [
-  "Corporate",
-  "Engineering",
-  "Human Resources",
-  "Sales & Marketing",
-  "Finance",
-  "Operations",
-];
-
-function makeId() {
-  return Math.random().toString(36).slice(2, 10);
-}
-
 export default function OkrsPage() {
   const router = useRouter();
-  const [objectives, setObjectives] = useState<Objective[]>([
-    {
-      id: makeId(),
-      title: "Expand workforce capacity across West Africa by 40 percent",
-      scope: "Corporate",
-      keyResults: [
-        { id: makeId(), text: "Hire 200 new employees across Ghana and Nigeria by Q3" },
-        { id: makeId(), text: "Achieve 95 percent workforce attendance rate by Q4" },
-      ],
-    },
-    {
-      id: makeId(),
-      title: "Improve operational efficiency and reduce manual processes",
-      scope: "Corporate",
-      keyResults: [
-        { id: makeId(), text: "Automate 80 percent of payroll processing by Q2" },
-        { id: makeId(), text: "Reduce employee onboarding time from 5 days to 2 days" },
-      ],
-    },
-  ]);
+  const [objectives, setObjectives] = useState<Objective[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [addingObjective, setAddingObjective] = useState(false);
+  const [addingKeyResultFor, setAddingKeyResultFor] = useState<string | null>(null);
 
-  function updateObjectiveTitle(objId: string, newTitle: string) {
-    setObjectives(
-      objectives.map(function (obj: Objective) {
-        if (obj.id === objId) {
-          return { ...obj, title: newTitle };
-        }
-        return obj;
-      })
-    );
-  }
+  useEffect(function () {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [deptRes, okrRes] = await Promise.all([
+          apiFetch<PaginatedResponse<Department>>("/departments?limit=100", { method: "GET" }),
+          apiFetch<PaginatedResponse<OkrApiResponse>>("/okrs?limit=100", { method: "GET" }),
+        ]);
+        if (cancelled) return;
+        setDepartments(deptRes.data);
 
-  function updateObjectiveScope(objId: string, newScope: string) {
-    setObjectives(
-      objectives.map(function (obj: Objective) {
-        if (obj.id === objId) {
-          return { ...obj, scope: newScope };
-        }
-        return obj;
-      })
-    );
-  }
-
-  function updateKeyResult(objId: string, krId: string, newText: string) {
-    setObjectives(
-      objectives.map(function (obj: Objective) {
-        if (obj.id !== objId) {
-          return obj;
-        }
-        return {
-          ...obj,
-          keyResults: obj.keyResults.map(function (kr: KeyResult) {
-            if (kr.id === krId) {
-              return { ...kr, text: newText };
+        const okrsWithKeyResults = await Promise.all(
+          okrRes.data.map(async function (okr) {
+            let keyResults: KeyResultApiResponse[] = [];
+            try {
+              const krRes = await apiFetch<PaginatedResponse<KeyResultApiResponse>>(
+                "/okrs/" + okr.id + "/key-results?limit=100",
+                { method: "GET" }
+              );
+              keyResults = krRes.data;
+            } catch {
+              // If a single OKR's key results fail to load, don't block the
+              // rest of the page — it just shows that one with none yet.
             }
-            return kr;
+            return {
+              id: okr.id,
+              title: okr.title,
+              savedTitle: okr.title,
+              departmentId: okr.department_id,
+              keyResults: keyResults.map(function (kr) {
+                return { id: kr.id, description: kr.description, savedDescription: kr.description };
+              }),
+            };
+          })
+        );
+        if (cancelled) return;
+        setObjectives(okrsWithKeyResults);
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(
+          err instanceof ApiError ? err.message : "Couldn't load your organization's objectives."
+        );
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return function () {
+      cancelled = true;
+    };
+  }, []);
+
+  async function addObjective() {
+    const title = window.prompt("Objective title:");
+    if (!title || !title.trim()) return;
+    setActionError("");
+    setAddingObjective(true);
+    try {
+      const created = await apiFetch<OkrApiResponse>("/okrs", {
+        method: "POST",
+        body: { title: title.trim(), department_id: null },
+      });
+      setObjectives([
+        ...objectives,
+        {
+          id: created.id,
+          title: created.title,
+          savedTitle: created.title,
+          departmentId: created.department_id,
+          keyResults: [],
+        },
+      ]);
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't add that objective.");
+    } finally {
+      setAddingObjective(false);
+    }
+  }
+
+  function setObjectiveTitleLocal(objId: string, newTitle: string) {
+    setObjectives(
+      objectives.map(function (obj) {
+        return obj.id === objId ? { ...obj, title: newTitle } : obj;
+      })
+    );
+  }
+
+  async function saveObjectiveTitleIfChanged(obj: Objective) {
+    if (obj.title === obj.savedTitle) return;
+    if (!obj.title.trim()) {
+      // Don't save a blank title — revert to what's on the server.
+      setObjectiveTitleLocal(obj.id, obj.savedTitle);
+      return;
+    }
+    setActionError("");
+    try {
+      const updated = await apiFetch<OkrApiResponse>("/okrs/" + obj.id, {
+        method: "PATCH",
+        body: { title: obj.title },
+      });
+      setObjectives(function (prev) {
+        return prev.map(function (o) {
+          return o.id === obj.id ? { ...o, title: updated.title, savedTitle: updated.title } : o;
+        });
+      });
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't save that objective's title.");
+      setObjectiveTitleLocal(obj.id, obj.savedTitle);
+    }
+  }
+
+  async function updateObjectiveDepartment(obj: Objective, newDepartmentId: string) {
+    const departmentId = newDepartmentId || null;
+    setActionError("");
+    try {
+      const updated = await apiFetch<OkrApiResponse>("/okrs/" + obj.id, {
+        method: "PATCH",
+        body: { department_id: departmentId },
+      });
+      setObjectives(
+        objectives.map(function (o) {
+          return o.id === obj.id ? { ...o, departmentId: updated.department_id } : o;
+        })
+      );
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't update that objective's scope.");
+    }
+  }
+
+  async function addKeyResult(objId: string) {
+    const description = window.prompt("Key result:");
+    if (!description || !description.trim()) return;
+    setActionError("");
+    setAddingKeyResultFor(objId);
+    try {
+      const created = await apiFetch<KeyResultApiResponse>("/okrs/" + objId + "/key-results", {
+        method: "POST",
+        body: { description: description.trim() },
+      });
+      setObjectives(
+        objectives.map(function (obj) {
+          if (obj.id !== objId) return obj;
+          return {
+            ...obj,
+            keyResults: [
+              ...obj.keyResults,
+              { id: created.id, description: created.description, savedDescription: created.description },
+            ],
+          };
+        })
+      );
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't add that key result.");
+    } finally {
+      setAddingKeyResultFor(null);
+    }
+  }
+
+  function setKeyResultTextLocal(objId: string, krId: string, newText: string) {
+    setObjectives(
+      objectives.map(function (obj) {
+        if (obj.id !== objId) return obj;
+        return {
+          ...obj,
+          keyResults: obj.keyResults.map(function (kr) {
+            return kr.id === krId ? { ...kr, description: newText } : kr;
           }),
         };
       })
     );
   }
 
-  function addKeyResult(objId: string) {
-    setObjectives(
-      objectives.map(function (obj: Objective) {
-        if (obj.id !== objId) {
-          return obj;
-        }
-        return {
-          ...obj,
-          keyResults: [...obj.keyResults, { id: makeId(), text: "" }],
-        };
-      })
-    );
-  }
-
-  function removeKeyResult(objId: string, krId: string) {
-    setObjectives(
-      objectives.map(function (obj: Objective) {
-        if (obj.id !== objId) {
-          return obj;
-        }
-        return {
-          ...obj,
-          keyResults: obj.keyResults.filter(function (kr: KeyResult) {
-            return kr.id !== krId;
-          }),
-        };
-      })
-    );
-  }
-
-  function addObjective() {
-    setObjectives([
-      ...objectives,
-      {
-        id: makeId(),
-        title: "",
-        scope: "Corporate",
-        keyResults: [{ id: makeId(), text: "" }],
-      },
-    ]);
-  }
-
-  function removeObjective(objId: string) {
-    setObjectives(
-      objectives.filter(function (obj: Objective) {
-        return obj.id !== objId;
-      })
-    );
+  async function saveKeyResultIfChanged(objId: string, kr: KeyResult) {
+    if (kr.description === kr.savedDescription) return;
+    if (!kr.description.trim()) {
+      setKeyResultTextLocal(objId, kr.id, kr.savedDescription);
+      return;
+    }
+    setActionError("");
+    try {
+      const updated = await apiFetch<KeyResultApiResponse>("/key-results/" + kr.id, {
+        method: "PATCH",
+        body: { description: kr.description },
+      });
+      setObjectives(function (prev) {
+        return prev.map(function (obj) {
+          if (obj.id !== objId) return obj;
+          return {
+            ...obj,
+            keyResults: obj.keyResults.map(function (k) {
+              return k.id === kr.id
+                ? { ...k, description: updated.description, savedDescription: updated.description }
+                : k;
+            }),
+          };
+        });
+      });
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : "Couldn't save that key result.");
+      setKeyResultTextLocal(objId, kr.id, kr.savedDescription);
+    }
   }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    // TODO: replace with a real call to the OKR module endpoint once the
-    // backend is ready. Remember: these entries are ADDITIVE mid-quarter,
-    // never clear or overwrite existing OKRs on submit.
-    console.log("OKRs submitted:", objectives);
+    // Every objective and key result above is already saved the moment it's
+    // added or edited (each hits the real API immediately), so there's
+    // nothing left to batch-submit — this only advances the wizard. OKRs
+    // are additive by design: nothing here ever clears or overwrites an
+    // existing objective someone else already created this quarter.
     router.push("/onboarding/ai-suggestions");
   }
 
@@ -226,105 +337,114 @@ export default function OkrsPage() {
           </p>
         </div>
 
+        {loadError ? (
+          <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {loadError}
+          </div>
+        ) : null}
+        {actionError ? (
+          <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {actionError}
+          </div>
+        ) : null}
+
         <form
           onSubmit={handleSubmit}
           className="mt-8 space-y-6 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-2xl backdrop-blur-sm"
         >
-          <h2 className="text-lg font-semibold">Corporate Objectives</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Corporate Objectives</h2>
+            <span className="text-xs text-gray-500">Saved automatically as you type</span>
+          </div>
 
-          {objectives.map(function (obj: Objective) {
-            return (
-              <div key={obj.id} className="space-y-3 rounded-lg border border-white/10 bg-[#0a0e1a] p-4">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={obj.title}
-                    onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
-                      updateObjectiveTitle(obj.id, e.target.value);
-                    }}
-                    placeholder="Objective title"
-                    className="flex-1 rounded-lg border border-white/10 bg-[#111726] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-                  />
-                  <select
-                    value={obj.scope}
-                    onChange={function (e: React.ChangeEvent<HTMLSelectElement>) {
-                      updateObjectiveScope(obj.id, e.target.value);
-                    }}
-                    className="rounded-lg border border-white/10 bg-[#111726] px-3 py-3 text-sm text-white outline-none focus:border-indigo-500"
-                  >
-                    {SCOPE_OPTIONS.map(function (opt) {
-                      return (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
-                      );
-                    })}
-                  </select>
+          {loading ? (
+            <div className="h-24 animate-pulse rounded-lg border border-white/10 bg-white/5" />
+          ) : null}
+
+          {!loading &&
+            objectives.map(function (obj: Objective) {
+              return (
+                <div key={obj.id} className="space-y-3 rounded-lg border border-white/10 bg-[#0a0e1a] p-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={obj.title}
+                      onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                        setObjectiveTitleLocal(obj.id, e.target.value);
+                      }}
+                      onBlur={function () {
+                        saveObjectiveTitleIfChanged(obj);
+                      }}
+                      placeholder="Objective title"
+                      className="flex-1 rounded-lg border border-white/10 bg-[#111726] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                    />
+                    <select
+                      value={obj.departmentId || ""}
+                      onChange={function (e: React.ChangeEvent<HTMLSelectElement>) {
+                        updateObjectiveDepartment(obj, e.target.value);
+                      }}
+                      className="rounded-lg border border-white/10 bg-[#111726] px-3 py-3 text-sm text-white outline-none focus:border-indigo-500"
+                    >
+                      <option value="">Corporate</option>
+                      {departments.map(function (dept) {
+                        return (
+                          <option key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <p className="text-xs uppercase tracking-wide text-gray-500">Key Results</p>
+
+                  {obj.keyResults.map(function (kr: KeyResult) {
+                    return (
+                      <div key={kr.id} className="flex items-center gap-2 pl-4">
+                        <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />
+                        <input
+                          type="text"
+                          value={kr.description}
+                          onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                            setKeyResultTextLocal(obj.id, kr.id, e.target.value);
+                          }}
+                          onBlur={function () {
+                            saveKeyResultIfChanged(obj.id, kr);
+                          }}
+                          placeholder="Key result"
+                          className="flex-1 rounded-lg border border-white/10 bg-[#111726] px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                    );
+                  })}
+
                   <button
                     type="button"
                     onClick={function () {
-                      removeObjective(obj.id);
+                      addKeyResult(obj.id);
                     }}
-                    className="text-gray-500 hover:text-red-400"
-                    aria-label="Remove objective"
+                    disabled={addingKeyResultFor === obj.id}
+                    className="ml-4 rounded-full border border-indigo-500/40 px-4 py-1.5 text-xs font-medium text-indigo-400 hover:border-indigo-500/70 disabled:opacity-50"
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6h16Z" />
-                    </svg>
+                    {addingKeyResultFor === obj.id ? "Adding…" : "+ Add Key Result"}
                   </button>
                 </div>
-
-                <p className="text-xs uppercase tracking-wide text-gray-500">Key Results</p>
-
-                {obj.keyResults.map(function (kr: KeyResult) {
-                  return (
-                    <div key={kr.id} className="flex items-center gap-2 pl-4">
-                      <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-indigo-500" />
-                      <input
-                        type="text"
-                        value={kr.text}
-                        onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
-                          updateKeyResult(obj.id, kr.id, e.target.value);
-                        }}
-                        placeholder="Key result"
-                        className="flex-1 rounded-lg border border-white/10 bg-[#111726] px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={function () {
-                          removeKeyResult(obj.id, kr.id);
-                        }}
-                        className="text-gray-500 hover:text-red-400"
-                        aria-label="Remove key result"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M18 6 6 18M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </div>
-                  );
-                })}
-
-                <button
-                  type="button"
-                  onClick={function () {
-                    addKeyResult(obj.id);
-                  }}
-                  className="ml-4 rounded-full border border-indigo-500/40 px-4 py-1.5 text-xs font-medium text-indigo-400 hover:border-indigo-500/70"
-                >
-                  + Add Key Result
-                </button>
-              </div>
-            );
-          })}
+              );
+            })}
 
           <button
             type="button"
             onClick={addObjective}
-            className="rounded-full border border-indigo-500/40 px-4 py-1.5 text-sm font-medium text-indigo-400 hover:border-indigo-500/70"
+            disabled={addingObjective}
+            className="rounded-full border border-indigo-500/40 px-4 py-1.5 text-sm font-medium text-indigo-400 hover:border-indigo-500/70 disabled:opacity-50"
           >
-            + Add Objective
+            {addingObjective ? "Adding…" : "+ Add Objective"}
           </button>
+
+          <p className="text-xs text-gray-500">
+            Removing an objective or key result isn&apos;t available yet — the backend doesn&apos;t
+            support deleting them. Edit the wording instead if something needs to change.
+          </p>
 
           <div className="flex items-center justify-between border-t border-white/10 pt-6">
             <button
@@ -343,7 +463,7 @@ export default function OkrsPage() {
               type="submit"
               className="flex items-center gap-2 rounded-lg bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
             >
-              Save & Continue
+              Continue
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M5 12h14M13 5l7 7-7 7" />
               </svg>
@@ -354,3 +474,4 @@ export default function OkrsPage() {
     </div>
   );
 }
+

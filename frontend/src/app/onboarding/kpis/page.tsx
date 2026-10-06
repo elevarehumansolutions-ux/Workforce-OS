@@ -1,19 +1,50 @@
-"use client";
+﻿"use client";
 
-import React, { useState, FormEvent } from "react";
+import React, { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch, ApiError } from "@/lib/api";
 
-type KpiStatus = "On Track" | "Achieved" | "At Risk";
-
-interface Kpi {
+interface Department {
   id: string;
-  department: string;
-  metric: string;
-  target: string;
-  current: string;
-  progressPercent: number;
-  owner: string;
-  status: KpiStatus;
+  name: string;
+}
+
+interface KpiApiResponse {
+  id: string;
+  department_id: string;
+  name: string;
+  description: string | null;
+  weight: string | number;
+  is_inverse: boolean;
+  target_value: string | number | null;
+  unit: string | null;
+}
+
+interface KpiGroupUpdateResponse {
+  kpis: KpiApiResponse[];
+}
+
+interface PaginatedResponse<T> {
+  data: T[];
+  pagination: { page: number; limit: number; total: number; total_pages: number };
+}
+
+interface KpiRow {
+  localId: string;
+  id: string | null;
+  name: string;
+  weight: string;
+  targetValue: string;
+  unit: string;
+  isInverse: boolean;
+}
+
+interface DepartmentGroup {
+  department: Department;
+  kpis: KpiRow[];
+  saving: boolean;
+  error: string;
+  saved: boolean;
 }
 
 const ONBOARDING_STEPS = [
@@ -25,95 +56,178 @@ const ONBOARDING_STEPS = [
   "Invite Team",
 ];
 
-function makeId() {
+function makeLocalId() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-const INITIAL_KPIS: Kpi[] = [
-  { id: makeId(), department: "Engineering", metric: "Code Review Turnaround", target: "<6hrs", current: "5.2hrs", progressPercent: 78, owner: "Ngozi A.", status: "On Track" },
-  { id: makeId(), department: "Engineering", metric: "Sprint Velocity", target: ">40pts", current: "42pts", progressPercent: 100, owner: "Chidi O.", status: "Achieved" },
-  { id: makeId(), department: "Engineering", metric: "Bug Resolution Time", target: "<48hrs", current: "54hrs", progressPercent: 60, owner: "Yusuf I.", status: "At Risk" },
-  { id: makeId(), department: "Engineering", metric: "Test Coverage", target: ">80%", current: "78%", progressPercent: 90, owner: "Kemi A.", status: "On Track" },
-  { id: makeId(), department: "Engineering", metric: "Deployment Frequency", target: "Daily", current: "0.8/day", progressPercent: 70, owner: "Amara E.", status: "On Track" },
-  { id: makeId(), department: "Engineering", metric: "Customer Satisfaction Score", target: ">4.5", current: "4.7", progressPercent: 100, owner: "Emeka N.", status: "Achieved" },
-  { id: makeId(), department: "Sales & Marketing", metric: "Lead Conversion Rate", target: ">25%", current: "28%", progressPercent: 100, owner: "Tolu B.", status: "Achieved" },
-  { id: makeId(), department: "Sales & Marketing", metric: "Revenue per Rep", target: ">N15M", current: "N12.8M", progressPercent: 65, owner: "Bola K.", status: "On Track" },
-  { id: makeId(), department: "Human Resources", metric: "Onboarding Time", target: "<3 days", current: "2.1 days", progressPercent: 100, owner: "Funke M.", status: "Achieved" },
-  { id: makeId(), department: "Human Resources", metric: "Retention Rate", target: ">90%", current: "87%", progressPercent: 87, owner: "Aisha D.", status: "On Track" },
-];
-
-function statusClasses(status: KpiStatus) {
-  if (status === "Achieved") {
-    return "bg-emerald-500/15 text-emerald-400";
-  }
-  if (status === "At Risk") {
-    return "bg-amber-500/15 text-amber-400";
-  }
-  return "bg-indigo-500/15 text-indigo-300";
+function toKpiRow(kpi: KpiApiResponse): KpiRow {
+  return {
+    localId: kpi.id,
+    id: kpi.id,
+    name: kpi.name,
+    weight: String(kpi.weight),
+    targetValue: kpi.target_value === null || kpi.target_value === undefined ? "" : String(kpi.target_value),
+    unit: kpi.unit || "",
+    isInverse: kpi.is_inverse,
+  };
 }
 
-function barClasses(status: KpiStatus) {
-  if (status === "Achieved") {
-    return "bg-emerald-500";
-  }
-  if (status === "At Risk") {
-    return "bg-amber-500";
-  }
-  return "bg-indigo-500";
-}
-
-function groupByDepartment(kpis: Kpi[]) {
-  const groups: { department: string; items: Kpi[] }[] = [];
-  kpis.forEach(function (kpi) {
-    const existing = groups.find(function (g) {
-      return g.department === kpi.department;
-    });
-    if (existing) {
-      existing.items.push(kpi);
-    } else {
-      groups.push({ department: kpi.department, items: [kpi] });
-    }
-  });
-  return groups;
+function weightSum(rows: KpiRow[]): number {
+  return rows.reduce(function (total, row) {
+    const n = Number(row.weight);
+    return total + (Number.isFinite(n) ? n : 0);
+  }, 0);
 }
 
 export default function KpisPage() {
   const router = useRouter();
-  const [kpis, setKpis] = useState<Kpi[]>(INITIAL_KPIS);
+  const [groups, setGroups] = useState<DepartmentGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
-  function addKpi() {
-    const metric = window.prompt("KPI metric name:");
-    if (!metric || !metric.trim()) {
+  useEffect(function () {
+    let cancelled = false;
+    async function load() {
+      try {
+        const deptRes = await apiFetch<PaginatedResponse<Department>>("/departments?limit=100", {
+          method: "GET",
+        });
+        if (cancelled) return;
+
+        const loadedGroups = await Promise.all(
+          deptRes.data.map(async function (department) {
+            let kpiRows: KpiRow[] = [];
+            try {
+              const kpiRes = await apiFetch<PaginatedResponse<KpiApiResponse>>(
+                "/kpis?department_id=" + department.id + "&limit=100",
+                { method: "GET" }
+              );
+              kpiRows = kpiRes.data.map(toKpiRow);
+            } catch {
+              // If one department's KPIs fail to load, show it empty rather
+              // than blocking the rest of the page.
+            }
+            return { department, kpis: kpiRows, saving: false, error: "", saved: true };
+          })
+        );
+        if (cancelled) return;
+        setGroups(loadedGroups);
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(
+          err instanceof ApiError ? err.message : "Couldn't load your organization's departments."
+        );
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return function () {
+      cancelled = true;
+    };
+  }, []);
+
+  function updateGroup(deptId: string, updater: (g: DepartmentGroup) => DepartmentGroup) {
+    setGroups(
+      groups.map(function (g) {
+        return g.department.id === deptId ? updater(g) : g;
+      })
+    );
+  }
+
+  function addKpiRow(deptId: string) {
+    updateGroup(deptId, function (g) {
+      return {
+        ...g,
+        saved: false,
+        kpis: [
+          ...g.kpis,
+          { localId: makeLocalId(), id: null, name: "", weight: "0", targetValue: "", unit: "", isInverse: false },
+        ],
+      };
+    });
+  }
+
+  function removeKpiRow(deptId: string, localId: string) {
+    updateGroup(deptId, function (g) {
+      return {
+        ...g,
+        saved: false,
+        kpis: g.kpis.filter(function (row) {
+          return row.localId !== localId;
+        }),
+      };
+    });
+  }
+
+  function updateKpiRow(deptId: string, localId: string, patch: Partial<KpiRow>) {
+    updateGroup(deptId, function (g) {
+      return {
+        ...g,
+        saved: false,
+        kpis: g.kpis.map(function (row) {
+          return row.localId === localId ? { ...row, ...patch } : row;
+        }),
+      };
+    });
+  }
+
+  async function saveGroup(deptId: string) {
+    const group = groups.find(function (g) {
+      return g.department.id === deptId;
+    });
+    if (!group) return;
+
+    const total = weightSum(group.kpis);
+    if (group.kpis.length > 0 && Math.round(total * 100) / 100 !== 100) {
+      updateGroup(deptId, function (g) {
+        return { ...g, error: "Weights must add up to exactly 100 (currently " + total + ")." };
+      });
       return;
     }
-    const department = window.prompt("Department:", "Engineering") || "Engineering";
-    const target = window.prompt("Target:", "") || "";
-    const owner = window.prompt("Owner:", "") || "";
 
-    setKpis([
-      ...kpis,
-      {
-        id: makeId(),
-        department: department,
-        metric: metric.trim(),
-        target: target,
-        current: "0",
-        progressPercent: 0,
-        owner: owner,
-        status: "On Track",
-      },
-    ]);
+    updateGroup(deptId, function (g) {
+      return { ...g, saving: true, error: "" };
+    });
+
+    try {
+      const payload = {
+        kpis: group.kpis.map(function (row) {
+          return {
+            id: row.id || undefined,
+            name: row.name.trim(),
+            weight: Number(row.weight),
+            is_inverse: row.isInverse,
+            target_value: row.targetValue ? Number(row.targetValue) : null,
+            unit: row.unit.trim() || null,
+          };
+        }),
+      };
+      const result = await apiFetch<KpiGroupUpdateResponse>("/departments/" + deptId + "/kpis", {
+        method: "PUT",
+        body: payload,
+      });
+      updateGroup(deptId, function (g) {
+        return { ...g, saving: false, saved: true, kpis: result.kpis.map(toKpiRow) };
+      });
+    } catch (err) {
+      updateGroup(deptId, function (g) {
+        return {
+          ...g,
+          saving: false,
+          error: err instanceof ApiError ? err.message : "Couldn't save this department's KPIs.",
+        };
+      });
+    }
   }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    // TODO: replace with a real call to the Performance module endpoint
-    // once the backend is ready.
-    console.log("KPIs submitted:", kpis);
+    // Each department's KPIs save via its own "Save" button above (the
+    // backend reconciles a whole department's list in one call, so there's
+    // no single combined submit) — this just advances the wizard.
     router.push("/onboarding/invite-team");
   }
-
-  const grouped = groupByDepartment(kpis);
 
   return (
     <div className="min-h-screen w-full bg-[#05070f] text-white">
@@ -177,81 +291,172 @@ export default function KpisPage() {
         <div className="text-center">
           <h1 className="text-3xl font-bold sm:text-4xl">Assign departmental KPIs</h1>
           <p className="mt-2 text-gray-400">
-            Set performance metrics for each department based on AI-identified critical roles.
+            Each department&apos;s KPI weights must add up to exactly 100. Save a department once its
+            weights balance.
           </p>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="mt-8 space-y-6 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-2xl backdrop-blur-sm"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold">Departmental KPIs</h2>
-            <span className="text-sm text-gray-500">Assign measurable targets to each department</span>
+        {loadError ? (
+          <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {loadError}
           </div>
+        ) : null}
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-gray-500">
-                  <th className="pb-3 pr-4 font-medium">KPI Metric</th>
-                  <th className="pb-3 pr-4 font-medium">Target</th>
-                  <th className="pb-3 pr-4 font-medium">Current</th>
-                  <th className="pb-3 pr-4 font-medium">Progress</th>
-                  <th className="pb-3 pr-4 font-medium">Owner</th>
-                  <th className="pb-3 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {grouped.map(function (group) {
-                  return (
-                    <React.Fragment key={group.department}>
-                      <tr>
-                        <td colSpan={6} className="pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-indigo-400">
-                          {group.department}
-                        </td>
-                      </tr>
-                      {group.items.map(function (kpi) {
-                        return (
-                          <tr key={kpi.id} className="border-b border-white/5">
-                            <td className="py-3 pr-4 font-medium">{kpi.metric}</td>
-                            <td className="py-3 pr-4 text-gray-400">{kpi.target}</td>
-                            <td className="py-3 pr-4 font-semibold">{kpi.current}</td>
-                            <td className="py-3 pr-4">
-                              <div className="flex items-center gap-2">
-                                <div className="h-1.5 w-24 overflow-hidden rounded-full bg-white/10">
-                                  <div
-                                    className={"h-full rounded-full " + barClasses(kpi.status)}
-                                    style={{ width: kpi.progressPercent + "%" }}
-                                  />
-                                </div>
-                              </div>
-                            </td>
-                            <td className="py-3 pr-4 text-gray-400">{kpi.owner}</td>
-                            <td className="py-3">
-                              <span className={"rounded-full px-3 py-1 text-xs font-medium " + statusClasses(kpi.status)}>
-                                {kpi.status}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+          {loading ? (
+            <div className="h-24 animate-pulse rounded-2xl border border-white/10 bg-white/5" />
+          ) : null}
 
-          <button
-            type="button"
-            onClick={addKpi}
-            className="w-full rounded-lg border border-dashed border-indigo-500/40 py-3 text-sm font-medium text-indigo-400 hover:border-indigo-500/70"
-          >
-            + Assign Departmental KPI
-          </button>
+          {!loading && groups.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 text-center text-sm text-gray-400 shadow-2xl backdrop-blur-sm">
+              No departments yet — add some on the Organization step first.
+            </div>
+          ) : null}
 
-          <div className="flex items-center justify-between border-t border-white/10 pt-6">
+          {!loading &&
+            groups.map(function (group) {
+              const total = weightSum(group.kpis);
+              const totalOk = group.kpis.length === 0 || Math.round(total * 100) / 100 === 100;
+              return (
+                <div
+                  key={group.department.id}
+                  className="space-y-4 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-2xl backdrop-blur-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h2 className="text-lg font-semibold">{group.department.name}</h2>
+                    <span
+                      className={
+                        "rounded-full px-3 py-1 text-xs font-medium " +
+                        (totalOk ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400")
+                      }
+                    >
+                      Total weight: {total}
+                      {totalOk ? "" : " (must be 100)"}
+                    </span>
+                  </div>
+
+                  {group.error ? (
+                    <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-300">
+                      {group.error}
+                    </div>
+                  ) : null}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[640px] border-collapse text-sm">
+                      <thead>
+                        <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-gray-500">
+                          <th className="pb-3 pr-4 font-medium">KPI Name</th>
+                          <th className="pb-3 pr-4 font-medium">Weight %</th>
+                          <th className="pb-3 pr-4 font-medium">Target</th>
+                          <th className="pb-3 pr-4 font-medium">Unit</th>
+                          <th className="pb-3 pr-4 font-medium">Inverse</th>
+                          <th className="pb-3 font-medium" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.kpis.map(function (row) {
+                          return (
+                            <tr key={row.localId} className="border-b border-white/5">
+                              <td className="py-2 pr-4">
+                                <input
+                                  type="text"
+                                  value={row.name}
+                                  onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                                    updateKpiRow(group.department.id, row.localId, { name: e.target.value });
+                                  }}
+                                  placeholder="e.g. Sprint Velocity"
+                                  className="w-full rounded-lg border border-white/10 bg-[#111726] px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                                />
+                              </td>
+                              <td className="py-2 pr-4">
+                                <input
+                                  type="number"
+                                  value={row.weight}
+                                  onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                                    updateKpiRow(group.department.id, row.localId, { weight: e.target.value });
+                                  }}
+                                  className="w-20 rounded-lg border border-white/10 bg-[#111726] px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                                />
+                              </td>
+                              <td className="py-2 pr-4">
+                                <input
+                                  type="number"
+                                  value={row.targetValue}
+                                  onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                                    updateKpiRow(group.department.id, row.localId, { targetValue: e.target.value });
+                                  }}
+                                  placeholder="optional"
+                                  className="w-24 rounded-lg border border-white/10 bg-[#111726] px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                                />
+                              </td>
+                              <td className="py-2 pr-4">
+                                <input
+                                  type="text"
+                                  value={row.unit}
+                                  onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                                    updateKpiRow(group.department.id, row.localId, { unit: e.target.value });
+                                  }}
+                                  placeholder="e.g. hrs"
+                                  className="w-20 rounded-lg border border-white/10 bg-[#111726] px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                                />
+                              </td>
+                              <td className="py-2 pr-4 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={row.isInverse}
+                                  onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                                    updateKpiRow(group.department.id, row.localId, { isInverse: e.target.checked });
+                                  }}
+                                  title="Check if lower is better (e.g. bug count)"
+                                />
+                              </td>
+                              <td className="py-2">
+                                <button
+                                  type="button"
+                                  onClick={function () {
+                                    removeKpiRow(group.department.id, row.localId);
+                                  }}
+                                  className="text-gray-500 hover:text-red-400"
+                                  aria-label="Remove KPI"
+                                >
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M18 6 6 18M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={function () {
+                        addKpiRow(group.department.id);
+                      }}
+                      className="rounded-full border border-dashed border-indigo-500/40 px-4 py-1.5 text-xs font-medium text-indigo-400 hover:border-indigo-500/70"
+                    >
+                      + Add KPI
+                    </button>
+                    <button
+                      type="button"
+                      onClick={function () {
+                        saveGroup(group.department.id);
+                      }}
+                      disabled={group.saving}
+                      className="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {group.saving ? "Saving…" : group.saved ? "Saved" : "Save this department's KPIs"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+          <div className="flex items-center justify-between pt-2">
             <button
               type="button"
               onClick={function () {
@@ -268,7 +473,7 @@ export default function KpisPage() {
               type="submit"
               className="flex items-center gap-2 rounded-lg bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
             >
-              Save & Continue
+              Continue
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M5 12h14M13 5l7 7-7 7" />
               </svg>
@@ -279,3 +484,4 @@ export default function KpisPage() {
     </div>
   );
 }
+
