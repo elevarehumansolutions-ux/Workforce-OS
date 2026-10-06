@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 
 type SentStatus = "invited" | "added";
@@ -43,7 +44,11 @@ function makeId() {
 
 interface InviteTeammateResponse {
   status: SentStatus;
-  membership?: { id: string } | null;
+  // Both carry the email the server actually stored — always trimmed and
+  // lower-cased, which may not match what was typed. Showing this instead
+  // of the typed value is what keeps the confirmation list accurate once
+  // the backend started normalizing emails.
+  membership?: { id: string; user: { email: string } } | null;
   invite?: { id: string; email: string; role: string } | null;
 }
 
@@ -53,6 +58,11 @@ export default function InviteTeamPage() {
   const [role, setRole] = useState("");
   const [sending, setSending] = useState(false);
   const [formError, setFormError] = useState("");
+  // Set only for a 409 MEMBERSHIP_DEACTIVATED response — the one case that
+  // needs a link, not just text: re-inviting a deactivated person is
+  // refused outright now, and the only way back is Team Management's
+  // Reactivate action.
+  const [formErrorDeactivated, setFormErrorDeactivated] = useState(false);
   const [sentInvites, setSentInvites] = useState<SentInvite[]>([]);
 
   async function addInvite() {
@@ -61,20 +71,27 @@ export default function InviteTeamPage() {
       return;
     }
     setFormError("");
+    setFormErrorDeactivated(false);
     setSending(true);
     try {
       const result = await apiFetch<InviteTeammateResponse>("/memberships", {
         method: "POST",
         body: { email: email.trim(), role },
       });
+      const sentEmail = result.invite?.email || result.membership?.user.email || email.trim();
       setSentInvites([
         ...sentInvites,
-        { id: makeId(), email: email.trim(), role, status: result.status },
+        { id: makeId(), email: sentEmail, role, status: result.status },
       ]);
       setEmail("");
       setRole("");
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "Couldn't send that invite.");
+      if (err instanceof ApiError && err.code === "MEMBERSHIP_DEACTIVATED") {
+        setFormError(err.message);
+        setFormErrorDeactivated(true);
+      } else {
+        setFormError(err instanceof ApiError ? err.message : "Couldn't send that invite.");
+      }
     } finally {
       setSending(false);
     }
@@ -149,6 +166,15 @@ export default function InviteTeamPage() {
           {formError ? (
             <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {formError}
+              {formErrorDeactivated ? (
+                <>
+                  {" "}
+                  <Link href="/team-management" className="font-medium underline hover:text-red-200">
+                    Go to Team Management
+                  </Link>{" "}
+                  to reactivate them instead.
+                </>
+              ) : null}
             </div>
           ) : null}
 

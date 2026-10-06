@@ -2,6 +2,7 @@
 
 import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 
 const PENDING_EMAIL_KEY = "elevare_pending_verification_email";
@@ -19,13 +20,23 @@ interface MeResponse {
 
 type ConfirmState = "verifying" | "success" | "error";
 
+// The generic, account-existence-revealing-nothing message the backend's
+// POST /auth/resend-verification always answers with (200, whether or not
+// that address is actually registered) — shown verbatim so the UI doesn't
+// leak anything the API deliberately doesn't.
+const RESEND_GENERIC_MESSAGE = "If that address is registered, we've sent a new verification link.";
+
 function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
 
   const [confirmState, setConfirmState] = useState<ConfirmState>("verifying");
-  const [confirmError, setConfirmError] = useState("");
+  const [confirmMessage, setConfirmMessage] = useState("");
+  // The server's machine-readable error code for the failed confirm, so the
+  // UI can offer the right next step (resend vs. log in) instead of one
+  // generic "try again" for every failure mode.
+  const [confirmCode, setConfirmCode] = useState("");
 
   // Starts empty on both the server render and the client's first render so
   // they match exactly — reading localStorage here would make the server
@@ -69,9 +80,20 @@ function VerifyEmailContent() {
       } catch (err) {
         if (cancelled) return;
         setConfirmState("error");
-        setConfirmError(
-          err instanceof ApiError ? err.message : "This verification link is invalid or has expired."
-        );
+        if (err instanceof ApiError) {
+          // The backend's `message` is already written to be shown as-is
+          // (see backend/app/core/exceptions.py) — TOKEN_INVALID, TOKEN_
+          // ALREADY_USED and VERIFICATION_TOKEN_EXPIRED each carry their
+          // own accurate explanation, so there's no reason to paraphrase it.
+          setConfirmMessage(err.message);
+          setConfirmCode(err.code);
+        } else {
+          // No response at all (offline, DNS failure, server unreachable)
+          // is a different situation from the server answering with an
+          // error — don't claim the link itself is the problem.
+          setConfirmMessage("Couldn't reach the server. Check your connection and try again.");
+          setConfirmCode("");
+        }
       }
     }
     confirm();
@@ -120,6 +142,7 @@ function VerifyEmailContent() {
   }
 
   async function handleResend() {
+    if (!email) return;
     setResending(true);
     setResendMessage("");
     try {
@@ -128,11 +151,21 @@ function VerifyEmailContent() {
         body: { email },
         skipAuth: true,
       });
-      setResendMessage("Verification email sent. Check your inbox.");
+      // Always the same line, success or "no such account" — the backend
+      // itself never distinguishes the two (200 either way), so echoing an
+      // ApiError's message here would be the only way this page could leak
+      // whether an email is registered, which is exactly what the generic
+      // response is for.
+      setResendMessage(RESEND_GENERIC_MESSAGE);
     } catch (err) {
-      setResendMessage(
-        err instanceof ApiError ? err.message : "Couldn't resend right now. Please try again shortly."
-      );
+      // A real failure to even make the request (network down, rate
+      // limited) is worth surfacing distinctly — it's not the backend's
+      // deliberately-vague "maybe sent" response.
+      if (err instanceof ApiError) {
+        setResendMessage(err.message);
+      } else {
+        setResendMessage("Couldn't reach the server. Check your connection and try again.");
+      }
     } finally {
       setResending(false);
     }
@@ -180,21 +213,65 @@ function VerifyEmailContent() {
         </>
       );
     }
+
+    // confirmState === "error" — the specific next step depends on *why*
+    // it failed, not just that it did.
+    const canResend = confirmCode === "TOKEN_INVALID" || confirmCode === "VERIFICATION_TOKEN_EXPIRED";
+    const alreadyUsed = confirmCode === "TOKEN_ALREADY_USED";
+
     return shell(
       <>
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-500/15">
           <span className="text-2xl text-red-400">!</span>
         </div>
-        <h1 className="mt-6 text-xl font-bold">Verification failed</h1>
-        <p className="mt-2 text-sm text-gray-400">{confirmError}</p>
-        <button
-          onClick={function () {
-            router.push("/verify-email");
-          }}
-          className="mt-6 w-full rounded-lg bg-indigo-500 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
-        >
-          Request a new link
-        </button>
+        <h1 className="mt-6 text-xl font-bold">{alreadyUsed ? "Already verified" : "Verification failed"}</h1>
+        <p className="mt-2 text-sm text-gray-400">{confirmMessage}</p>
+
+        {alreadyUsed ? (
+          <button
+            onClick={function () {
+              router.push("/login");
+            }}
+            className="mt-6 w-full rounded-lg bg-indigo-500 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
+          >
+            Log in
+          </button>
+        ) : canResend ? (
+          <>
+            {!email ? (
+              <input
+                type="email"
+                value={email}
+                onChange={function (e) {
+                  setEmail(e.target.value);
+                }}
+                placeholder="Your email address"
+                className="mt-4 w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+              />
+            ) : null}
+            {resendMessage ? (
+              <div className="mt-4 rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-xs text-gray-300">
+                {resendMessage}
+              </div>
+            ) : null}
+            <button
+              onClick={handleResend}
+              disabled={resending || !email}
+              className="mt-4 w-full rounded-lg bg-indigo-500 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {resending ? "Sending…" : "Request a new verification email"}
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={function () {
+              window.location.reload();
+            }}
+            className="mt-6 w-full rounded-lg bg-indigo-500 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
+          >
+            Try again
+          </button>
+        )}
       </>
     );
   }
@@ -238,9 +315,9 @@ function VerifyEmailContent() {
 
       <p className="mt-6 text-center text-xs text-gray-500">
         Wrong account?{" "}
-        <a href="/login" className="font-medium text-indigo-400 hover:text-indigo-300">
+        <Link href="/login" className="font-medium text-indigo-400 hover:text-indigo-300">
           Sign in with a different one
-        </a>
+        </Link>
       </p>
     </>
   );
@@ -253,4 +330,3 @@ export default function VerifyEmailPage() {
     </Suspense>
   );
 }
-
