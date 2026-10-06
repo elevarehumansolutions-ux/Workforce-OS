@@ -1,6 +1,12 @@
-﻿"use client";
+﻿﻿"use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
+
+interface MeResponse {
+  user: { account_status: string };
+}
 
 const SIDEBAR_ITEMS: { label: string; href: string }[] = [
   { label: "Dashboard", href: "/dashboard" },
@@ -112,6 +118,66 @@ const ACTIVITY: ActivityEntry[] = [
 
 export default function ManagerDashboardPage() {
   const router = useRouter();
+  // Starts true on both the server and client's first render (see the
+  // Business DNA / verify-email fixes for why this can't read anything
+  // client-only here) and only flips once the checks below clear, so the
+  // dashboard never flashes before we know onboarding is actually done.
+  const [checking, setChecking] = useState(true);
+
+  useEffect(function () {
+    let cancelled = false;
+    async function guard() {
+      if (!getAccessToken()) {
+        router.replace("/login");
+        return;
+      }
+      try {
+        const me = await apiFetch<MeResponse>("/me", { method: "GET" });
+        if (cancelled) return;
+        if (me.user.account_status !== "verified") {
+          router.replace("/verify-email");
+          return;
+        }
+      } catch {
+        // If /me itself fails, don't block the dashboard on it — apiFetch
+        // already sends the person to /login on an unrecoverable 401.
+        if (!cancelled) setChecking(false);
+        return;
+      }
+
+      try {
+        // There's no dedicated "onboarding_complete" flag on the API yet —
+        // GET /business-dna 404ing is the most honest signal available
+        // that the wizard was never finished (it's the first step, and
+        // PUT /business-dna is what creates the profile). Worth asking
+        // Emmanuel for a real flag if this ever gets more steps to check.
+        await apiFetch("/business-dna", { method: "GET" });
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 404) {
+          router.replace("/onboarding/business-dna");
+          return;
+        }
+        // Any other failure (network blip, etc.): fail open rather than
+        // trap the person on a loading screen.
+      }
+
+      if (!cancelled) setChecking(false);
+    }
+    guard();
+    return function () {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (checking) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-[#05070f] text-white">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen w-full bg-[#05070f] text-white">
@@ -263,3 +329,4 @@ export default function ManagerDashboardPage() {
     </div>
   );
 }
+
