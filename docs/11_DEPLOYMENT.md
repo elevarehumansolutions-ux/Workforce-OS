@@ -119,7 +119,7 @@ POSTGRES_DB=elevare_db
 - `ENVIRONMENT` — **`development`, not `production`, until HTTPS is actually live.** Two independent things hinge on this one value, and getting it wrong breaks the deploy in two different ways: (1) `app/core/config.py`'s `validate_production_secrets` refuses to boot at all when `environment=production` unless `EMAIL_STUB_MODE=false` and `CORS_ALLOWED_ORIGINS` has no `localhost` entries — neither is true yet, this exact mistake crash-looped every container on first deploy; (2) it also controls the refresh-token cookie's `Secure` flag (`environment != "development"`) — `Secure` cookies are silently rejected by browsers over a non-HTTPS connection, so setting anything other than `development` while still IP-only/HTTP would have quietly broken login sessions even without the crash. Switch to `staging` once the domain's HTTPS is confirmed working (see "Domain" section below) — `production` itself still needs real `EMAIL_STUB_MODE`/CORS values first, not just HTTPS.
 - `CORS_ALLOWED_ORIGINS` — the frontend's real Vercel URL once it's deployed; the placeholder `["http://localhost:5173"]` is fine for now, same reasoning as `ENVIRONMENT` above.
 - `APP_URL` — `http://<server-ip>` for now, `https://workforceos.online` once HTTPS is confirmed.
-- Everything else (`ANTHROPIC_API_KEY`, `PAYSTACK_*`, `EMAIL_STUB_MODE=true`) — placeholder values are fine until those features actually ship; nothing in M6 exercises them.
+- Everything else (`PAYSTACK_*`, `EMAIL_STUB_MODE=true`) — placeholder values are fine until those features actually ship. **`ANTHROPIC_API_KEY` is no longer in that group (2026-10-04):** AI suggestions shipped in M7, so on a server where this is a placeholder or missing, every generation run fails in the Celery worker (retrying, then giving up) and the review queue simply stays empty with no error shown to the user. To check: `docker compose logs celery_worker | grep -i "generate_suggestions\|anthropic"` and `SELECT created_at, purpose, model FROM ai_usage_log ORDER BY created_at DESC LIMIT 10;` (rows appear only for calls that reached Claude).
 
 ## First-time bootstrap
 
@@ -193,6 +193,55 @@ returns a valid response with no certificate warning), two follow-ups in
    `.env` (`docker compose -f docker-compose.prod.yml up -d
    --force-recreate api celery_worker celery_beat`).
 
+## Email on this server: finding stub links, and switching to Resend (added 2026-10-04)
+
+> **Status (2026-10-06):** this server **now sends real email through Resend**, confirmed
+> end to end with a real signup (see "Known gaps and follow-ups" below and `08_DECISIONS.md`
+> 2026-10-06). The stub-mode steps in this section are still the right reference for local
+> development, CI, and any *new* environment; the "switching to Resend" steps are the
+> checklist that was followed here, kept for the next deployment.
+
+**How the app chooses between "log it" and "send it."** `get_email_service()` in
+`app/core/email.py` returns the stub when `EMAIL_STUB_MODE=true` **or** there is no
+`RESEND_API_KEY`; otherwise it sends through Resend. The `ENVIRONMENT` name
+(`staging`, `development`...) plays no part in that choice.
+
+**While stubbed, where is the link?** Emails are sent by the **Celery worker**, not the
+API, so the stub's line is in the *worker's* log, not `api`'s. The link sits on the line
+**after** the message, so `grep` needs `-A1`:
+
+```bash
+docker compose logs celery_worker | grep -A1 "STUB VERIFICATION" | tail -2   # newest link
+```
+
+The same applies to the invite and password-reset stubs (grep `STUB`). Each new
+verification email replaces the user's earlier token, so use the newest link only.
+
+**Never copy a token out of the database.** `email_verification_tokens.token`,
+`invites.token` and the other token tables hold the SHA-256 *hash* (64 hex characters).
+A raw token is ~43 URL-safe characters and exists only in the email and in the register
+response. Pasting a stored hash into a link makes the server hash it again, find no row,
+and answer `401 TOKEN_INVALID` (this is exactly what happened on 2026-10-04).
+
+**Switching this server to real email (Resend):**
+1. Resend dashboard -> Domains -> add a **subdomain** such as `mail.<your-domain>`, add the
+   DNS records it lists (SPF and DKIM) at the DNS host, wait for "Verified".
+2. Create an API key with sending access.
+3. In the server's `.env`: `RESEND_API_KEY=<key>`, `EMAIL_STUB_MODE=false`,
+   `MAIL_FROM="Elevare Workforce OS <noreply@mail.<your-domain>>"` (the sender **must**
+   use the verified domain; the default `noreply@elevare.com` is rejected unless that
+   domain is verified), and `APP_URL=<the Vercel URL>` so emailed links open the frontend.
+4. Restart **both** `celery_worker` and `api` (settings are read at start-up).
+5. Register with a real address and confirm delivery in Resend's dashboard.
+
+Until the sending domain is verified, Resend only delivers to the account owner's own
+address. `ENVIRONMENT=production` additionally requires `EMAIL_STUB_MODE=false` (see
+`validate_production_secrets` in `app/core/config.py`, which refuses to start otherwise).
+
+**If someone must get in before email works:** mark that one account verified directly,
+`UPDATE users SET account_status='verified' WHERE email='...';` A link cannot be
+regenerated from the stored hash.
+
 ## What this environment deliberately does not include
 
 Matches `09_PROGRESS.md`'s M15 entry, which this pulled a subset out of —
@@ -227,17 +276,14 @@ scratch. Not urgent, no action needed today.
   practical risk while the audience is a handful of people who were
   personally invited; that stops being true if this environment's
   audience ever grows past "people we know."
-- **Follow-ups once the frontend is actually deployed to Vercel** (all
-  three are `backend/.env` changes, not code changes):
-  1. `CORS_ALLOWED_ORIGINS` — add the real Vercel URL (currently just
-     `["http://localhost:3000"]` for local frontend-dev testing).
-  2. `APP_URL` — change from the placeholder to the real Vercel URL (used
-     to build the links in verification/reset/invite emails — see
-     `app/core/email.py`).
-  3. Only after both of those are real: `EMAIL_STUB_MODE` can move to
-     `false` once a real email provider (Resend, per `00_PROJECT_CONTEXT.md`)
-     is actually wired up — not before, or real emails would go out with
-     broken links.
+- **Done (2026-10-06):** the frontend is deployed to Vercel at the real
+  `workforceos.online` apex (backend split to `api.workforceos.online` —
+  see `08_DECISIONS.md` same date), `CORS_ALLOWED_ORIGINS`/`APP_URL` point
+  at it, and Resend is wired up for real (`workforceos.online` verified in
+  Resend's dashboard, `RESEND_API_KEY` set, `MAIL_FROM` corrected from a
+  placeholder `elevare.com` address to `noreply@workforceos.online`,
+  `EMAIL_STUB_MODE=false`). Confirmed end-to-end: a real signup produced a
+  real verification email.
 - **Domain renewal price.** `workforceos.online` was bought at a
   promotional first-year price (~$2). Renewal the following year will be
   meaningfully higher (typically $12–20+ for this kind of TLD) — not a

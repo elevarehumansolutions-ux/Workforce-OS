@@ -833,6 +833,16 @@ Full task list in `09_PROGRESS.md` M4.
 
 **What happened with PR #28:** it merged before the last M9 commit (`3cebbec`, `invite_status` on employee responses, `PATCH /memberships` rejecting `is_deactivated:false`, the `10_CURRENT_TASK.md` rewrite) had been pushed. Caught on 2026-10-04 when `git branch -d m9-attendance` refused ("not fully merged"). The commit was cherry-picked onto `m9-followup-invite-status` off the current `main` and re-verified (196 tests across organization, memberships, attendance and authentication). **Until that follow-up merges, the deployed backend has neither change, while Uche's Trello cards and message already describe both.** Same shape as the M8 two-PR incident (2026-10-01): check `git log main..<branch>` before deleting a branch.
 
+## 2026-10-05 — Where AI-suggested departments appear: the AI Suggestions step, after OKRs (Option 1)
+
+**Decision (the user's, after weighing three options):** `missing_department` suggestions are reviewed in the wizard's existing **AI Suggestions** step, which comes after OKRs, next to the critical-role suggestions. They are *not* generated or shown on Setup Organization. The other options considered: (2) also trigger on Business DNA save and show a strip on Setup Organization; (3) leave department suggestions out of the MVP.
+
+**Why:** it needs no backend change (saving an OKR already triggers all suggestion types, debounced 60s), it matches `01_REQUIREMENTS.md` §4 where the suggestion is tied to the org's OKRs, and by that step the AI has Business DNA, the departments HR typed and the OKRs, so its suggestions can be specific. Option 2 stays possible later without undoing anything.
+
+**Revisit:** after all milestones are done, consider Option 2 (a one-line trigger in `PUT /business-dna`, one more debounced Claude call per onboarding) once real output quality is known. Recorded in `09_PROGRESS.md` M7 and M15.
+
+**What was learned getting here (all from reading the code and the server, 2026-10-04):** the AI is not the problem. The server's six `ai_usage_log` rows were the Quarterly Objective Review Beat job running on 1 and 2 October for three empty orgs, and the model correctly answered "none" with nothing to read. The real gap is the frontend: Business DNA, Setup Organization, OKRs, AI Suggestions, KPIs and Invite Team are not connected to the API (`09_PROGRESS.md`, "Frontend wiring status"). `missing_department` needs *content* (Business DNA, OKRs), not existing departments; it is the critical-position, revenue-allocation and KPI-weight types that need existing entities.
+
 ## 2026-10-06 — Frontend/backend domain split (Vercel + api.workforceos.online); a real deploy-automation bug found doing it
 
 **Decision:** `workforceos.online` (the apex) now points at the Vercel-hosted frontend; the backend moved to `api.workforceos.online`. DNS: a new `A` record for `api`, same VPS IP, DNS-only/unproxied — same reasoning as the original domain setup (`08_DECISIONS.md` 2026-09-22), Cloudflare's proxy would otherwise intercept Caddy's ACME HTTP-01 challenge. `Caddyfile` updated to serve `api.workforceos.online` instead of the bare domain.
@@ -846,3 +856,28 @@ Full task list in `09_PROGRESS.md` M4.
 **Follow-up still needed, not yet done:** `backend/.env`'s `CORS_ALLOWED_ORIGINS`/`APP_URL` still need the real Vercel URL (currently placeholders, per the 2026-09-22 follow-up checklist in `11_DEPLOYMENT.md`) — tracked there, not repeated here.
 
 **Impact:** `Caddyfile`, `.github/workflows/ci-cd.yml`. No app code changed.
+
+## 2026-10-06 — CORS/APP_URL updated to the real frontend domain; Resend wired up for real, closing out the 2026-09-22 follow-up checklist
+**Decision:** both remaining items from that checklist are done. `backend/.env`: `CORS_ALLOWED_ORIGINS`/`APP_URL` now point at the real `https://workforceos.online` (no longer `localhost:3000`/a placeholder). Resend is live: `workforceos.online` verified in Resend's dashboard, a real `RESEND_API_KEY` set, `EMAIL_STUB_MODE=false`.
+**One real bug caught doing it:** `mail_from`'s default (`app/core/config.py`) was `"Elevare Workforce OS <noreply@elevare.com>"` — `elevare.com` is not a domain this project owns, and Resend would have rejected or bounced every send from an unverified domain. Fixed to `noreply@workforceos.online`. `.env.example` also never documented `RESEND_API_KEY`/`MAIL_FROM` at all despite `ResendEmailService` depending on both — added.
+**Verified, not assumed:** a real signup against the live site produced a real verification email, received and clicked successfully.
+**Impact:** `app/core/config.py`, `backend/.env.example`, `backend/.env` (server-only, not committed). `docs/11_DEPLOYMENT.md`'s follow-up checklist updated to reflect this is done.
+
+## 2026-10-06 — "Department manager" = a nullable `departments.head_employee_id`, one named person per department
+
+**Gap being closed:** M10's overdue scan notifies "the assignee and the department manager" and M11 routes a workflow task with no assignee to "that department's manager", but nothing modelled who that is (no column on `departments`, no manager table). "Manager" already meant two other things: the membership *role* `manager`, and a person's *reporting manager* (`employees.manager_id`).
+
+**Decision (the user's requirement: "one specific person that HR names for each department"; my recommendation accepted):** add `departments.head_employee_id`, a nullable foreign key to `employees`. HR sets it. No new Manager table or class.
+
+**Rules:**
+1. **Optional.** A department can exist without a head. It is normally set *after* the department is created: during onboarding, Setup Organization comes before any employee exists, so the head is picked later, on the department's edit screen (or from an employee's page).
+2. **Any active employee of the same organization.** Not required to belong to that department (real heads sometimes sit one level up). One person may head several departments.
+3. **If the head is offboarded,** the field is cleared in the same transaction and HR administrators are notified, so it never points at someone who left. Reinstating does not restore it.
+4. **If a department has no head,** anything that would notify or route to "the department manager" goes to the organization's HR administrators instead of nowhere.
+5. Every change is audit-logged (old and new head).
+
+**Considered and rejected:** an `is_manager` flag on employees (can be true for none or several people in a department, can't say which department, adds a fourth meaning of "manager", and employees have no department of their own to put a uniqueness rule on); deriving it from the `manager` role (none or several again); using only `employees.manager_id` (a task with no assignee has nobody whose manager to look up).
+
+**Kept as a later upgrade:** `departments.head_position_id` (the head follows the *position*, so a successor is automatically the head), consistent with how criticality attaches to positions, not people. Not chosen now because the model doesn't enforce one holder per position. Switching later is one migration; M10/M11 only ever ask "who is this department's head?", so nothing built on this is wasted.
+
+**Not built yet.** To do before M10 (M4 follow-up): migration, `PATCH /departments/{id}` accepts `head_employee_id` (validated: exists, active, same org) or a dedicated assign action, clearing on `offboard_employee`, HR notification, audit entry, `DepartmentResponse` returns it, tests, `04_DATABASE.md` Cluster 2. Frontend (Uche): a "Department head" picker on the department edit screen and the head shown in the department list; a Trello card is written when the backend lands (`CLAUDE.md`, "Frontend impact").

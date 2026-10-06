@@ -35,7 +35,11 @@ delete `m8-kpis` and `m9-attendance` (local + remote), and branch
 
 ## Decisions needed before building (not already settled, talk them through first)
 
-1. **"Department manager" is not modelled anywhere** (found 2026-10-02):
+1. **RESOLVED 2026-10-06:** a department's manager is `departments.head_employee_id`, one
+   named person set by HR (`08_DECISIONS.md` 2026-10-06). **Build that first**, as a small
+   M4 follow-up on its own branch before M10's code: migration, validation, clearing on
+   offboard, audit, tests (details in `09_PROGRESS.md` M4). The original gap, for context:
+   **"Department manager" was not modelled anywhere** (found 2026-10-02):
    `departments` has no manager/head column, yet the overdue scan and M11's
    workflow routing both need one. Options in `09_PROGRESS.md` M10: an explicit
    `departments.head_employee_id`, derive from the `manager` role in that
