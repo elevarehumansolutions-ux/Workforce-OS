@@ -852,3 +852,22 @@ Full task list in `09_PROGRESS.md` M4.
 **One real bug caught doing it:** `mail_from`'s default (`app/core/config.py`) was `"Elevare Workforce OS <noreply@elevare.com>"` — `elevare.com` is not a domain this project owns, and Resend would have rejected or bounced every send from an unverified domain. Fixed to `noreply@workforceos.online`. `.env.example` also never documented `RESEND_API_KEY`/`MAIL_FROM` at all despite `ResendEmailService` depending on both — added.
 **Verified, not assumed:** a real signup against the live site produced a real verification email, received and clicked successfully.
 **Impact:** `app/core/config.py`, `backend/.env.example`, `backend/.env` (server-only, not committed). `docs/11_DEPLOYMENT.md`'s follow-up checklist updated to reflect this is done.
+
+## 2026-10-06 — "Department manager" = a nullable `departments.head_employee_id`, one named person per department
+
+**Gap being closed:** M10's overdue scan notifies "the assignee and the department manager" and M11 routes a workflow task with no assignee to "that department's manager", but nothing modelled who that is (no column on `departments`, no manager table). "Manager" already meant two other things: the membership *role* `manager`, and a person's *reporting manager* (`employees.manager_id`).
+
+**Decision (the user's requirement: "one specific person that HR names for each department"; my recommendation accepted):** add `departments.head_employee_id`, a nullable foreign key to `employees`. HR sets it. No new Manager table or class.
+
+**Rules:**
+1. **Optional.** A department can exist without a head. It is normally set *after* the department is created: during onboarding, Setup Organization comes before any employee exists, so the head is picked later, on the department's edit screen (or from an employee's page).
+2. **Any active employee of the same organization.** Not required to belong to that department (real heads sometimes sit one level up). One person may head several departments.
+3. **If the head is offboarded,** the field is cleared in the same transaction and HR administrators are notified, so it never points at someone who left. Reinstating does not restore it.
+4. **If a department has no head,** anything that would notify or route to "the department manager" goes to the organization's HR administrators instead of nowhere.
+5. Every change is audit-logged (old and new head).
+
+**Considered and rejected:** an `is_manager` flag on employees (can be true for none or several people in a department, can't say which department, adds a fourth meaning of "manager", and employees have no department of their own to put a uniqueness rule on); deriving it from the `manager` role (none or several again); using only `employees.manager_id` (a task with no assignee has nobody whose manager to look up).
+
+**Kept as a later upgrade:** `departments.head_position_id` (the head follows the *position*, so a successor is automatically the head), consistent with how criticality attaches to positions, not people. Not chosen now because the model doesn't enforce one holder per position. Switching later is one migration; M10/M11 only ever ask "who is this department's head?", so nothing built on this is wasted.
+
+**Not built yet.** To do before M10 (M4 follow-up): migration, `PATCH /departments/{id}` accepts `head_employee_id` (validated: exists, active, same org) or a dedicated assign action, clearing on `offboard_employee`, HR notification, audit entry, `DepartmentResponse` returns it, tests, `04_DATABASE.md` Cluster 2. Frontend (Uche): a "Department head" picker on the department edit screen and the head shown in the department list; a Trello card is written when the backend lands (`CLAUDE.md`, "Frontend impact").
