@@ -5,6 +5,7 @@ import { useState } from "react";
 const SIDEBAR_ITEMS: { label: string; href: string }[] = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "Employees", href: "/employees" },
+  { label: "Team Management", href: "/team-management" },
   { label: "Attendance", href: "/attendance" },
   { label: "Leave Management", href: "/leave" },
   { label: "Workflow", href: "/workflow/templates" },
