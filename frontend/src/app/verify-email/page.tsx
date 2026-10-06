@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 
@@ -19,7 +19,7 @@ interface MeResponse {
 
 type ConfirmState = "verifying" | "success" | "error";
 
-export default function VerifyEmailPage() {
+function VerifyEmailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
@@ -27,14 +27,23 @@ export default function VerifyEmailPage() {
   const [confirmState, setConfirmState] = useState<ConfirmState>("verifying");
   const [confirmError, setConfirmError] = useState("");
 
-  const [email] = useState<string>(function () {
-    if (typeof window === "undefined") return "";
-    return window.localStorage.getItem(PENDING_EMAIL_KEY) || "";
-  });
+  // Starts empty on both the server render and the client's first render so
+  // they match exactly — reading localStorage here would make the server
+  // (no window) and the client (has the pending email saved by signup)
+  // disagree on what to show, which crashes with a hydration error. It's
+  // filled in right after mount instead, in the effect below.
+  const [email, setEmail] = useState<string>("");
   const [resending, setResending] = useState(false);
   const [resendMessage, setResendMessage] = useState("");
   const [checking, setChecking] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(function () {
+    // Runs synchronously on mount (not deferred into a promise) so the
+    // email appears on the very next paint rather than flickering in late.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEmail(window.localStorage.getItem(PENDING_EMAIL_KEY) || "");
+  }, []);
 
   // Mode 1: a token in the URL means this tab was opened from the emailed link.
   useEffect(() => {
@@ -236,3 +245,12 @@ export default function VerifyEmailPage() {
     </>
   );
 }
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={null}>
+      <VerifyEmailContent />
+    </Suspense>
+  );
+}
+

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -36,6 +36,18 @@ const TEMPLATE_OPTIONS: TemplateOption[] = [
   },
 ];
 
+const SIDEBAR_HREFS: Record<string, string> = {
+  Dashboard: "/dashboard",
+  Employees: "/employees",
+  Attendance: "/attendance",
+  "Leave Management": "/leave",
+  Workflow: "/workflow/templates",
+  Tasks: "/tasks",
+  Payroll: "/payroll",
+  Reports: "/reports",
+  Settings: "/settings",
+};
+
 function SidebarNav() {
   const items = [
     "Dashboard",
@@ -65,7 +77,7 @@ function SidebarNav() {
           return (
             <a
               key={item}
-              href="#"
+              href={SIDEBAR_HREFS[item] || "#"}
               className={
                 "rounded-lg px-3 py-2.5 text-sm " +
                 (isActive ? "bg-indigo-500 font-medium text-white" : "text-gray-400 hover:bg-white/5")
@@ -200,3 +212,4 @@ export default function StartWorkflowPage() {
     </div>
   );
 }
+

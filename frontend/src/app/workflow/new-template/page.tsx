@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -16,6 +16,18 @@ const DEPARTMENT_OPTIONS = ["Department A", "Department B", "Department C", "HR"
 function makeId() {
   return Math.random().toString(36).slice(2, 10);
 }
+
+const SIDEBAR_HREFS: Record<string, string> = {
+  Dashboard: "/dashboard",
+  Employees: "/employees",
+  Attendance: "/attendance",
+  "Leave Management": "/leave",
+  Workflow: "/workflow/templates",
+  Tasks: "/tasks",
+  Payroll: "/payroll",
+  Reports: "/reports",
+  Settings: "/settings",
+};
 
 function SidebarNav() {
   const items = [
@@ -46,7 +58,7 @@ function SidebarNav() {
           return (
             <a
               key={item}
-              href="#"
+              href={SIDEBAR_HREFS[item] || "#"}
               className={
                 "rounded-lg px-3 py-2.5 text-sm " +
                 (isActive ? "bg-indigo-500 font-medium text-white" : "text-gray-400 hover:bg-white/5")
@@ -250,3 +262,4 @@ export default function TemplateBuilderPage() {
     </div>
   );
 }
+
