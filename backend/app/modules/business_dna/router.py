@@ -147,14 +147,20 @@ async def upsert_business_dna(
     business_dna = await service.upsert_business_dna(
         caller.organization_id, caller.user_id, data.model_dump(exclude_unset=True)
     )
-    await db.commit()
 
+    # Everything the response needs is read, and the response built, *before*
+    # the commit. ``app.current_org_id`` is transaction-local, so after
+    # ``commit()`` any further read runs with no tenant context and RLS hides
+    # every row: the organization lookup returned ``None`` (a 500 on
+    # ``organization.name``) and core values silently came back empty.
     core_values = await core_value_service.list_core_values(caller.organization_id)
     organization = await organization_repo.get_organization_by_id(caller.organization_id)
-
-    return _to_response(
+    response = _to_response(
         business_dna, core_values, organization.name, organization.timezone, caller.role
     )
+
+    await db.commit()
+    return response
 
 
 # ---------------------------------------------------------------------------

@@ -87,6 +87,32 @@ async def set_org_context(db_session: AsyncSession, organization_id) -> None:
     )
 
 
+def commit_like_production(db_session: AsyncSession, monkeypatch) -> None:
+    """Make ``db_session.commit()`` also drop the transaction-local tenant context.
+
+    The shared test session lives inside one outer transaction, so a router's
+    ``commit()`` never ends anything and ``app.current_org_id`` survives. In
+    production every commit ends the transaction and the setting is gone, so a
+    read issued after the commit sees no rows through row-level security. Call
+    this after any setup that needs the normal behaviour, right before the
+    request under test.
+
+    Clears ``app.current_user_id`` too: login sets it earlier in the shared
+    transaction, but ordinary requests never have it, and ``organizations``'
+    policy would otherwise fall back to it.
+    """
+    original_commit = db_session.commit
+
+    async def commit_and_forget_tenant_context():
+        await original_commit()
+        for setting in ("app.current_org_id", "app.current_user_id"):
+            await db_session.execute(
+                text("SELECT set_config(:name, '', true)"), {"name": setting}
+            )
+
+    monkeypatch.setattr(db_session, "commit", commit_and_forget_tenant_context)
+
+
 async def register_verified_and_login(client, **overrides) -> dict:
     """Register, verify, and log in a user via the real HTTP endpoints.
 
