@@ -73,13 +73,20 @@ async def invite_teammate(
         email=data.email,
         role=data.role.value,
     )
+
+    # Read the company name before committing: the tenant context RLS needs is
+    # transaction-local, so after commit() the organization lookup finds
+    # nothing and every invite email would silently lose the company name.
+    company_name = None
+    if status == "invited":
+        org = await OrganizationService(db).get_organization_by_id(caller.organization_id)
+        company_name = org.name if org else None
+
     await db.commit()
 
     if status == "invited":
-        org_service = OrganizationService(db)
-        org = await org_service.get_organization_by_id(caller.organization_id)
         invite_link = f"{settings.app_url}/accept-invite?token={quote(result.raw_token)}"
-        dispatch_invite_email.delay(data.email, invite_link, org.name if org else None)
+        dispatch_invite_email.delay(data.email, invite_link, company_name)
         return InviteTeammateResponse(status="invited", invite=result)
 
     return InviteTeammateResponse(status="added", membership=result)

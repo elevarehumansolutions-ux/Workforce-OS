@@ -5,10 +5,12 @@ In production every ``commit()`` ends the transaction, and the tenant context
 gone afterwards. Reads issued after the commit run with no tenant context and
 row-level security hides every row. The test session normally lives inside one
 outer transaction, where ``commit()`` never ends anything and the setting
-survives, so this bug was invisible to the rest of the suite.
+survives, so this bug was invisible to the rest of the suite; see
+``tests.conftest.commit_like_production``.
 """
 import pytest
-from sqlalchemy import text
+
+from tests.conftest import commit_like_production, register_verified_and_login
 
 BUSINESS_DNA = "/api/v1/business-dna"
 CORE_VALUES = "/api/v1/business-dna/core-values"
@@ -18,32 +20,11 @@ def _auth_header(access_token: str) -> dict:
     return {"Authorization": f"Bearer {access_token}"}
 
 
-def _commit_like_production(db_session, monkeypatch) -> None:
-    """Make ``commit()`` also drop the transaction-local tenant context.
-
-    Clears ``app.current_user_id`` too: login sets it earlier in the shared
-    test transaction, but a real request to this endpoint never has it, and
-    ``organizations``' policy would otherwise fall back to it.
-    """
-    original_commit = db_session.commit
-
-    async def commit_and_forget_tenant_context():
-        await original_commit()
-        for setting in ("app.current_org_id", "app.current_user_id"):
-            await db_session.execute(
-                text("SELECT set_config(:name, '', true)"), {"name": setting}
-            )
-
-    monkeypatch.setattr(db_session, "commit", commit_and_forget_tenant_context)
-
-
 @pytest.mark.asyncio
 async def test_upsert_response_is_built_with_tenant_context_after_commit(
     client, db_session, monkeypatch
 ):
     """PUT returns 200 with the org name and core values even when commit() clears tenant context."""
-    from tests.conftest import register_verified_and_login
-
     owner = await register_verified_and_login(client, email="dna_ctx_owner@example.com")
     headers = _auth_header(owner["access_token"])
 
@@ -52,7 +33,7 @@ async def test_upsert_response_is_built_with_tenant_context_after_commit(
     value_resp = await client.post(CORE_VALUES, json={"value": "Integrity"}, headers=headers)
     assert value_resp.status_code == 200
 
-    _commit_like_production(db_session, monkeypatch)
+    commit_like_production(db_session, monkeypatch)
 
     resp = await client.put(
         BUSINESS_DNA,
