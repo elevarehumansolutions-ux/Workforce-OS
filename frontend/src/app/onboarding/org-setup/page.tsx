@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
+import PositionsEditor from "@/components/PositionsEditor";
 
 interface Department {
   id: string;
@@ -159,8 +160,7 @@ export default function OrgSetupPage() {
     // Departments and locations are already persisted the moment they're
     // added or edited above (each change hits the real API immediately),
     // so there's nothing left to batch-save here — this just advances the
-    // wizard. Positions & the reporting-hierarchy editor are deliberately
-    // not built yet: backend validation for them isn't ready.
+    // wizard. Positions are saved the same way, inside PositionsEditor.
     router.push("/onboarding/okrs");
   }
 
@@ -221,7 +221,7 @@ export default function OrgSetupPage() {
         <div className="text-center">
           <h1 className="text-3xl font-bold sm:text-4xl">Set up your organization</h1>
           <p className="mt-2 text-gray-400">
-            Design corporate compartments and regional bases. Reporting hierarchy comes later.
+            Design corporate compartments, regional bases, and the roles in each department.
           </p>
         </div>
 
@@ -248,7 +248,8 @@ export default function OrgSetupPage() {
                 </span>
               </div>
               <p className="mt-1 text-sm text-gray-500">
-                Mark departments that are revenue-critical or operationally critical
+                Mark departments that are revenue-critical or operationally critical. Each department&apos;s
+                head can be chosen later, from Organization Structure, once employees have been added.
               </p>
 
               <div className="mt-4 space-y-3">
@@ -358,19 +359,8 @@ export default function OrgSetupPage() {
             </div>
           </div>
 
-          {/* Reporting Hierarchy — intentionally not built yet */}
-          <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-2xl backdrop-blur-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Positions & Reporting Hierarchy</h2>
-              <span className="rounded-full bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-300">
-                Coming soon
-              </span>
-            </div>
-            <p className="mt-3 text-sm text-gray-500">
-              Setting up positions and who-reports-to-whom will open here once the backend&apos;s
-              validation for it is ready. You can skip this for now and come back to it later.
-            </p>
-          </div>
+          {/* Positions & reporting hierarchy */}
+          <PositionsEditor departments={departments} />
 
           {/* Footer nav */}
           <div className="flex items-center justify-between pt-2">
