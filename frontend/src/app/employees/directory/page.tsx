@@ -373,6 +373,8 @@ export default function EmployeeDirectoryPage() {
                             <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300">
                               Has login
                             </span>
+                          ) : employee.status === "inactive" ? (
+                            <span className="text-xs text-gray-500">Offboarded</span>
                           ) : inviteRowId === employee.id ? (
                             <div className="flex items-center gap-2">
                               <select

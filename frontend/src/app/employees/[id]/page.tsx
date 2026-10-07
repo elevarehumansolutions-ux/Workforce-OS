@@ -444,6 +444,10 @@ export default function EmployeeDetailsPage() {
                   <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300">
                     Has login
                   </span>
+                ) : employee.status === "inactive" ? (
+                  <p className="text-xs text-gray-500">
+                    Offboarded. Reinstate this employee to send an invite or link a login.
+                  </p>
                 ) : (
                   <div className="space-y-2">
                     {employee.invite_status === "pending" ? (
