@@ -26,7 +26,9 @@ from app.core.exceptions import (
     ValidationException,
 )
 from app.core.schemas import PaginationResponse
-from app.modules.audit_and_notification.service import AuditService
+from app.modules.audit_and_notification.enums import NotificationCategory
+from app.modules.audit_and_notification.service import AuditService, NotificationService
+from app.modules.tenancy_identity.enums import MembershipRole
 from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.service import MembershipService
 
@@ -201,7 +203,31 @@ class DepartmentService:
         """Initialize the service with a session and its collaborators."""
         self._db = db
         self._repo = DepartmentRepository(db)
+        self._employee_repo = EmployeeRepository(db)
         self._audit = AuditService(db)
+
+    async def _validate_department_head(self, employee_id: uuid.UUID) -> None:
+        """Check an employee can be named head of a department.
+
+        The head must be an employee of this organization (row-level security
+        makes another organization's employee simply not found) and must
+        still be active: an offboarded person can't head anything. Any
+        active employee qualifies, not only members of the department
+        itself (08_DECISIONS.md 2026-10-06).
+
+        Args:
+            employee_id: Employee proposed as the department's head.
+
+        Raises:
+            EmployeeNotFoundException: If no non-deleted employee with that
+                id exists in the caller's org.
+            ValidationException: If the employee has been offboarded.
+        """
+        employee = await self._employee_repo.get_employee_by_id(employee_id)
+        if employee is None:
+            raise EmployeeNotFoundException()
+        if employee.status == EmployeeStatus.INACTIVE.value:
+            raise ValidationException(message="An offboarded employee can't head a department")
 
     async def create_department(
         self, organization_id: uuid.UUID, actor_user_id: uuid.UUID, data: dict
@@ -294,8 +320,14 @@ class DepartmentService:
                 that id exists in the caller's org.
             AlreadyExistsException: If renaming would duplicate another
                 non-deleted department's (normalized) name in the org.
+            EmployeeNotFoundException: If ``head_employee_id`` is not an
+                employee of the caller's org.
+            ValidationException: If ``head_employee_id`` is an offboarded
+                employee.
         """
         department = await self.get_department_by_id(department_id)
+        if data.get("head_employee_id") is not None:
+            await self._validate_department_head(data["head_employee_id"])
         old_data = _snapshot(department, data.keys())
         try:
             async with self._db.begin_nested():
@@ -362,6 +394,12 @@ class DepartmentService:
         return department
 
 
+# Upper bound on how far up the reporting chain a loop check will walk. Real
+# org charts are a handful of levels deep; this only exists so bad data can
+# never make the walk run forever.
+_MAX_HIERARCHY_DEPTH = 100
+
+
 class PositionService:
     """Business logic for creating, reading, updating, and deleting positions."""
 
@@ -370,6 +408,67 @@ class PositionService:
         self._db = db
         self._repo = PositionRepository(db)
         self._audit = AuditService(db)
+    
+    async def _validate_reports_to(
+        self, reports_to_position_id: uuid.UUID, position_id: uuid.UUID | None = None
+    ) -> None:
+        """Check the position a position is to report to is a valid parent.
+
+        Three rules, in order:
+
+        1. The parent must exist in this organization. Row-level security
+           makes another organization's position, and a soft-deleted one,
+           simply not found; this is what stops a position pointing into
+           another tenant's data, since the database's foreign key alone
+           would accept that id.
+        2. A position cannot report to itself.
+        3. It must not create a loop (A reports to B, B reports to A, or any
+           longer ring). Found by walking up from the proposed parent through
+           its own ``reports_to_position_id`` chain: if the position being
+           edited turns up as an ancestor, it would become its own boss.
+
+        Rules 2 and 3 only apply to an *existing* position (``position_id``
+        given). A position being created has no id yet, so nothing can
+        already point at it. Any position may report to one in another
+        department (the CTO in Technology reports to the CEO in Executive).
+
+        Args:
+            reports_to_position_id: Position the new or edited one should report to.
+            position_id: The position being edited, or ``None`` when creating.
+
+        Raises:
+            PositionNotFoundException: If no non-deleted position with that
+                id exists in the caller's org.
+            ValidationException: If the position would report to itself or
+                create a reporting loop.
+        """
+        parent = await self._repo.get_position_by_id(reports_to_position_id)
+        if parent is None:
+            raise PositionNotFoundException(
+                message="The position it should report to was not found"
+            )
+        if position_id is None:
+            return
+        if reports_to_position_id == position_id:
+            raise ValidationException(message="A position cannot report to itself")
+
+        # Walk up the existing chain. `visited` and the depth cap mean a ring
+        # that already exists in old data (not involving this position) ends
+        # the walk instead of hanging it.
+        visited: set[uuid.UUID] = set()
+        current = parent
+        for _ in range(_MAX_HIERARCHY_DEPTH):
+            next_id = current.reports_to_position_id
+            if next_id is None or current.id in visited:
+                return
+            if next_id == position_id:
+                raise ValidationException(
+                    message="That would create a reporting loop: the position would end up reporting to itself"
+                )
+            visited.add(current.id)
+            current = await self._repo.get_position_by_id(next_id)
+            if current is None:
+                return
 
     async def create_position(
         self, organization_id: uuid.UUID, actor_user_id: uuid.UUID, data: dict
@@ -383,7 +482,13 @@ class PositionService:
 
         Returns:
             The newly created ``Position``.
+
+        Raises:
+            PositionNotFoundException: If ``reports_to_position_id`` is not a
+                position of the caller's org.
         """
+        if data.get("reports_to_position_id") is not None:
+            await self._validate_reports_to(data["reports_to_position_id"])
         position = await self._repo.create_position({**data, "organization_id": organization_id})
         await self._audit.log_action(
             organization_id=organization_id,
@@ -443,9 +548,14 @@ class PositionService:
 
         Raises:
             PositionNotFoundException: If no non-deleted position with that
-                id exists in the caller's org.
+                id exists in the caller's org, or ``reports_to_position_id``
+                is not a position of the caller's org.
+            ValidationException: If ``reports_to_position_id`` would make the
+                position report to itself or create a reporting loop.
         """
         position = await self.get_position_by_id(position_id)
+        if data.get("reports_to_position_id") is not None:
+            await self._validate_reports_to(data["reports_to_position_id"], position_id)
         old_data = _snapshot(position, data.keys())
         position = await self._repo.update_position(position, data)
         await self._audit.log_action(
@@ -518,9 +628,67 @@ class EmployeeService:
         """Initialize the service with a session and its collaborators."""
         self._db = db
         self._repo = EmployeeRepository(db)
+        self._department_repo = DepartmentRepository(db)
         self._audit = AuditService(db)
+        self._notifications = NotificationService(db)
         self._membership_service = MembershipService(db)
-    
+
+    async def _clear_department_headships(
+        self, employee: Employee, actor_user_id: uuid.UUID
+    ) -> list[Department]:
+        """Un-head every department an offboarded employee was heading.
+
+        A department head must be an active employee, so offboarding clears
+        the field on each department they headed, in the same transaction,
+        audit-logged per department, and tells the HR administrators so a new
+        head can be chosen. Reinstating does not restore it: HR chooses again
+        (08_DECISIONS.md 2026-10-06).
+
+        Args:
+            employee: The employee just set inactive.
+            actor_user_id: User performing the offboarding, for the audit log.
+
+        Returns:
+            The departments that lost their head (possibly none).
+        """
+        departments = await self._department_repo.list_departments_headed_by(employee.id)
+        if not departments:
+            return []
+
+        for department in departments:
+            await self._department_repo.update_department(department, {"head_employee_id": None})
+            await self._audit.log_action(
+                organization_id=employee.organization_id,
+                actor_user_id=actor_user_id,
+                action="update",
+                entity_type="department",
+                entity_id=department.id,
+                changes={
+                    "old": {"head_employee_id": str(employee.id)},
+                    "new": {"head_employee_id": None},
+                    "reason": "the department head was offboarded",
+                },
+            )
+
+        recipients = await self._membership_service.list_active_user_ids_by_role(
+            employee.organization_id, MembershipRole.HR_ADMINISTRATOR.value
+        )
+        if recipients:
+            names = ", ".join(department.name for department in departments)
+            await self._notifications.notify(
+                organization_id=employee.organization_id,
+                recipient_user_ids=recipients,
+                category=NotificationCategory.SYSTEM,
+                title="A department needs a new head",
+                body=(
+                    f"{employee.first_name} {employee.last_name} was offboarded and no longer "
+                    f"heads: {names}. Choose a new department head."
+                ),
+                link_type="department",
+                link_id=departments[0].id if len(departments) == 1 else None,
+            )
+        return departments
+
     async def _validate_user_link(self, organization_id: uuid.UUID, user_id: uuid.UUID) -> None:
         """Check a user can be linked to an employee in this organization.
 
@@ -867,6 +1035,8 @@ class EmployeeService:
                 )
                 membership_deactivated = True
 
+        cleared_departments = await self._clear_department_headships(employee, caller.user_id)
+
         direct_reports = await self._repo.count_direct_reports(employee_id)
         await self._audit.log_action(
             organization_id=employee.organization_id,
@@ -879,6 +1049,7 @@ class EmployeeService:
                 "new": {"status": employee.status},
                 "membership_deactivated": membership_deactivated,
                 "direct_reports_at_time": direct_reports,
+                "departments_head_cleared": [str(d.id) for d in cleared_departments],
             },
         )
         return employee

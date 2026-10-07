@@ -200,6 +200,29 @@ class DepartmentRepository:
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_departments_headed_by(self, employee_id: uuid.UUID) -> list[Department]:
+        """List the non-deleted departments an employee currently heads, by name.
+
+        RLS already restricts this to the caller's current org. Used when an
+        employee is offboarded, to clear the head field on each of them.
+
+        Args:
+            employee_id: Employee to look up.
+
+        Returns:
+            The departments whose ``head_employee_id`` is this employee.
+        """
+        stmt = (
+            select(Department)
+            .where(
+                Department.head_employee_id == employee_id,
+                Department.deleted_at.is_(None),
+            )
+            .order_by(Department.name)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
     async def update_department(self, department: Department, data: dict) -> Department:
         """Apply a partial update. Caller (service layer) commits.
 
