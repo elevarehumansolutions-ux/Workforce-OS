@@ -107,7 +107,7 @@ function VerifyEmailContent() {
   // moment the person clicks the link in another tab, no manual refresh needed.
   async function checkStatus(): Promise<boolean> {
     try {
-      const me = await apiFetch<MeResponse>("/me", { method: "GET" });
+      const me = await apiFetch<MeResponse>("/auth/me", { method: "GET" });
       if (me.user.account_status === "verified") {
         if (pollRef.current) clearInterval(pollRef.current);
         if (typeof window !== "undefined") {

@@ -133,7 +133,7 @@ export default function ManagerDashboardPage() {
         return;
       }
       try {
-        const me = await apiFetch<MeResponse>("/me", { method: "GET" });
+        const me = await apiFetch<MeResponse>("/auth/me", { method: "GET" });
         if (cancelled) return;
         if (me.user.account_status !== "verified") {
           router.replace("/verify-email");

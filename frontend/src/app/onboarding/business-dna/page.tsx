@@ -89,7 +89,7 @@ export default function BusinessDnaPage() {
 
   useEffect(function () {
     if (!getAccessToken()) return;
-    apiFetch<MeResponse>("/me", { method: "GET" })
+    apiFetch<MeResponse>("/auth/me", { method: "GET" })
       .then(function (me) {
         if (me.user.account_status !== "verified") {
           router.replace("/verify-email");

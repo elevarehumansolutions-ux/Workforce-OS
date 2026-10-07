@@ -56,7 +56,7 @@ export default function OrganizationsPage() {
       router.replace("/login");
       return;
     }
-    apiFetch<MeResponse>("/me", { method: "GET" })
+    apiFetch<MeResponse>("/auth/me", { method: "GET" })
       .then(function (data) {
         setMe(data);
         if (typeof window !== "undefined" && !window.localStorage.getItem(ACTIVE_ORG_KEY) && data.memberships.length > 0) {
