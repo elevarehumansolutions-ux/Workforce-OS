@@ -880,4 +880,20 @@ Full task list in `09_PROGRESS.md` M4.
 
 **Kept as a later upgrade:** `departments.head_position_id` (the head follows the *position*, so a successor is automatically the head), consistent with how criticality attaches to positions, not people. Not chosen now because the model doesn't enforce one holder per position. Switching later is one migration; M10/M11 only ever ask "who is this department's head?", so nothing built on this is wasted.
 
-**Not built yet.** To do before M10 (M4 follow-up): migration, `PATCH /departments/{id}` accepts `head_employee_id` (validated: exists, active, same org) or a dedicated assign action, clearing on `offboard_employee`, HR notification, audit entry, `DepartmentResponse` returns it, tests, `04_DATABASE.md` Cluster 2. Frontend (Uche): a "Department head" picker on the department edit screen and the head shown in the department list; a Trello card is written when the backend lands (`CLAUDE.md`, "Frontend impact").
+**Built 2026-10-06 on branch `m4-followups`** (migration `34c5feaf5535`; 12 tests in `tests/organization/test_department_head.py`; the "no head, so alert HR" fallback is deliberately left for M10, where the alert is sent). What was listed as to-do: migration, `PATCH /departments/{id}` accepts `head_employee_id` (validated: exists, active, same org) or a dedicated assign action, clearing on `offboard_employee`, HR notification, audit entry, `DepartmentResponse` returns it, tests, `04_DATABASE.md` Cluster 2. Frontend (Uche): a "Department head" picker on the department edit screen and the head shown in the department list; a Trello card is written when the backend lands (`CLAUDE.md`, "Frontend impact").
+
+## 2026-10-07 — `positions.reports_to_position_id` is validated: same organization, not itself, no loops
+
+**Gap being closed:** the field was accepted on `POST|PATCH /positions` with no validation. A position could report to itself, two positions could form a ring, or one could point at another organization's position (the database's foreign key doesn't consult row-level security, so it accepts any existing id). Found 2026-10-04 while testing the Setup Organization page's mocked "Reporting Hierarchy".
+
+**Decision / what was built (`PositionService._validate_reports_to`):**
+1. **Parent must exist in this org** (404 `POSITION_NOT_FOUND`, message "The position it should report to was not found"). No separate "organization ids must match" comparison: the existing `get_position_by_id` is RLS-scoped and ignores deleted rows, so another org's position is simply not found; a comparison would be unreachable code.
+2. **A position cannot report to itself** (422). Only checkable on update: a new position has no id yet.
+3. **No loops** (422): walk up from the proposed parent through its own `reports_to_position_id`; if the position being edited appears, it would become its own boss. A visited set and a depth cap (`_MAX_HIERARCHY_DEPTH = 100`) mean an old ring elsewhere in the data ends the walk instead of hanging it.
+4. Runs only when `reports_to_position_id` is in the payload and not null, so `null` and unrelated edits are never revalidated. A parent in a different department is allowed.
+
+**Error codes:** 404 for a missing parent follows the existing pattern for ids inside a request body (department head, user link); self and loop are 422.
+
+**Accepted, not built:** two simultaneous requests (`A to B` and `B to A`) could each pass and together make a ring; closing that needs row locking, out of proportion for HR editing an org chart. A `GET /positions/hierarchy` tree endpoint (the frontend can build the tree from `GET /positions`).
+
+**Impact:** `05_API_DESIGN.md`, `09_PROGRESS.md` (M4). Tests: `tests/organization/test_position_hierarchy.py` (8). Full suite 520 passing.

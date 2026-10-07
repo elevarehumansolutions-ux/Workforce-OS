@@ -188,6 +188,21 @@ class MembershipService:
             for employee_id, expires_at in expiries.items()
         }
 
+    async def list_active_user_ids_by_role(self, organization_id: uuid.UUID, role: str) -> list[uuid.UUID]:
+        """List the users holding one role in an organization, excluding deactivated ones.
+
+        For notifying everyone in a role (e.g. every HR administrator)
+        without the caller needing to know the deactivation rule.
+
+        Args:
+            organization_id: Organization to look in.
+            role: The membership role to match.
+
+        Returns:
+            The matching users' ids.
+        """
+        return await self._repo.list_active_user_ids_by_role(organization_id, role)
+
     async def get_membership_by_email(self, email: str, organization_id) -> Membership | None:
         """Get the membership an email's user holds in one organization.
 

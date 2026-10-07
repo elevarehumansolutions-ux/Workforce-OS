@@ -62,11 +62,19 @@ class DepartmentCreateRequest(BaseModel):
 
 
 class DepartmentUpdateRequest(BaseModel):
-    """Request body for partially updating a department. All fields optional."""
+    """Request body for partially updating a department. All fields optional.
+
+    ``head_employee_id`` names the department's head (an active employee of
+    the same organization). Send ``null`` to clear it; leave it out to keep
+    it. It is not on the create request on purpose: during onboarding no
+    employee exists yet, so the head is set afterwards (08_DECISIONS.md
+    2026-10-06).
+    """
 
     name: str | None = None
     is_critical: bool | None = None
     revenue_allocation_percentage: decimal.Decimal | None = None
+    head_employee_id: uuid.UUID | None = None
 
     def has_updates(self) -> bool:
         """Return whether any field was explicitly set on this request."""
@@ -83,6 +91,7 @@ class DepartmentResponse(BaseModel):
     name: str
     is_critical: bool
     revenue_allocation_percentage: decimal.Decimal | None
+    head_employee_id: uuid.UUID | None
     deleted_at: datetime | None
     created_at: datetime
     updated_at: datetime

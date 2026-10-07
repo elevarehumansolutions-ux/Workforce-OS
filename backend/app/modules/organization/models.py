@@ -105,6 +105,14 @@ class Department(BaseModel):
     the same name count as the same name) — enforced by a partial unique
     index, so it holds under concurrent requests too. A deleted
     department's name can be reused. See 08_DECISIONS.md 2026-09-24.
+
+    ``head_employee_id`` names the one employee HR has chosen to head the
+    department; null until HR names one (the head is picked after employees
+    exist, so it is normally empty during onboarding). It is deliberately a
+    plain column with no ORM relationship: "which departments does this
+    employee head?" is an ordinary query, and a two-way relationship would
+    only add lazy-load risk under the async session. See 08_DECISIONS.md
+    2026-10-06.
     """
 
     __tablename__ = "departments"
@@ -125,6 +133,14 @@ class Department(BaseModel):
         nullable=False,
         index=True,
         doc="Organization this department belongs to"
+    )
+
+    head_employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("employees.id"),
+        nullable=True,
+        index=True,
+        doc="Employee who heads this department; null until HR names one"
     )
 
     name: Mapped[str] = mapped_column(
