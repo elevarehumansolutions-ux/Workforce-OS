@@ -44,11 +44,13 @@ class TaskCreateRequest(BaseModel):
     @field_validator("title")
     @classmethod
     def validate_title(cls, value: str | None) -> str:
+        """Trim the title and refuse an empty or null one."""
         return _clean_title(value)
 
     @field_validator("due_at")
     @classmethod
     def validate_due_at(cls, value: datetime | None) -> datetime | None:
+        """Require the deadline to carry a timezone."""
         return _require_timezone(value)
 
 
@@ -73,16 +75,55 @@ class TaskUpdateRequest(BaseModel):
     @field_validator("title")
     @classmethod
     def validate_title(cls, value: str | None) -> str:
+        """Trim the title and refuse an empty or null one."""
         return _clean_title(value)
 
     @field_validator("due_at")
     @classmethod
     def validate_due_at(cls, value: datetime | None) -> datetime | None:
+        """Require the deadline to carry a timezone."""
         return _require_timezone(value)
 
     def has_updates(self) -> bool:
         """Return whether any field was explicitly set on this request."""
         return self.model_dump(exclude_unset=True) != {}
+
+
+class TaskCancelRequest(BaseModel):
+    """Request body for cancelling a task. A reason is always required."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        """Trim the reason and refuse an empty one."""
+        value = value.strip()
+        if not value:
+            raise ValueError("reason cannot be empty")
+        return value
+
+
+class TaskReassignRequest(BaseModel):
+    """Request body for (re)assigning a task.
+
+    Both fields are required: every reassignment needs a new deadline so the
+    new assignee gets a fair clock (08_DECISIONS.md 2026-10-07). The deadline
+    must also be in the future, which the service checks.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    assigned_to_employee_id: uuid.UUID
+    due_at: datetime
+
+    @field_validator("due_at")
+    @classmethod
+    def validate_due_at(cls, value: datetime) -> datetime:
+        """Require the new deadline to carry a timezone."""
+        return _require_timezone(value)
 
 
 class TaskResponse(BaseModel):
@@ -101,6 +142,7 @@ class TaskResponse(BaseModel):
     description: str | None
     due_at: datetime | None
     completed_at: datetime | None
+    cancel_reason: str | None
     status: TaskStatus
     created_by_user_id: uuid.UUID | None
     deleted_at: datetime | None

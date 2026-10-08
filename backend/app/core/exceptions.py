@@ -673,6 +673,20 @@ class TaskNotOpenException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class TaskChangedException(PlatformError):
+    """Raised when a task was reassigned by someone else between reading and writing it."""
+
+    def __init__(
+        self,
+        message: str = "This task was just changed by someone else. Refresh and try again",
+        code: str = "TASK_CHANGED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class MembershipNotDeactivatedException(PlatformError):
     """Raised when reactivating a membership that is not deactivated."""
 

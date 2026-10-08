@@ -182,3 +182,79 @@ class TaskRepository:
         result = await self._db.execute(stmt)
         await self._db.flush()
         return result.scalar_one_or_none()
+
+    async def cancel_task(self, task_id: uuid.UUID, reason: str) -> Task | None:
+        """Atomically cancel a task, but only if it is still open or in progress.
+
+        Same shape as :meth:`complete_task`: the "still open?" check is part
+        of the UPDATE, so a cancel racing a completion (or another cancel)
+        has exactly one winner.
+
+        Args:
+            task_id: Id of the task to cancel.
+            reason: Why it is being cancelled.
+
+        Returns:
+            The cancelled ``Task``, or ``None`` if nothing changed (it was
+            already completed or cancelled, or doesn't exist).
+        """
+        stmt = (
+            update(Task)
+            .where(
+                Task.id == task_id,
+                Task.deleted_at.is_(None),
+                Task.status.in_(_OPEN_STATUSES),
+            )
+            .values(status=TaskStatus.CANCELLED.value, cancel_reason=reason)
+            .returning(Task)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return result.scalar_one_or_none()
+
+    async def reassign_task(
+        self,
+        task_id: uuid.UUID,
+        expected_assignee_id: uuid.UUID | None,
+        new_assignee_id: uuid.UUID,
+        due_at: datetime,
+    ) -> Task | None:
+        """Atomically hand a task to someone else with a fresh deadline.
+
+        The UPDATE only matches if the task is still open or in progress
+        *and still assigned to whoever the caller saw*. Two simultaneous
+        reassignments therefore can't both succeed, and the "old assignee"
+        the service writes to the audit log is guaranteed to be true. The
+        status goes back to ``open``: the new assignee hasn't started it.
+
+        Args:
+            task_id: Id of the task.
+            expected_assignee_id: The assignee the caller read (``None`` for
+                an unassigned task).
+            new_assignee_id: The new assignee.
+            due_at: The new deadline.
+
+        Returns:
+            The updated ``Task``, or ``None`` if nothing matched (it closed,
+            or somebody else reassigned it first).
+        """
+        stmt = (
+            update(Task)
+            .where(
+                Task.id == task_id,
+                Task.deleted_at.is_(None),
+                Task.status.in_(_OPEN_STATUSES),
+                Task.assigned_to_employee_id.is_not_distinct_from(expected_assignee_id),
+            )
+            .values(
+                assigned_to_employee_id=new_assignee_id,
+                due_at=due_at,
+                status=TaskStatus.OPEN.value,
+            )
+            .returning(Task)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return result.scalar_one_or_none()

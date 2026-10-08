@@ -33,7 +33,8 @@ class Task(BaseModel):
     progress and ``due_at`` in the past), as is lateness (``completed_at``
     after ``due_at``), both from the timestamps already on the row. A
     cancelled task counts neither as completed nor as late. ``completed_at``
-    is set exactly when the status is ``completed``, enforced by a CHECK.
+    is set exactly when the status is ``completed``, and ``cancel_reason``
+    exactly when it is ``cancelled``, each enforced by a CHECK.
 
     ``workflow_instance_id`` and ``workflow_step_id`` are plain nullable
     columns with **no foreign key** for now: the tables they point at are
@@ -55,6 +56,11 @@ class Task(BaseModel):
             "(status = 'completed' AND completed_at IS NOT NULL)"
             " OR (status <> 'completed' AND completed_at IS NULL)",
             name="check_task_completed_at_matches_status",
+        ),
+        CheckConstraint(
+            "(status = 'cancelled' AND cancel_reason IS NOT NULL)"
+            " OR (status <> 'cancelled' AND cancel_reason IS NULL)",
+            name="check_task_cancel_reason_matches_status",
         ),
         Index("idx_tasks_assignee_status", "organization_id", "assigned_to_employee_id", "status"),
         Index("idx_tasks_department_status", "organization_id", "department_id", "status"),
@@ -122,6 +128,12 @@ class Task(BaseModel):
         DateTime(timezone=True),
         nullable=True,
         doc="When it was completed; set exactly when status is 'completed'",
+    )
+
+    cancel_reason: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        doc="Why it was cancelled; set exactly when status is 'cancelled'",
     )
 
     status: Mapped[TaskStatus] = mapped_column(

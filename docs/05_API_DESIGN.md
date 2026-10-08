@@ -151,9 +151,14 @@ Nothing below this line exists as a real endpoint today — every path here 404s
 - `PATCH /tasks/{id}` — `title`, `description`, `due_at`, `kpi_id` only; any other field (including `status`, `assigned_to_employee_id`, `department_id`) is rejected with 422. At least one field required. Allowed to HR, the department head and the creator; the assignee gets 403. 409 `TASK_NOT_OPEN` if the task is completed or cancelled. Changing `due_at` is audit-logged with old and new values.
 - `POST /tasks/{id}/complete` — allowed to the assignee, the department head and HR (403 for anyone else who can see it). Not idempotent: a second call is 409 `TASK_NOT_OPEN` and the first `completed_at` stands.
 
-`TaskResponse`: `id, organization_id, workflow_instance_id, workflow_step_id, department_id, kpi_id, assigned_to_employee_id, title, description, due_at, completed_at, status, created_by_user_id, created_at, updated_at`. There is **no** `overdue` field yet (slice C).
+**Built (slice B, 2026-10-08):**
 
-**Not built yet:** `POST /tasks/{id}/cancel` and `/reassign` (slice B), the `overdue=true` filter and clock-in gate (C), overdue notifications (D), `block`/`unblock` (E), the `task_count` KPI read (F).
+- `POST /tasks/{id}/cancel` — body `{reason}` (required, trimmed, 1-500 chars; unknown fields rejected). Allowed to HR, the department head and the task's creator, **not the assignee** (403 `PERMISSION_DENIED`). Returns the task with `status: "cancelled"` and `cancel_reason`. Final: a cancelled task can't be cancelled again, completed, edited or reassigned (all 409 `TASK_NOT_OPEN`), and a completed task can't be cancelled (409 `TASK_NOT_OPEN`). The assignee is notified "Task cancelled: <title>" (unless they cancelled it themselves).
+- `POST /tasks/{id}/reassign` — body `{assigned_to_employee_id, due_at}`, **both required** every time; `due_at` must carry a timezone and be in the future. Also the way to assign an unassigned task. Allowed to HR, the department head, and the creator only if they work in the task's department (otherwise 403). Returns the task with the new assignee and deadline and `status: "open"`. Errors: 422 `VALIDATION_FAILED` (deadline in the past / without timezone / missing, the person already has the task, the person is offboarded), 404 `EMPLOYEE_NOT_FOUND`, 409 `TASK_NOT_OPEN` (closed), 409 `TASK_CHANGED` (someone else reassigned it at the same moment: reload the task and retry). The new assignee gets "New task: <title>", the previous one "Task reassigned: <title>".
+
+`TaskResponse`: `id, organization_id, workflow_instance_id, workflow_step_id, department_id, kpi_id, assigned_to_employee_id, title, description, due_at, completed_at, cancel_reason, status, created_by_user_id, deleted_at, created_at, updated_at`. There is **no** `overdue` field yet (slice C).
+
+**Not built yet:** the `overdue=true` filter and clock-in gate (C), overdue notifications (D), `block`/`unblock` (E), the `task_count` KPI read (F), any way to set `in_progress`.
 
 ### Workflow (M11+)
 

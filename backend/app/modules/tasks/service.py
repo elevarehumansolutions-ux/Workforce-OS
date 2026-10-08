@@ -20,6 +20,7 @@ from app.core.exceptions import (
     EmployeeNotFoundException,
     KPINotFoundException,
     PermissionDeniedException,
+    TaskChangedException,
     TaskNotFoundException,
     TaskNotOpenException,
     ValidationException,
@@ -80,6 +81,22 @@ class _CallerContext:
             self.is_hr
             or self.heads(task.department_id)
             or task.created_by_user_id == self.membership.user_id
+        )
+
+    def can_reassign(self, task: Task) -> bool:
+        """Whether the caller may hand ``task`` to someone else.
+
+        HR, the department's head, or the task's creator *if they work in that
+        department*. A creator from another department can't choose the
+        individual, here any more than when creating (the head delegates).
+        """
+        return (
+            self.is_hr
+            or self.heads(task.department_id)
+            or (
+                task.created_by_user_id == self.membership.user_id
+                and self.own_department_id == task.department_id
+            )
         )
 
     def scope(self) -> TaskScope:
@@ -384,6 +401,8 @@ class TaskService:
                 "Only the assignee, the department head or HR can complete a task"
             )
 
+        # Read before the UPDATE: it refreshes this same object in place.
+        old_status = task.status
         completed = await self._repo.complete_task(task.id, datetime.now(UTC))
         if completed is None:
             raise TaskNotOpenException()
@@ -394,7 +413,7 @@ class TaskService:
             entity_type="task",
             entity_id=completed.id,
             changes={
-                "old": {"status": task.status},
+                "old": {"status": old_status},
                 "new": {
                     "status": completed.status,
                     "completed_at": jsonable_encoder(completed.completed_at),
@@ -402,3 +421,162 @@ class TaskService:
             },
         )
         return completed
+
+    async def cancel_task(self, caller: Membership, task_id: uuid.UUID, reason: str) -> Task:
+        """Cancel a task that is no longer needed.
+
+        Allowed to HR, the department's head and the task's creator, **not**
+        the assignee (they complete or ask; they don't withdraw work). Final:
+        a cancelled task counts neither as completed nor as late. A completed
+        task can't be cancelled. The reason is stored on the task and the
+        assignee, if someone else, is told.
+
+        Raises:
+            TaskNotFoundException: If it doesn't exist or is outside the caller's view.
+            PermissionDeniedException: If the caller may see but not cancel it.
+            TaskNotOpenException: If it is already completed or cancelled.
+        """
+        ctx = await self._context(caller)
+        task = await self._load_visible(task_id, ctx)
+        if not ctx.can_manage(task):
+            raise PermissionDeniedException(
+                "Only HR, the department head or the task's creator can cancel a task"
+            )
+
+        # Read before the UPDATE: it refreshes this same object in place.
+        old_status = task.status
+        cancelled = await self._repo.cancel_task(task.id, reason)
+        if cancelled is None:
+            raise TaskNotOpenException()
+        await self._audit.log_action(
+            organization_id=cancelled.organization_id,
+            actor_user_id=caller.user_id,
+            action="cancel",
+            entity_type="task",
+            entity_id=cancelled.id,
+            changes={
+                "old": {"status": old_status},
+                "new": {"status": cancelled.status, "cancel_reason": reason},
+            },
+        )
+        await self._notify_employee(
+            cancelled,
+            cancelled.assigned_to_employee_id,
+            caller,
+            title=f"Task cancelled: {cancelled.title}",
+            body=f"This task was cancelled. Reason: {reason}",
+        )
+        return cancelled
+
+    async def reassign_task(
+        self,
+        caller: Membership,
+        task_id: uuid.UUID,
+        assigned_to_employee_id: uuid.UUID,
+        due_at: datetime,
+    ) -> Task:
+        """Give a task to someone (else), with a new deadline.
+
+        Also the way to assign a task that landed unassigned. Every
+        reassignment needs a new future ``due_at`` so the new assignee gets a
+        fair clock rather than inheriting the previous one's lateness
+        (08_DECISIONS.md 2026-10-07). The status goes back to ``open``. Allowed
+        to HR, the department's head, and the creator when they work in the
+        task's department. The new assignee is told, and so is the previous one.
+
+        Raises:
+            TaskNotFoundException: If it doesn't exist or is outside the caller's view.
+            PermissionDeniedException: If the caller may see but not reassign it.
+            TaskNotOpenException: If it is already completed or cancelled.
+            ValidationException: If ``due_at`` isn't in the future, the assignee
+                is already the assignee, or has been offboarded.
+            EmployeeNotFoundException: If the new assignee isn't an employee here.
+            TaskChangedException: If somebody else reassigned it first.
+        """
+        ctx = await self._context(caller)
+        task = await self._load_visible(task_id, ctx)
+        if not ctx.can_reassign(task):
+            raise PermissionDeniedException(
+                "Only HR, the department head or the task's creator in that department "
+                "can reassign a task"
+            )
+        if task.status not in _OPEN_STATUSES:
+            raise TaskNotOpenException()
+        if due_at <= datetime.now(UTC):
+            raise ValidationException(message="A reassigned task needs a new deadline in the future")
+        if task.assigned_to_employee_id == assigned_to_employee_id:
+            raise ValidationException(
+                message="That person already has this task. To move the deadline, edit the task"
+            )
+        await self._validate_assignee(assigned_to_employee_id)
+
+        previous_assignee_id = task.assigned_to_employee_id
+        old_due_at = task.due_at
+        old_status = task.status
+        updated = await self._repo.reassign_task(
+            task.id, previous_assignee_id, assigned_to_employee_id, due_at
+        )
+        if updated is None:
+            # Open when we read it, so it was reassigned, completed or cancelled in between.
+            raise TaskChangedException()
+        await self._audit.log_action(
+            organization_id=updated.organization_id,
+            actor_user_id=caller.user_id,
+            action="reassign",
+            entity_type="task",
+            entity_id=updated.id,
+            changes={
+                "old": jsonable_encoder(
+                    {
+                        "assigned_to_employee_id": previous_assignee_id,
+                        "due_at": old_due_at,
+                        "status": old_status,
+                    }
+                ),
+                "new": jsonable_encoder(
+                    {
+                        "assigned_to_employee_id": updated.assigned_to_employee_id,
+                        "due_at": updated.due_at,
+                        "status": updated.status,
+                    }
+                ),
+            },
+        )
+        await self._notify_employee(
+            updated,
+            updated.assigned_to_employee_id,
+            caller,
+            title=f"New task: {updated.title}",
+            body="A task has been assigned to you with a new deadline.",
+        )
+        await self._notify_employee(
+            updated,
+            previous_assignee_id,
+            caller,
+            title=f"Task reassigned: {updated.title}",
+            body="This task has been given to someone else and is no longer yours.",
+        )
+        return updated
+
+    async def _notify_employee(
+        self, task: Task, employee_id: uuid.UUID | None, caller: Membership, title: str, body: str
+    ) -> None:
+        """Send one in-app notification about ``task`` to an employee's login.
+
+        Skipped when there is no employee, the employee has no login yet, or
+        the employee is the caller (nobody is notified about their own action).
+        """
+        if employee_id is None:
+            return
+        employee = await self._employee_repo.get_employee_by_id(employee_id)
+        if employee is None or employee.user_id in (None, caller.user_id):
+            return
+        await self._notifications.notify(
+            organization_id=task.organization_id,
+            recipient_user_ids=[employee.user_id],
+            category=NotificationCategory.TASK,
+            title=title,
+            body=body,
+            link_type="task",
+            link_id=task.id,
+        )

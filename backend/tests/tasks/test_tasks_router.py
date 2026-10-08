@@ -245,6 +245,9 @@ async def test_completing_a_task(client, monkeypatch):
     assert edit_after.status_code == 409
     audit = await client.get(AUDIT, params={"entity_type": "task", "entity_id": mine}, headers=w.hr)
     assert {"create", "complete"} <= {e["action"] for e in audit.json()["data"]}
+    complete_entry = next(e for e in audit.json()["data"] if e["action"] == "complete")
+    assert complete_entry["changes"]["old"]["status"] == "open"
+    assert complete_entry["changes"]["new"]["status"] == "completed"
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 """FastAPI routes for the Task module.
 
-Create, list, read, edit and complete tasks. Any authenticated member can
+Create, list, read, edit, complete, cancel and reassign tasks. Any authenticated member can
 call these; what each caller may actually do or see is decided in
 ``TaskService`` (HR, the ``manager`` role and department heads create; an
 assignee sees and completes their own; HR and executives see everything).
@@ -17,7 +17,13 @@ from app.core.schemas import PaginationResponse
 from app.modules.tenancy_identity.models import Membership
 
 from .enums import TaskStatus
-from .schemas import TaskCreateRequest, TaskResponse, TaskUpdateRequest
+from .schemas import (
+    TaskCancelRequest,
+    TaskCreateRequest,
+    TaskReassignRequest,
+    TaskResponse,
+    TaskUpdateRequest,
+)
 from .service import TaskService
 
 router = APIRouter()
@@ -178,5 +184,76 @@ async def complete_task(
         TaskNotOpenException: If it is already completed or cancelled (409).
     """
     task = await TaskService(db).complete_task(caller, task_id)
+    await db.commit()
+    return TaskResponse.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/cancel", status_code=200)
+async def cancel_task(
+    task_id: uuid.UUID,
+    data: TaskCancelRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskResponse:
+    """Cancel a task that is no longer needed.
+
+    Allowed to HR, the department's head and the task's creator, not the
+    assignee. A reason is required. Final: a cancelled task counts as
+    neither completed nor late, and a completed task can't be cancelled.
+
+    Args:
+        task_id: Id of the task.
+        data: The reason (required, up to 500 characters).
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The cancelled task, with ``cancel_reason`` set.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+        PermissionDeniedException: If the caller may see but not cancel it (403).
+        TaskNotOpenException: If it is already completed or cancelled (409).
+    """
+    task = await TaskService(db).cancel_task(caller, task_id, data.reason)
+    await db.commit()
+    return TaskResponse.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/reassign", status_code=200)
+async def reassign_task(
+    task_id: uuid.UUID,
+    data: TaskReassignRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskResponse:
+    """Give a task to a (different) employee, with a new deadline.
+
+    Also how an unassigned task gets its first assignee. Both the new
+    assignee and a new future ``due_at`` are required, every time. The status
+    goes back to ``open``. Allowed to HR, the department's head, and the
+    creator when they work in the task's department.
+
+    Args:
+        task_id: Id of the task.
+        data: The new assignee and the new deadline.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The reassigned task.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+        PermissionDeniedException: If the caller may see but not reassign it (403).
+        EmployeeNotFoundException: If the new assignee isn't an employee here (404).
+        TaskNotOpenException: If it is already completed or cancelled (409).
+        TaskChangedException: If somebody else reassigned it at the same moment (409).
+        ValidationException: If ``due_at`` isn't in the future, the person already
+            has the task, or has been offboarded (422).
+    """
+    task = await TaskService(db).reassign_task(
+        caller, task_id, data.assigned_to_employee_id, data.due_at
+    )
     await db.commit()
     return TaskResponse.model_validate(task)

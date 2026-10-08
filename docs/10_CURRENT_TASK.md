@@ -1,23 +1,17 @@
 # Current Task
 
-**M10 — Task**, slice B onward (see `09_PROGRESS.md` M10 and `08_DECISIONS.md` 2026-10-07).
+**M10 — Task**, slice C onward (see `09_PROGRESS.md` M10 and `08_DECISIONS.md` 2026-10-07 and 2026-10-08).
 
-Slice A (core tasks: create, list, read, edit, complete) is built and tested on
-branch `m10-tasks`. See `09_PROGRESS.md` M10 ("SLICE A BUILT") and
-`05_API_DESIGN.md` (### Task (M10)) for the exact contract, and
+Slices A (create, list, read, edit, complete) and B (cancel, reassign) are built and
+tested on branch `m10-tasks`. See `09_PROGRESS.md` M10 ("SLICE A BUILT", "SLICE B BUILT")
+and `05_API_DESIGN.md` (### Task (M10)) for the exact contract, and
 `docs/SESSION_HANDOFF.md` for the state of the branch (commit/PR status).
 
-## Remaining slices, in order
+**Codebase rule learned in slice B:** anything needed from *before* an atomic
+`UPDATE ... RETURNING` (old status, old assignee) must be read before it, because
+`populate_existing` refreshes the same ORM object in place.
 
-**B. Cancel and reassign** (decided 2026-10-07):
-- `POST /tasks/{id}/cancel`: reason required; allowed to the creator, the department head
-  and HR, **not** the assignee; final; counts as neither completed nor late; a completed
-  task cannot be cancelled (409 `TASK_NOT_OPEN`). Audit-logged. Needs a place to store the
-  reason (a `cancel_reason` column or the audit entry; decide when building, then update
-  `04_DATABASE.md`).
-- `POST /tasks/{id}/reassign`: its own endpoint; **a new future `due_at` is always
-  required**; the new assignee must be an active employee; notify old and new assignee;
-  audit-logged with old and new assignee and due dates.
+## Remaining slices, in order
 
 **C. Clock-in gate and derived overdue.** An "is this employee clocked in?" method on
 `AttendanceService` (only the repository's `get_open_record` exists today; go through the
@@ -38,7 +32,8 @@ department-head decision). Must be idempotent (a retry or late run must not noti
 
 1. Is `in_progress` a separate action (`POST /tasks/{id}/start`) or just the first clock-in /
    unused for now? The status exists; nothing sets it.
-2. What happens to an open `task_block` when a task is cancelled or reassigned? (Slice B/E)
+2. What happens to an open `task_block` when a task is cancelled or reassigned? (Slice E:
+   cancel and reassign now exist and ignore blocks, since none exist yet.)
 3. Should an assignee have to belong to the task's department? Slice A only requires "active
    employee of the org". Decide with the user.
 4. The `manager` role's read scope was implemented as "its own department plus what it
