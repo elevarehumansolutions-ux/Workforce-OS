@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -23,6 +23,18 @@ const CASES: WorkflowCase[] = [
   { id: "CASE-004", caseName: "CASE-004", template: "Document Review", currentStep: "Step 1 of 3, Submit request form", handler: "Bola K.", status: "On Time", started: "Sep 01, 2026", completed: false },
   { id: "CASE-005", caseName: "CASE-005", template: "Expense Report", currentStep: "Step 4 of 6, Finance verification", handler: "Chidi O.", status: "Overdue", started: "Aug 20, 2026", completed: false },
 ];
+
+const SIDEBAR_HREFS: Record<string, string> = {
+  Dashboard: "/dashboard",
+  Employees: "/employees",
+  Attendance: "/attendance",
+  "Leave Management": "/leave",
+  Workflow: "/workflow/templates",
+  Tasks: "/tasks",
+  Payroll: "/payroll",
+  Reports: "/reports",
+  Settings: "/settings",
+};
 
 function SidebarNav() {
   const items = [
@@ -53,7 +65,7 @@ function SidebarNav() {
           return (
             <a
               key={item}
-              href="#"
+              href={SIDEBAR_HREFS[item] || "#"}
               className={
                 "rounded-lg px-3 py-2.5 text-sm " +
                 (isActive ? "bg-indigo-500 font-medium text-white" : "text-gray-400 hover:bg-white/5")
@@ -219,3 +231,4 @@ export default function WorkflowTrackerPage() {
     </div>
   );
 }
+

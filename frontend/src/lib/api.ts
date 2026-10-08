@@ -1,4 +1,4 @@
-﻿const ACCESS_TOKEN_KEY = "elevare_access_token";
+﻿﻿const ACCESS_TOKEN_KEY = "elevare_access_token";
 
 export interface FastApiValidationItem {
   loc: (string | number)[];
@@ -6,19 +6,49 @@ export interface FastApiValidationItem {
   type: string;
 }
 
+export interface ErrorDetailItem {
+  field: string;
+  message: string;
+}
+
 export interface ApiErrorBody {
+  // Plain FastAPI HTTPException responses (auth/login, request-validation
+  // errors) use this shape.
   detail?: string | FastApiValidationItem[];
+  // Our own PlatformError-raised business errors (backend/app/core/
+  // exceptions.py, handled in exception_handler.py) use this shape instead:
+  // {code, status, message, details}. `code` is the machine-readable
+  // upper-snake-case identifier (e.g. "EMPLOYEE_ALREADY_HAS_LOGIN",
+  // "MEMBERSHIP_DEACTIVATED") — several of these share an HTTP status code,
+  // so callers that need to tell them apart should branch on `code`, not
+  // just `status`.
+  code?: string;
+  message?: string;
+  details?: ErrorDetailItem[];
 }
 
 export class ApiError extends Error {
   status: number;
+  /** Machine-readable error code from a PlatformError response, e.g. "EMPLOYEE_ALREADY_HAS_LOGIN". Empty string if the backend didn't send one (plain FastAPI errors don't). */
+  code: string;
   fieldErrors: Record<string, string>;
 
   constructor(status: number, body: ApiErrorBody) {
     let message = "Request failed";
+    let code = "";
     const fieldErrors: Record<string, string> = {};
 
-    if (body && typeof body === "object" && body.detail) {
+    if (body && typeof body === "object" && typeof body.code === "string" && typeof body.message === "string") {
+      // {code, status, message, details} — our own PlatformError errors.
+      message = body.message;
+      code = body.code;
+      if (Array.isArray(body.details)) {
+        body.details.forEach(function (item) {
+          fieldErrors[item.field] = item.message;
+        });
+      }
+    } else if (body && typeof body === "object" && body.detail) {
+      // {detail} — plain FastAPI HTTPException / request-validation errors.
       if (typeof body.detail === "string") {
         message = body.detail;
       } else if (Array.isArray(body.detail)) {
@@ -37,6 +67,7 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
     this.fieldErrors = fieldErrors;
   }
 }
@@ -59,24 +90,49 @@ export function clearAccessToken(): void {
 interface ApiFetchOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   skipAuth?: boolean;
+  /** Internal — set when retrying once after a token refresh. Do not pass this in yourself. */
+  _isRetry?: boolean;
 }
 
-export async function apiFetch<T = unknown>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+interface TokenResponse {
+  access_token: string;
+  token_type: string;
+}
+
+// Access tokens are short-lived (15 minutes — see backend/app/core/config.py).
+// The refresh token itself lives in an httpOnly cookie set by /auth/login, so
+// it's never touched directly here; the browser sends it automatically
+// because every fetch below already uses credentials: "include". When a
+// request comes back 401, we try POST /auth/refresh once to mint a fresh
+// access token and replay the original call, instead of surfacing a bare
+// "Request failed" the moment 15 minutes have passed on any screen.
+let refreshPromise: Promise<string> | null = null;
+
+async function refreshAccessToken(): Promise<string> {
+  if (!refreshPromise) {
+    refreshPromise = doFetch<TokenResponse>("/auth/refresh", { method: "POST", skipAuth: true })
+      .then(function (data) {
+        setAccessToken(data.access_token);
+        return data.access_token;
+      })
+      .finally(function () {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+async function doFetch<T>(path: string, options: ApiFetchOptions): Promise<T> {
   const baseUrl = process.env.NEXT_PUBLIC_API_URL;
 
   if (!baseUrl) {
     throw new Error("NEXT_PUBLIC_API_URL is not set. Add it to .env.local.");
   }
 
-  const body = options.body;
-  const skipAuth = options.skipAuth;
-  const headers = options.headers;
-  const rest: RequestInit = {};
-  for (const key in options) {
-    if (key !== "body" && key !== "skipAuth" && key !== "headers") {
-      (rest as any)[key] = (options as any)[key];
-    }
-  }
+  // _isRetry rides along in ...rest below and is simply ignored by fetch()
+  // (it isn't a real RequestInit field) — it only exists so apiFetch can
+  // tell this call apart from a first attempt, see below.
+  const { body, skipAuth, headers, ...rest } = options;
 
   const finalHeaders: Record<string, string> = {
     "Content-Type": "application/json",
@@ -107,3 +163,37 @@ export async function apiFetch<T = unknown>(path: string, options: ApiFetchOptio
 
   return data as T;
 }
+
+export async function apiFetch<T = unknown>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+  try {
+    return await doFetch<T>(path, options);
+  } catch (err) {
+    const canRetryWithRefresh =
+      err instanceof ApiError &&
+      err.status === 401 &&
+      !options.skipAuth &&
+      !options._isRetry &&
+      path !== "/auth/refresh" &&
+      path !== "/auth/login";
+
+    if (!canRetryWithRefresh) {
+      throw err;
+    }
+
+    try {
+      await refreshAccessToken();
+    } catch {
+      // The refresh token is gone or expired too — there's no session left
+      // to recover. Clear the stale access token and send the person back
+      // to log in rather than leaving every screen stuck on "Request failed".
+      clearAccessToken();
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+      throw err;
+    }
+
+    return doFetch<T>(path, { ...options, _isRetry: true });
+  }
+}
+

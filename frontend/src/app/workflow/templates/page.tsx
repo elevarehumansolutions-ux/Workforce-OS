@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useRouter } from "next/navigation";
 
@@ -16,6 +16,18 @@ const TEMPLATES: Template[] = [
   { id: "expense-report", name: "Expense Report", steps: 6, lastEdited: "May 28, 2026" },
   { id: "document-review", name: "Document Review", steps: 3, lastEdited: "May 11, 2026" },
 ];
+
+const SIDEBAR_HREFS: Record<string, string> = {
+  Dashboard: "/dashboard",
+  Employees: "/employees",
+  Attendance: "/attendance",
+  "Leave Management": "/leave",
+  Workflow: "/workflow/templates",
+  Tasks: "/tasks",
+  Payroll: "/payroll",
+  Reports: "/reports",
+  Settings: "/settings",
+};
 
 function SidebarNav() {
   const items = [
@@ -46,7 +58,7 @@ function SidebarNav() {
           return (
             <a
               key={item}
-              href="#"
+              href={SIDEBAR_HREFS[item] || "#"}
               className={
                 "rounded-lg px-3 py-2.5 text-sm " +
                 (isActive ? "bg-indigo-500 font-medium text-white" : "text-gray-400 hover:bg-white/5")
@@ -150,3 +162,4 @@ export default function WorkflowTemplatesHubPage() {
     </div>
   );
 }
+

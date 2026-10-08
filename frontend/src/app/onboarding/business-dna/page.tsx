@@ -2,7 +2,7 @@
 
 import { useState, useEffect, FormEvent, KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, getAccessToken } from "@/lib/api";
+import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 
 interface BusinessDnaFormData {
   companyName: string;
@@ -11,8 +11,8 @@ interface BusinessDnaFormData {
   vision: string;
   mission: string;
   coreValues: string[];
-  minInvestment: string;
-  maxInvestment: string;
+  capitalInvestment: string;
+  timezone: string;
 }
 
 const ONBOARDING_STEPS = [
@@ -35,16 +35,61 @@ const INDUSTRY_OPTIONS = [
   "Other",
 ];
 
+const DEFAULT_TIMEZONE = "Africa/Lagos";
+
+interface IntlWithSupportedValuesOf {
+  supportedValuesOf?: (key: string) => string[];
+}
+
+function getTimezoneOptions(): string[] {
+  const intlWithSupportedValuesOf = Intl as unknown as IntlWithSupportedValuesOf;
+  if (typeof intlWithSupportedValuesOf.supportedValuesOf === "function") {
+    try {
+      return intlWithSupportedValuesOf.supportedValuesOf("timeZone");
+    } catch {
+      // fall through to the static fallback below
+    }
+  }
+  return [DEFAULT_TIMEZONE, "Africa/Nairobi", "Europe/London", "America/New_York", "Asia/Dubai"];
+}
+
 interface MeResponse {
   user: { account_status: string };
+}
+
+interface CoreValueResponse {
+  id: string;
+  value: string;
+}
+
+interface BusinessDnaResponse {
+  organization_name: string | null;
+  timezone: string;
+  industry: string | null;
+  products_services_description: string | null;
+  vision: string | null;
+  mission: string | null;
+  capital_investment_amount: string | number | null;
+  core_values: CoreValueResponse[];
 }
 
 export default function BusinessDnaPage() {
   const router = useRouter();
 
+  // Starts true on both the server render and the client's first render so
+  // they match exactly (getAccessToken() reads localStorage, which only
+  // exists in the browser — branching on it here would make the server and
+  // client disagree on what to render first and crash with a hydration
+  // error). It only flips after the effect below resolves, post-mount.
+  const [loadingExisting, setLoadingExisting] = useState<boolean>(true);
+  const [submitError, setSubmitError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [existingCoreValueIds, setExistingCoreValueIds] = useState<Record<string, string>>({});
+  const timezoneOptions = useState(getTimezoneOptions)[0];
+
   useEffect(function () {
     if (!getAccessToken()) return;
-    apiFetch<MeResponse>("/me", { method: "GET" })
+    apiFetch<MeResponse>("/auth/me", { method: "GET" })
       .then(function (me) {
         if (me.user.account_status !== "verified") {
           router.replace("/verify-email");
@@ -63,9 +108,51 @@ export default function BusinessDnaPage() {
     vision: "",
     mission: "",
     coreValues: [],
-    minInvestment: "",
-    maxInvestment: "",
+    capitalInvestment: "",
+    timezone: DEFAULT_TIMEZONE,
   });
+
+  // Pre-fill from the org's existing Business DNA profile, if one was already
+  // saved (e.g. the person left the wizard and came back). GET /business-dna
+  // 404s until the first PUT — that's expected for a brand-new org, so we
+  // treat it as "nothing saved yet" rather than an error.
+  useEffect(function () {
+    const token = getAccessToken();
+    const request: Promise<BusinessDnaResponse> = token
+      ? apiFetch<BusinessDnaResponse>("/business-dna", { method: "GET" })
+      : Promise.reject(new Error("not signed in"));
+    request
+      .then(function (data) {
+        const idByValue: Record<string, string> = {};
+        data.core_values.forEach(function (cv) {
+          idByValue[cv.value] = cv.id;
+        });
+        setExistingCoreValueIds(idByValue);
+        setFormData({
+          companyName: data.organization_name || "",
+          industry: data.industry || INDUSTRY_OPTIONS[0],
+          productsDescription: data.products_services_description || "",
+          vision: data.vision || "",
+          mission: data.mission || "",
+          coreValues: data.core_values.map(function (cv) {
+            return cv.value;
+          }),
+          capitalInvestment:
+            data.capital_investment_amount === null || data.capital_investment_amount === undefined
+              ? ""
+              : String(data.capital_investment_amount),
+          timezone: data.timezone || DEFAULT_TIMEZONE,
+        });
+      })
+      .catch(function () {
+        // 404 (no profile yet) or any other failure: start from the blank
+        // defaults above, with Africa/Lagos as the org's default timezone.
+      })
+      .finally(function () {
+        setLoadingExisting(false);
+      });
+  }, []);
+
   const [newValueInput, setNewValueInput] = useState("");
   const [showAddValue, setShowAddValue] = useState(false);
 
@@ -95,9 +182,44 @@ export default function BusinessDnaPage() {
     }
   }
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    router.push("/onboarding/org-setup");
+    setSubmitError("");
+    setSubmitting(true);
+    try {
+      const payload: Record<string, unknown> = {
+        organization_name: formData.companyName || null,
+        timezone: formData.timezone || null,
+        industry: formData.industry || null,
+        products_services_description: formData.productsDescription || null,
+        vision: formData.vision || null,
+        mission: formData.mission || null,
+        capital_investment_amount: formData.capitalInvestment
+          ? Number(formData.capitalInvestment)
+          : null,
+      };
+      await apiFetch("/business-dna", { method: "PUT", body: payload });
+
+      // Core values have their own CRUD endpoints — POST /business-dna/core-values
+      // {value} one at a time, there's no batch write on the upsert body. Only
+      // send the ones that aren't already saved from a previous visit.
+      const newValues = formData.coreValues.filter(function (v) {
+        return !existingCoreValueIds[v];
+      });
+      for (const value of newValues) {
+        await apiFetch("/business-dna/core-values", { method: "POST", body: { value } });
+      }
+
+      router.push("/onboarding/org-setup");
+    } catch (err) {
+      setSubmitError(
+        err instanceof ApiError
+          ? err.message
+          : "Couldn't save your Business DNA profile. Please try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -152,6 +274,18 @@ export default function BusinessDnaPage() {
           onSubmit={handleSubmit}
           className="mt-8 space-y-6 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-2xl backdrop-blur-sm"
         >
+          {loadingExisting ? (
+            <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-sm text-gray-400">
+              Loading your saved profile…
+            </div>
+          ) : null}
+
+          {submitError ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {submitError}
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <div>
               <label className="mb-2 block text-sm font-medium text-gray-200">Company Name</label>
@@ -253,54 +387,61 @@ export default function BusinessDnaPage() {
             </div>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-200">
-              Investment / Capital Value
-            </label>
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-              <div>
-                <span className="mb-1 block text-xs text-gray-500">Minimum</span>
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                    &#8358;
-                  </span>
-                  <input
-                    type="number"
-                    value={formData.minInvestment}
-                    onChange={(e) => setFormData({ ...formData, minInvestment: e.target.value })}
-                    placeholder="e.g. 50,000,000"
-                    className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] py-3 pl-8 pr-4 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-                  />
-                </div>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-200">
+                Capital Investment
+              </label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
+                  &#8358;
+                </span>
+                <input
+                  type="number"
+                  value={formData.capitalInvestment}
+                  onChange={(e) => setFormData({ ...formData, capitalInvestment: e.target.value })}
+                  placeholder="e.g. 50,000,000"
+                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] py-3 pl-8 pr-4 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                />
               </div>
-              <div>
-                <span className="mb-1 block text-xs text-gray-500">Maximum</span>
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                    &#8358;
-                  </span>
-                  <input
-                    type="number"
-                    value={formData.maxInvestment}
-                    onChange={(e) => setFormData({ ...formData, maxInvestment: e.target.value })}
-                    placeholder="e.g. 200,000,000"
-                    className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] py-3 pl-8 pr-4 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                Only visible to HR Administrators and Executives.
+              </p>
             </div>
-            <p className="mt-2 text-xs text-gray-500">
-              Used to size revenue targets for critical departments — a range is fine if you&apos;re not exact.
-            </p>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-200">
+                Organization Timezone
+              </label>
+              <select
+                value={formData.timezone}
+                onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
+                className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white outline-none focus:border-indigo-500"
+              >
+                {!timezoneOptions.includes(formData.timezone) ? (
+                  <option value={formData.timezone}>{formData.timezone}</option>
+                ) : null}
+                {timezoneOptions.map((tz) => (
+                  <option key={tz} value={tz}>
+                    {tz}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-gray-500">
+                Used to decide when the working day ends for attendance.
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center justify-between border-t border-white/10 pt-6">
-            <span className="text-sm text-gray-500">Draft saved automatically</span>
+            <span className="text-sm text-gray-500">
+              {submitting ? "Saving…" : "Saved to your organization when you continue"}
+            </span>
             <button
               type="submit"
-              className="flex items-center gap-2 rounded-lg bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
+              disabled={submitting}
+              className="flex items-center gap-2 rounded-lg bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Continue
+              {submitting ? "Saving…" : "Continue"}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M5 12h14M13 5l7 7-7 7" />
               </svg>
@@ -311,3 +452,4 @@ export default function BusinessDnaPage() {
     </div>
   );
 }
+

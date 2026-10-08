@@ -1,7 +1,8 @@
 ﻿"use client";
 
-import { useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useState, FormEvent, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { apiFetch, setAccessToken, ApiError } from "@/lib/api";
 
 interface LoginFormData {
@@ -19,11 +20,49 @@ interface AuthResponse {
   verification_token: string;
 }
 
-export default function LoginPage() {
+const PENDING_EMAIL_KEY = "elevare_pending_verification_email";
+
+const NETWORK_ERROR_MESSAGE = "Couldn't reach the server. Check your connection and try again.";
+const RESEND_GENERIC_MESSAGE = "If that address needs verifying, we've sent a new verification link.";
+
+// The server's own messages for these are short and technical ("Invalid
+// credentials", "Email verification required"), so each known error code gets
+// wording written for the person reading it. Anything else falls back to the
+// server's message as-is.
+function friendlyLoginError(err: ApiError): string {
+  switch (err.code) {
+    case "INVALID_CREDENTIALS":
+      return "That email and password don't match. Check them and try again.";
+    case "EMAIL_VERIFICATION_REQUIRED":
+      return "Your email address isn't verified yet. Open the verification link we emailed you, or request a new one below.";
+    case "ACCOUNT_SUSPENDED":
+      return "This account has been suspended. Contact your administrator for help.";
+    case "ACCOUNT_BANNED":
+      return "This account is no longer allowed to sign in. Contact support if you think that's a mistake.";
+    case "ACCOUNT_DEACTIVATED":
+      return "This account has been deactivated. Contact your administrator to have it restored.";
+    case "NO_ACTIVE_MEMBERSHIP":
+      return "Your access to this organization has been removed. Ask your HR administrator to reactivate you.";
+    default:
+      if (err.status === 429) {
+        return "Too many attempts. Wait a moment and try again.";
+      }
+      return err.message;
+  }
+}
+
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const justVerified = searchParams.get("verified") === "1";
+  const justReset = searchParams.get("reset") === "1";
+
   const [formData, setFormData] = useState<LoginFormData>({ email: "", password: "", keepSignedIn: false });
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   function validate(): boolean {
@@ -42,6 +81,8 @@ export default function LoginPage() {
     e.preventDefault();
     if (!validate()) return;
 
+    setNeedsVerification(false);
+    setResendMessage("");
     setSubmitting(true);
     try {
       const data = await apiFetch<AuthResponse>("/auth/login", {
@@ -57,13 +98,46 @@ export default function LoginPage() {
         if (Object.keys(err.fieldErrors).length > 0) {
           setErrors(err.fieldErrors);
         } else {
-          setErrors({ form: err.message });
+          setErrors({ form: friendlyLoginError(err) });
+        }
+        if (err.code === "EMAIL_VERIFICATION_REQUIRED") {
+          setNeedsVerification(true);
         }
       } else {
-        setErrors({ form: err instanceof Error ? err.message : "Something went wrong. Please try again." });
+        // No usable response at all: offline, server unreachable, or the
+        // reply wasn't JSON. Either way it isn't the person's mistake.
+        setErrors({ form: NETWORK_ERROR_MESSAGE });
       }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleResendVerification() {
+    const email = formData.email.trim();
+    if (!email) return;
+    setResending(true);
+    setResendMessage("");
+    try {
+      await apiFetch("/auth/resend-verification", {
+        method: "POST",
+        body: { email: email },
+        skipAuth: true,
+      });
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(PENDING_EMAIL_KEY, email);
+        } catch {
+          // Storage can be unavailable (private window); the message below still shows.
+        }
+      }
+      // Always the same line, whether or not the address exists — the
+      // backend never reveals that, so neither does this page.
+      setResendMessage(RESEND_GENERIC_MESSAGE);
+    } catch (err) {
+      setResendMessage(err instanceof ApiError ? err.message : NETWORK_ERROR_MESSAGE);
+    } finally {
+      setResending(false);
     }
   }
 
@@ -102,9 +176,33 @@ export default function LoginPage() {
           <p className="mt-1 text-sm text-gray-400">Sign in to your account to manage your organization</p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-6">
+            {justReset ? (
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+                Your password has been updated. Sign in with your new password.
+              </div>
+            ) : null}
+            {justVerified && !justReset ? (
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+                Your email is verified. Sign in to continue.
+              </div>
+            ) : null}
+
             {errors.form ? (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 {errors.form}
+                {needsVerification ? (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={handleResendVerification}
+                      disabled={resending || !formData.email.trim()}
+                      className="rounded-lg border border-red-400/40 px-3 py-1.5 text-xs font-medium text-red-200 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {resending ? "Sending…" : "Send a new verification email"}
+                    </button>
+                    {resendMessage ? <p className="mt-2 text-xs text-red-200/90">{resendMessage}</p> : null}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -135,7 +233,9 @@ export default function LoginPage() {
                 />
                 <span>Keep me signed in</span>
               </label>
-              <a href="#" className="text-sm font-medium text-indigo-400 hover:text-indigo-300">Forgot password?</a>
+              <Link href="/forgot-password" className="text-sm font-medium text-indigo-400 hover:text-indigo-300">
+                Forgot password?
+              </Link>
             </div>
 
             <div>
@@ -174,11 +274,21 @@ export default function LoginPage() {
 
             <p className="text-center text-sm text-gray-400">
               Don&apos;t have an account?{" "}
-              <a href="/signup" className="font-medium text-indigo-400 hover:text-indigo-300">Create one</a>
+              <Link href="/signup" className="font-medium text-indigo-400 hover:text-indigo-300">Create one</Link>
             </p>
           </form>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  // useSearchParams() needs a Suspense boundary in the App Router, same as
+  // the verify-email page.
+  return (
+    <Suspense fallback={null}>
+      <LoginContent />
+    </Suspense>
   );
 }
