@@ -8,6 +8,7 @@ default task execution policies (timeouts, serialization, etc.).
 import logging
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -29,7 +30,12 @@ celery = Celery(
     "Elevare Workforce",
     broker=_broker_url,
     backend=_backend_url,
-    include=[],
+    include=[
+        "app.modules.auth.tasks",
+        "app.modules.ai.tasks",
+        "app.modules.attendance.tasks",
+        "app.modules.tenancy_identity.tasks",
+    ],
 )
 
 # Celery configuration
@@ -51,5 +57,21 @@ celery.conf.update(
     # Worker
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=100,
-    beat_schedule={},
+    beat_schedule={
+        # Runs once daily; the task's own lookback window (26h) is wider
+        # than this interval on purpose — see ai/tasks.py's
+        # _QUARTERLY_REVIEW_LOOKBACK.
+        "quarterly-objective-review": {
+            "task": "app.modules.ai.tasks.quarterly_objective_review",
+            "schedule": crontab(hour=1, minute=0),
+        },
+        # Hourly, not once a night: each organization's midnight falls at a
+        # different UTC hour. Only organizations with someone still clocked
+        # in are enqueued, and each closes whatever clocked in before its own
+        # most recent midnight (attendance/tasks.py).
+        "attendance-auto-close": {
+            "task": "app.modules.attendance.tasks.auto_close_attendance",
+            "schedule": crontab(minute=5),
+        },
+    },
 )

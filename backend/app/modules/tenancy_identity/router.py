@@ -1,3 +1,10 @@
+"""FastAPI routes for the tenancy_identity module.
+
+Exposes the Team Management endpoints: inviting/adding teammates, listing an
+organization's memberships, and updating a membership's role or activation
+status. All endpoints are gated to the HR Administrator role.
+"""
+
 import logging
 import uuid
 from urllib.parse import quote
@@ -9,11 +16,14 @@ from app.core.config import settings
 from app.core.dependencies import get_db, require_org_role
 from app.core.exceptions import MembershipNotFoundException, ValidationException
 from app.core.schemas import PaginationResponse
+from app.modules.organization.enums import EmployeeStatus
+from app.modules.organization.repository import EmployeeRepository
 from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.schemas import (
     InviteTeammateRequest,
     InviteTeammateResponse,
     MembershipWithUserResponse,
+    ReactivateMembershipRequest,
     UpdateMembershipRequest,
 )
 from app.modules.tenancy_identity.service import MembershipService, OrganizationService
@@ -37,9 +47,24 @@ async def invite_teammate(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(require_org_role(*_TEAM_MANAGEMENT_ROLES)),
 ) -> InviteTeammateResponse:
-    """
-    Add an existing user to the org immediately, or invite an email with no
-    account yet (they accept via POST /auth/accept-invite).
+    """Add an existing user to the org immediately, or invite an email with no account.
+
+    An email with no account yet gets a pending invite and accepts it via
+    POST /auth/accept-invite. Requires the HR Administrator role.
+
+    Args:
+        data: Invitee's email and the role to grant them.
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        The invite/membership result, with ``status`` indicating whether the
+        teammate was added immediately or invited by email.
+
+    Raises:
+        AlreadyExistsException: If the invitee already has an active
+            membership in the caller's organization (translates to a 409
+            response).
     """
     service = MembershipService(db)
     status, result = await service.invite_teammate(
@@ -48,13 +73,20 @@ async def invite_teammate(
         email=data.email,
         role=data.role.value,
     )
+
+    # Read the company name before committing: the tenant context RLS needs is
+    # transaction-local, so after commit() the organization lookup finds
+    # nothing and every invite email would silently lose the company name.
+    company_name = None
+    if status == "invited":
+        org = await OrganizationService(db).get_organization_by_id(caller.organization_id)
+        company_name = org.name if org else None
+
     await db.commit()
 
     if status == "invited":
-        org_service = OrganizationService(db)
-        org = await org_service.get_organization_by_id(caller.organization_id)
         invite_link = f"{settings.app_url}/accept-invite?token={quote(result.raw_token)}"
-        dispatch_invite_email.delay(data.email, invite_link, org.name if org else None)
+        dispatch_invite_email.delay(data.email, invite_link, company_name)
         return InviteTeammateResponse(status="invited", invite=result)
 
     return InviteTeammateResponse(status="added", membership=result)
@@ -67,13 +99,76 @@ async def list_memberships(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(require_org_role(*_TEAM_MANAGEMENT_ROLES)),
 ) -> PaginationResponse:
-    """
-    List everyone in the caller's organization (Team Management screen).
+    """List everyone in the caller's organization (Team Management screen).
+
+    Requires the HR Administrator role.
+
+    Args:
+        page: 1-indexed page number.
+        limit: Maximum number of rows per page (1-100).
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        A paginated response of memberships, each paired with its user.
     """
     service = MembershipService(db)
     result = await service.get_org_memberships(caller.organization_id, page, limit)
     result.data = [MembershipWithUserResponse.model_validate(m) for m in result.data]
     return result
+
+
+@router.post("/memberships/{membership_id}/reactivate", status_code=200)
+async def reactivate_membership(
+    membership_id: uuid.UUID,
+    data: ReactivateMembershipRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_TEAM_MANAGEMENT_ROLES)),
+) -> MembershipWithUserResponse:
+    """Bring a deactivated teammate back, optionally with a new role.
+
+    The one way back for someone deactivated from this organization;
+    inviting them again is refused. Leaving ``role`` out restores the role
+    they had. Refused while the person's employee record is offboarded:
+    reinstate the employee instead (``POST /employees/{id}/reinstate``),
+    which restores login access in the same step, so the two never
+    disagree.
+
+    Requires the HR Administrator role.
+
+    Args:
+        membership_id: Id of the deactivated membership.
+        data: Optional new role.
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        The reactivated membership, with its user eager-loaded.
+
+    Raises:
+        MembershipNotFoundException: If no membership with that id exists
+            in the caller's org (translates to a 404 response).
+        MembershipNotDeactivatedException: If the membership is already
+            active (translates to a 409 response).
+        ValidationException: If the person is an offboarded employee
+            (translates to a 422 response).
+    """
+    service = MembershipService(db)
+    target = await service.get_membership_by_id(membership_id)
+    if target is None:
+        raise MembershipNotFoundException()
+
+    employee = await EmployeeRepository(db).get_employee_by_user_id(target.user_id)
+    if employee is not None and employee.status == EmployeeStatus.INACTIVE.value:
+        raise ValidationException(
+            "This person is an offboarded employee; reinstate the employee instead"
+        )
+
+    reactivated = await service.reactivate_membership(
+        target=target, caller=caller, role=data.role.value if data and data.role else None
+    )
+    await db.commit()
+    return MembershipWithUserResponse.model_validate(reactivated)
 
 
 @router.patch("/memberships/{membership_id}", status_code=200)
@@ -83,8 +178,33 @@ async def update_membership(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(require_org_role(*_TEAM_MANAGEMENT_ROLES)),
 ) -> MembershipWithUserResponse:
-    """
-    Change a teammate's role and/or deactivate/reactivate their account.
+    """Change a teammate's role and/or deactivate their account.
+
+    Only deactivation: ``is_deactivated`` accepts ``true`` and rejects
+    ``false`` (422). Bringing someone back is ``POST
+    /memberships/{id}/reactivate``.
+
+    Requires the HR Administrator role. A caller can't target their own
+    membership through this endpoint, and can't deactivate the
+    organization's Owner (no ownership-transfer flow exists yet).
+
+    Args:
+        membership_id: Id of the membership to update.
+        data: New role and/or activation state; at least one must be set.
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        The updated membership, with its user eager-loaded.
+
+    Raises:
+        ValidationException: If neither ``role`` nor ``is_deactivated`` is
+            provided (translates to a 400 response).
+        MembershipNotFoundException: If no membership with that id exists
+            in the caller's org (translates to a 404 response).
+        PermissionDeniedException: If the caller targets their own
+            membership, or attempts to deactivate the org's Owner
+            (translates to a 403 response).
     """
     if not data.has_updates():
         raise ValidationException("Provide at least one of role or is_deactivated")

@@ -1,15 +1,18 @@
-""""""
+"""Data-access layer for email verification, password reset, and refresh tokens."""
 import uuid
 from datetime import datetime, UTC
 
-from sqlalchemy import select, or_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .models import EmailVerificationToken, RefreshToken, PasswordResetToken
 from app.core.security import hash_token
 
 class AuthRepository:
+    """Persistence layer for verification, refresh, and password-reset tokens."""
+
     def __init__(self, db: AsyncSession):
+        """Initialize the repository with an async database session."""
         self._db = db
 
     async def get_verification_token_by_token(self, hashed_token: str) -> EmailVerificationToken | None:
@@ -39,10 +42,10 @@ class AuthRepository:
         return result.scalar_one_or_none()
     
     async def invalidate_verification_tokens(self, user_id: uuid.UUID):
-        """Invalidate an existing token to createa new one"""
+        """Mark all of a user's unused verification tokens as used."""
         stmt = select(EmailVerificationToken).where(
             EmailVerificationToken.user_id == user_id,
-            EmailVerificationToken.is_used == False,
+            EmailVerificationToken.is_used.is_(False),
         )
 
         result = await self._db.execute(stmt)
@@ -56,8 +59,7 @@ class AuthRepository:
 
     
     async def create_verification_token(self, user_id: uuid.UUID, hashed_token: str, expires_at: datetime) -> EmailVerificationToken:
-        """
-        Generate hash and store a new verification email  token for the user.
+        """Generate hash and store a new verification email  token for the user.
 
         Returns:
             The raw (unhashed) token that should be included in the email link
@@ -106,9 +108,7 @@ class AuthRepository:
         return result.scalars().first()
     
     async def mark_verification_token_used(self, token_id: uuid.UUID) -> None:
-        """
-        Mark Verification token as used.
-        """
+        """Mark a verification token as used."""
         token = await self.get_verification_token_by_id(token_id=token_id)
         if token:
             token.is_used = True
@@ -123,11 +123,14 @@ class AuthRepository:
         await self._db.flush()
 
     async def revoke_all_refresh_tokens_for_user(self, user_id: uuid.UUID) -> None:
-        """Revoke every active refresh token for a user (change-password/reset-password
-        forces re-login on every other device/session)."""
+        """Revoke every active refresh token for a user.
+
+        Used by change-password/reset-password flows to force re-login on
+        every other device/session.
+        """
         stmt = select(RefreshToken).where(
             RefreshToken.user_id == user_id,
-            RefreshToken.is_revoked == False,
+            RefreshToken.is_revoked.is_(False),
         )
         result = await self._db.execute(stmt)
         for token in result.scalars().all():
@@ -148,7 +151,7 @@ class AuthRepository:
         """Invalidate any existing unused password reset tokens before issuing a new one."""
         stmt = select(PasswordResetToken).where(
             PasswordResetToken.user_id == user_id,
-            PasswordResetToken.is_used == False,
+            PasswordResetToken.is_used.is_(False),
         )
         result = await self._db.execute(stmt)
         for t in result.scalars().all():

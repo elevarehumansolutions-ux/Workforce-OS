@@ -16,6 +16,7 @@ BASE = "/api/v1/auth"
 
 @pytest.mark.asyncio
 async def test_register_endpoint_returns_200_and_sets_cookie(client):
+    """Registering returns the new user with an access token and sets a refresh_token cookie."""
     from tests.conftest import register_payload
 
     resp = await client.post(f"{BASE}/register", json=register_payload(email="router_reg@example.com"))
@@ -29,6 +30,7 @@ async def test_register_endpoint_returns_200_and_sets_cookie(client):
 
 @pytest.mark.asyncio
 async def test_register_endpoint_rejects_duplicate_email(client):
+    """Registering twice with the same email returns 409 on the second attempt."""
     from tests.conftest import register_payload
 
     payload = register_payload(email="router_dup@example.com")
@@ -40,6 +42,7 @@ async def test_register_endpoint_rejects_duplicate_email(client):
 
 @pytest.mark.asyncio
 async def test_register_endpoint_rejects_mismatched_passwords(client):
+    """Registering with password and confirm_password that don't match returns 422."""
     from tests.conftest import register_payload
 
     payload = register_payload(email="router_mismatch@example.com", confirm_password="Different123#")
@@ -50,6 +53,7 @@ async def test_register_endpoint_rejects_mismatched_passwords(client):
 
 @pytest.mark.asyncio
 async def test_register_endpoint_rejects_weak_password(client):
+    """Registering with a password that fails strength validation returns 422."""
     from tests.conftest import register_payload
 
     payload = register_payload(
@@ -62,6 +66,7 @@ async def test_register_endpoint_rejects_weak_password(client):
 
 @pytest.mark.asyncio
 async def test_verify_email_endpoint_success(client):
+    """Verifying email with the token issued at registration succeeds."""
     from tests.conftest import register_payload
 
     reg_resp = await client.post(f"{BASE}/register", json=register_payload(email="router_verify@example.com"))
@@ -75,12 +80,14 @@ async def test_verify_email_endpoint_success(client):
 
 @pytest.mark.asyncio
 async def test_verify_email_endpoint_rejects_unknown_token(client):
+    """Verifying email with a token that doesn't exist returns 401."""
     resp = await client.post(f"{BASE}/verify-email", json={"token": "not-a-real-token"})
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_login_endpoint_success(client):
+    """Logging in with correct credentials after verification returns an access token, membership, and cookie."""
     from tests.conftest import register_payload
 
     reg_resp = await client.post(f"{BASE}/register", json=register_payload(email="router_login@example.com"))
@@ -100,6 +107,7 @@ async def test_login_endpoint_success(client):
 
 @pytest.mark.asyncio
 async def test_login_endpoint_rejects_wrong_password(client):
+    """Logging in with a correct email but wrong password returns 401."""
     from tests.conftest import register_payload
 
     await client.post(f"{BASE}/register", json=register_payload(email="router_login_wrong@example.com"))
@@ -113,6 +121,7 @@ async def test_login_endpoint_rejects_wrong_password(client):
 
 @pytest.mark.asyncio
 async def test_login_endpoint_rejects_unknown_email(client):
+    """Logging in with an email that isn't registered returns 401."""
     resp = await client.post(
         f"{BASE}/login",
         json={"email": "router_nobody@example.com", "password": "Password123#"},
@@ -122,6 +131,7 @@ async def test_login_endpoint_rejects_unknown_email(client):
 
 @pytest.mark.asyncio
 async def test_refresh_endpoint_uses_cookie_from_login(client):
+    """Refresh succeeds using the refresh_token cookie login set, returning a new bearer access token."""
     from tests.conftest import register_payload
 
     reg_resp = await client.post(f"{BASE}/register", json=register_payload(email="router_refresh@example.com"))
@@ -145,12 +155,14 @@ async def test_refresh_endpoint_uses_cookie_from_login(client):
 
 @pytest.mark.asyncio
 async def test_refresh_endpoint_without_cookie_fails(client):
+    """Calling refresh with no refresh_token cookie returns 401."""
     resp = await client.post(f"{BASE}/refresh")
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_logout_then_refresh_fails(client):
+    """After logout, refresh is rejected server-side even though the client still holds the revoked cookie."""
     from tests.conftest import register_payload
 
     reg_resp = await client.post(f"{BASE}/register", json=register_payload(email="router_logout@example.com"))
@@ -173,6 +185,7 @@ async def test_logout_then_refresh_fails(client):
 
 @pytest.mark.asyncio
 async def test_change_password_requires_authentication(client):
+    """Calling change-password without an Authorization header returns 401."""
     resp = await client.post(
         f"{BASE}/change-password",
         json={"current_password": "Password123#", "new_password": "NewPassword456#"},
@@ -182,6 +195,7 @@ async def test_change_password_requires_authentication(client):
 
 @pytest.mark.asyncio
 async def test_change_password_endpoint_success(client):
+    """A successful password change rejects login with the old password and allows login with the new one."""
     from tests.conftest import register_payload
 
     reg_resp = await client.post(f"{BASE}/register", json=register_payload(email="router_changepw@example.com"))
@@ -217,6 +231,7 @@ async def test_change_password_endpoint_success(client):
 
 @pytest.mark.asyncio
 async def test_change_password_rejects_garbage_token(client):
+    """Calling change-password with a malformed bearer token returns 401."""
     resp = await client.post(
         f"{BASE}/change-password",
         json={"current_password": "Password123#", "new_password": "NewPassword456#"},
@@ -227,6 +242,7 @@ async def test_change_password_rejects_garbage_token(client):
 
 @pytest.mark.asyncio
 async def test_resend_verification_endpoint_always_returns_200(client, monkeypatch):
+    """Resend-verification returns 200 even for an email that isn't registered, to avoid leaking account existence."""
     import app.modules.auth.service as auth_service_module
 
     monkeypatch.setattr(auth_service_module, "dispatch_verification_email", MagicMock())
@@ -237,6 +253,7 @@ async def test_resend_verification_endpoint_always_returns_200(client, monkeypat
 
 @pytest.mark.asyncio
 async def test_forgot_password_endpoint_always_returns_200(client, monkeypatch):
+    """Forgot-password returns 200 even for an email that isn't registered, to avoid leaking account existence."""
     import app.modules.auth.service as auth_service_module
 
     monkeypatch.setattr(auth_service_module, "dispatch_password_reset_email", MagicMock())
@@ -247,6 +264,7 @@ async def test_forgot_password_endpoint_always_returns_200(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_reset_password_endpoint_full_flow(client, monkeypatch):
+    """The forgot-password -> reset-password flow replaces the password, allowing login only with the new one."""
     from tests.conftest import register_payload
     import app.modules.auth.service as auth_service_module
 
@@ -274,6 +292,7 @@ async def test_reset_password_endpoint_full_flow(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_reset_password_endpoint_rejects_bad_token(client):
+    """Reset-password with a token that doesn't exist returns 401."""
     resp = await client.post(
         f"{BASE}/reset-password",
         json={"token": "not-a-real-token", "new_password": "BrandNewPass789#"},

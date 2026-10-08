@@ -17,6 +17,7 @@ CREATE TABLE organizations (
     subscription_status TEXT NOT NULL DEFAULT 'trial' CHECK (subscription_status IN ('trial','active','expired','cancelled')),
     subscription_expires_at TIMESTAMPTZ,
     fiscal_year_start_month SMALLINT NOT NULL DEFAULT 1 CHECK (fiscal_year_start_month BETWEEN 1 AND 12),
+    timezone VARCHAR(64) NOT NULL DEFAULT 'Africa/Lagos',  -- IANA name; where "midnight" falls for the attendance auto-close (2026-10-02)
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -88,12 +89,20 @@ CREATE TABLE departments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
     name TEXT NOT NULL,
+    name_normalized TEXT NOT NULL GENERATED ALWAYS AS (
+        lower(regexp_replace(btrim(normalize(name, NFKC)), '\s+', ' ', 'g'))
+    ) STORED,                                    -- database-derived comparison key, never written by the app
     is_critical BOOLEAN NOT NULL DEFAULT false,
     revenue_allocation_percentage NUMERIC(6,2),  -- only meaningful if is_critical; can exceed 100
+    head_employee_id UUID REFERENCES employees(id),  -- the one employee HR names as head; null until set (2026-10-06)
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ
 );
+
+CREATE UNIQUE INDEX uq_departments_org_name_active
+ON departments (organization_id, name_normalized)
+WHERE deleted_at IS NULL;
 
 CREATE TABLE positions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -121,6 +130,7 @@ CREATE TABLE employees (
     last_name TEXT NOT NULL,
     work_email TEXT NOT NULL,
     phone_number TEXT,
+    address TEXT,
     employment_type TEXT CHECK (employment_type IN ('full_time','part_time','contract','intern')),
     start_date DATE NOT NULL,
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')),
@@ -134,7 +144,9 @@ CREATE TABLE employees (
 - **Criticality lives on `positions`, revenue allocation lives on `departments`** — the two-level split Jennifer confirmed (General Manager the position, Operations the department). `criticality_type` and `risk_level` match the tags on the AI Suggestions screen in the Journey Walkthrough deck.
 - **`organization_id` appears on every table here**, even though it's reachable through `department_id` or `position_id`. Deliberate duplication: RLS policies need the column directly present to check the tenant boundary without a join on every query.
 - **Two different "reporting" concepts exist, on purpose:** `positions.reports_to_position_id` is the structural org chart (which role reports to which role, independent of who holds them); `employees.manager_id` is a specific person's actual assigned manager. They'll usually agree, but the Journey Walkthrough deck designed both separately (position-level org-chart setup, plus a person-level "Reporting Manager" field on Add Employee).
+- **`departments.head_employee_id` — "department manager" (added 2026-10-06, `08_DECISIONS.md`).** A nullable link to one employee, set by HR. It answers "who heads this department?" with exactly one value, which an `is_manager` flag on people cannot guarantee. Three different things are called "manager" in this product, and they are stored separately: the membership *role* `manager` (permissions), `employees.manager_id` (a person's own reporting manager), and this (a department's head). Rules, enforced in `DepartmentService` and `EmployeeService.offboard_employee`: optional; any active employee of the same organization (not necessarily a member of that department; one person may head several); cleared in the same transaction when the head is offboarded (audit entry per department, HR administrators notified, reinstating does not restore it). Deliberately a plain column with no ORM relationship. Foreign-key cycle to know about: `departments -> employees -> positions -> departments`. Later option: `departments.head_position_id`, so the head follows the position instead of the person.
 - **`employees.user_id` is nullable** because the Add Employee screen has a "grant login access" checkbox — someone can exist in the org structure before ever being invited to log in.
+- **`employees.address` added 2026-09-20** during implementation (not in the original PRD field list) — a plain optional text field for the employee's own address, distinct from `locations.address` (the office/site they work out of).
 - **`employees.status` has no `'on_leave'` value.** It was originally included on the assumption a Leave module would set it, but Leave Management moved to Phase 2 (see `08_DECISIONS.md`, 2026-09-04) with no manual fallback wanted either. Just `'active'`/`'inactive'` for MVP; revisit when Leave Management is actually built.
 - **Soft-deleting a department or position is blocked, not cascaded, while active references exist** (active employees still assigned, open/in-progress tasks, a pending AI suggestion), enforced in application code, not the database, since it needs to check across multiple tables and return a specific, named reason. Added 2026-09-07, see `01_REQUIREMENTS.md` §2 and `08_DECISIONS.md`.
 - **Not modeled yet, flagged honestly:** the PRD mentions "business units" above departments. Nothing in our conversations stress-tested whether that needs its own table or is just a grouping label. Left out for now rather than guessed; add it if it turns out to matter.
@@ -181,6 +193,8 @@ CREATE TABLE business_dna_core_values (
 - **One `business_dna` row per organization**, editable in place, not versioned. Historical comparison (e.g. "what was our capital investment last year") is a future refinement, not something asked for yet.
 - **`business_dna_core_values` has `updated_at`, matching the top-level Conventions rule.** Editing a value updates its row in place, same as everywhere else in this schema, rather than modeling an edit as delete-and-reinsert.
 - **"Job architecture" isn't a separate field here** — it's already the `positions` table from Cluster 2.
+- **No `name`/`organization_name` column here, on purpose.** The org's name lives on `organizations.name` (nullable post-registration, see `08_DECISIONS.md` 2026-09-13). `PUT /business-dna` writes it through in the same transaction as this table's upsert rather than duplicating it here — see `08_DECISIONS.md` 2026-09-21.
+- **`capital_investment_amount` is restricted at the API/serialization layer, not RLS.** RLS enforces the tenant boundary (which org's row), not column-level visibility within a row a caller is already allowed to see — so this column is included in the `GET /business-dna` response only for `hr_administrator`/`business_executive` callers, handled by the response schema/service, same row for everyone otherwise. See `08_DECISIONS.md` 2026-09-21.
 
 ## Cluster 4: Strategy — OKRs and AI Suggestions
 
@@ -210,15 +224,16 @@ CREATE TABLE key_results (
 CREATE TABLE ai_suggestions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
-    suggestion_type TEXT NOT NULL CHECK (suggestion_type IN ('critical_position','revenue_allocation','missing_department','kpi_weight')),
+    suggestion_type TEXT NOT NULL CHECK (suggestion_type IN ('critical_position','revenue_allocation','missing_department')),
     position_id UUID REFERENCES positions(id),                 -- set for 'critical_position'
     department_id UUID REFERENCES departments(id),              -- set for 'revenue_allocation'
-    kpi_id UUID REFERENCES kpis(id),                             -- set for 'kpi_weight'
     suggested_department_name TEXT,                              -- set for 'missing_department' only — no row exists yet
+    suggested_department_name_normalized TEXT GENERATED ALWAYS AS (
+        lower(regexp_replace(btrim(normalize(suggested_department_name, NFKC)), '\s+', ' ', 'g'))
+    ) STORED,                                                    -- database-derived comparison key, never written by the app
     suggested_criticality_type TEXT,
     suggested_risk_level TEXT,
     suggested_revenue_allocation_percentage NUMERIC(6,2),
-    suggested_weight NUMERIC(5,2),                               -- set for 'kpi_weight'
     rationale TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','edited','rejected')),
     reviewed_by_user_id UUID REFERENCES users(id),
@@ -227,16 +242,19 @@ CREATE TABLE ai_suggestions (
     reviewed_risk_level TEXT,                                     -- mirrors suggested_risk_level
     reviewed_revenue_allocation_percentage NUMERIC(6,2),          -- mirrors suggested_revenue_allocation_percentage
     reviewed_department_name TEXT,                                -- mirrors suggested_department_name
-    reviewed_weight NUMERIC(5,2),                                 -- mirrors suggested_weight
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (
-        (suggestion_type = 'critical_position' AND position_id IS NOT NULL) OR
-        (suggestion_type = 'revenue_allocation' AND department_id IS NOT NULL) OR
-        (suggestion_type = 'missing_department' AND suggested_department_name IS NOT NULL) OR
-        (suggestion_type = 'kpi_weight' AND kpi_id IS NOT NULL)
+        (suggestion_type = 'critical_position' AND position_id IS NOT NULL
+            AND suggested_criticality_type IS NOT NULL AND suggested_risk_level IS NOT NULL) OR
+        (suggestion_type = 'revenue_allocation' AND department_id IS NOT NULL
+            AND suggested_revenue_allocation_percentage IS NOT NULL) OR
+        (suggestion_type = 'missing_department' AND suggested_department_name IS NOT NULL)
     )
 );
 ```
+
+**M7/M8 phasing, settled during M7 implementation (2026-09-23):** the block above is what M7 actually builds — three suggestion types only. `kpi_id`, `suggested_weight`, `reviewed_weight`, and the `kpi_weight` value of `suggestion_type` (all described in the 2026-09-05 decision below) are added by a separate `ALTER TABLE` migration in M8, once `kpis` exists — a `CREATE TABLE` referencing `kpis(id)` before that table exists would fail outright, and `09_PROGRESS.md`'s M8 entry ("add `kpi_weight` as the fourth `suggestion_type`, reusing M7's engine") already implied this split, just not stated here explicitly until now. `updated_at` is also added here (BaseModel gives every table one, and unlike an append-only log this row genuinely mutates — status and the `reviewed_*` columns change after creation), a harmless addition the original hand-drafted sketch simply hadn't included.
 
 **Design notes:**
 - **`okrs`/`key_results` need nothing special for "additive, never clears."** That requirement, confirmed 2026-09-02, falls out of the schema for free: adding an objective mid-quarter is just inserting a new row, existing ones are untouched by default.
@@ -244,21 +262,29 @@ CREATE TABLE ai_suggestions (
 - **`ai_suggestions` is the new idea in this cluster.** Without it, `positions.is_critical` and `departments.revenue_allocation_percentage` would have to already be true the moment AI proposes them, skipping the "human approves" step the AI approach requires. This table holds the in-between state, proposed but not yet real, visible on the AI Suggestions review screen (Approve/Edit/Reject). Once HR approves or edits one, the application writes the final value onto the real `positions` or `departments` row; for a missing-department suggestion, onto a newly created `departments` row.
 - **One table for three suggestion types, not three tables.** A genuine tradeoff, not a clean answer: three separate tables would avoid the unused nullable columns per type, but would repeat the same pending/approved/edited/rejected review lifecycle three times over. One table was the more pragmatic call for MVP.
 - **A CHECK constraint enforces the type-to-column pairing** (`critical_position` requires `position_id`, `revenue_allocation` requires `department_id`, `missing_department` requires `suggested_department_name`) — without it, nothing would stop a nonsensical row like a `critical_position` suggestion with no position attached. Caught during the consistency pass on 2026-09-04, not part of the original draft.
+- **A `critical_position` suggestion must also carry `suggested_criticality_type` and `suggested_risk_level`, and a `revenue_allocation` one its `suggested_revenue_allocation_percentage` (2026-09-24)** — enforced by the same CHECK and mirrored in the create schema. Without them, approving one would flag a position critical with no description of why or how much. Both are required of the AI's answer; HR can still correct values on review (Edit). The approve write-through relies on this guarantee.
 ```sql
 CREATE UNIQUE INDEX idx_ai_suggestions_unique_pending
-ON ai_suggestions (organization_id, suggestion_type, position_id, department_id, kpi_id, suggested_department_name)
+ON ai_suggestions (organization_id, suggestion_type, position_id, department_id, suggested_department_name_normalized)
+NULLS NOT DISTINCT
 WHERE status = 'pending';
 ```
-- **The partial unique index above (2026-09-07) makes retried Celery generation jobs safe.** Without it, a retried "generate suggestions" job could create a second, duplicate pending suggestion for the same target. Postgres treats NULL columns as never conflicting, so this one index correctly enforces "one pending suggestion per target" across all four suggestion types without needing a separate index per type. Paired with `INSERT ... ON CONFLICT DO NOTHING` in the generation code, a retry becomes a safe no-op instead of a duplicate row.
+- **`suggested_department_name_normalized` (2026-09-23) — the index and the rejection lookup key on a derived comparison key, not the raw LLM-written name.** For `missing_department` the target's identity is free text, and an LLM won't reproduce it byte-for-byte across runs: a rejected "Customer Success" would come back as "Customer success" or "  Customer  Success", and both the pending-duplicate index and the rejected-suggestion suppression (`08_DECISIONS.md` 2026-09-22), comparing exactly, would treat it as a brand-new target — the same re-nagging the suppression rule exists to prevent. Standard practice (keep the display value, compare on a separate normalized key) applied as a Postgres generated column: NFKC Unicode normalization, trim, collapse internal whitespace, lowercase. Generated, not application-populated, so it can't drift from the source value and no write path can forget it; `suggested_department_name` itself stays exactly as the AI wrote it (display, and the unaltered signal for the training-data goal below). The same expression is defined once in `app/modules/ai/models.py` (`normalized_name_expr`) and reused for the query side, so the write side and read side can't disagree. **Scope of what this catches:** formatting noise (case, spacing, Unicode variants) — not synonyms or rewordings ("Customer Success Team" is a different key). Suppressing near-duplicate wording is a prompt-design concern for the generation step (e.g. telling the LLM which names were already rejected), not something a database key can do.
+- **The partial unique index above (2026-09-07) makes retried Celery generation jobs safe.** Without it, a retried "generate suggestions" job could create a second, duplicate pending suggestion for the same target. Paired with `INSERT ... ON CONFLICT DO NOTHING` in the generation code, a retry becomes a safe no-op instead of a duplicate row.
+- **`NULLS NOT DISTINCT` corrects a real bug found and verified against the dev DB during M7 implementation (2026-09-23).** This note originally claimed "Postgres treats NULL columns as never conflicting, so this one index correctly enforces one pending suggestion per target" — that has it backwards. Standard SQL unique-index semantics treat `NULL <> NULL` (never equal), so a composite unique index **never** fires when the differentiating columns are null. Every suggestion type here only populates one of `position_id`/`department_id`/`suggested_department_name`, leaving the other two null — meaning the index, as originally written, silently never caught a duplicate for *any* suggestion type, confirmed by directly inserting the same `critical_position`/`missing_department` target twice and watching both rows land. `NULLS NOT DISTINCT` (Postgres 15+; this project runs 16) makes the index treat two nulls in the same column as equal for uniqueness purposes, which is what the original description actually intended. Re-verified after the fix: an identical second insert is now correctly absorbed by `ON CONFLICT ... DO NOTHING`.
 - **`kpi_weight` added as a fourth `suggestion_type`, 2026-09-05**, closing a gap against `01_REQUIREMENTS.md` §7/§8: "AI suggests a starting split when KPIs are set up, HR approves/edits, same pattern used everywhere else." The original three types missed this entirely. Follows the exact same shape as the other three: a type-specific target (`kpi_id`), a suggested value, a reviewed value, and the same CHECK-constraint pairing.
-- **`reviewed_*` columns mirror each `suggested_*` column, added 2026-09-05.** This table isn't just a review queue, it's the raw material for eventually training a proprietary model once enough organizations have gone through it (see `01_REQUIREMENTS.md` §8, "approvals/corrections become future training data"). Without a place to record what HR actually decided, the table would only ever remember what the AI proposed, the single most valuable signal, "AI suggested X, human corrected it to Y", would be lost. `reviewed_*` gets populated whenever a decision is made, approved **or** edited, not only on edits, so anything reading this later for training data has one consistent column to read from, instead of branching on `status` to decide whether to trust `suggested_*` or `reviewed_*`. On `rejected`, `reviewed_*` stays null, there's no "correct" value to record, the rejection itself is the signal.
+- **`reviewed_*` columns mirror each `suggested_*` column, added 2026-09-05.** This table isn't just a review queue, it's the raw material for eventually training a proprietary model once enough organizations have gone through it (see `01_REQUIREMENTS.md` §8, "approvals/corrections become future training data"). Without a place to record what HR actually decided, the table would only ever remember what the AI proposed, the single most valuable signal, "AI suggested X, human corrected it to Y", would be lost. The mirrored *value* columns (`reviewed_criticality_type`, `reviewed_risk_level`, `reviewed_revenue_allocation_percentage`, `reviewed_department_name`, and M8's `reviewed_weight`) get populated whenever a decision is made, approved **or** edited, not only on edits, so anything reading this later for training data has one consistent set of columns to read from, instead of branching on `status` to decide whether to trust `suggested_*` or `reviewed_*`. On `rejected`, those mirrored value columns stay null, there's no "correct" value to record, the rejection itself is the signal.
+- **`reviewed_by_user_id`/`reviewed_at` are a different case from the mirrored value columns above, disambiguated during M7 implementation (2026-09-23): both are populated on every decision, including rejection.** They're plain audit fields (who, when), not a "what's the correct value" signal, so the "stays null on rejection" reasoning above doesn't apply to them, only to the mirrored `suggested_*`-shaped columns. This also isn't optional: the rejected-suggestion quarterly-suppression rule (`08_DECISIONS.md` 2026-09-22) compares a rejected row's `reviewed_at` against the org's current fiscal-quarter boundary to decide whether it's still suppressing regeneration — with no `reviewed_at` on a rejected row, that mechanism would have nothing to check.
 ```sql
 CREATE TABLE ai_usage_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
     purpose TEXT NOT NULL CHECK (purpose IN ('ai_suggestion_generation','executive_summary_generation')),
+    model TEXT NOT NULL,  -- model id that served the call, for per-model cost tracking (added 2026-09-25, model tiering)
     prompt_tokens INTEGER,
     completion_tokens INTEGER,
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0,  -- prompt-cache writes, 5m + 1h combined (added 2026-09-25)
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0,   -- prompt-cache hits (added 2026-09-25)
     estimated_cost_usd NUMERIC(10,4),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -276,9 +302,12 @@ CREATE TABLE kpis (
     location_id UUID REFERENCES locations(id),  -- null = department-wide; set = scoped to one location (branch/store model)
     key_result_id UUID REFERENCES key_results(id),
     name TEXT NOT NULL,
+    description TEXT,
     weight NUMERIC(5,2) NOT NULL CHECK (weight >= 0 AND weight <= 100),
+    is_inverse BOOLEAN NOT NULL DEFAULT FALSE,
     target_value NUMERIC(14,2),
     unit TEXT,
+    tracking_mode TEXT NOT NULL DEFAULT 'manual' CHECK (tracking_mode IN ('manual', 'task_count')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ
@@ -300,10 +329,13 @@ CREATE TABLE kpi_scores (
 **Design notes:**
 - **`kpis.weight` is per-department (or per-location, when `location_id` is set), not enforced by the database to sum to 100.** Postgres has no clean row-level way to check "all weights for this group add up to 100," that math spans multiple rows. This is validated in application code when a KPI is created or edited (reject or warn if the group's total would drift from 100). An app-layer rule, not a database guarantee.
 - **`kpis.location_id` mirrors the `okrs.location_id` decision above, same reasoning.** Null for Elevare, everywhere. Available for a branch-based customer that needs "Lagos store" and "Abuja store" scored separately within the same department.
+- **`description` (added 2026-09-30, during M8 implementation), a free-text field nullable on purpose.** Lets HR explain what a KPI actually means in practice (e.g. what counts as a "closed deal") so employees working toward it understand it, not just see a name and a number.
+- **`tracking_mode` decides how this KPI's mid-quarter progress is known, added 2026-09-30 (08_DECISIONS.md).** `'task_count'` means progress is a live count of completed tasks linked to this KPI (`tasks.kpi_id`) within the current period — for a KPI whose target is literally a count of things (e.g. "close 20 deals"), computed on read, nobody enters anything. `'manual'` (the default) means progress is whatever was last typed in via `POST /kpis/{id}/scores` — for a KPI that's a real-world figure this app can't see on its own (revenue, average response time). Deliberately not inferred from whether tasks happen to be linked to the KPI — a task can be linked for reasons unrelated to counting toward the target, so only an explicit choice at KPI-creation time is safe. `task_count`'s live-count read itself depends on the `tasks` table (M10, not built when this column was added) — the column exists now so M10/M12 build against a settled field rather than needing another schema change later.
 - **`key_result_id` is nullable on purpose.** Not every KPI needs to trace back to a specific Key Result, some departments have operational KPIs (e.g. "average response time") that support the strategy generally without tying to one measurable OKR target. Making it mandatory would force a fake link where none exists.
 - **`kpi_scores` is one row per KPI per scoring period** (a quarter, matching the quarterly dashboard), not a running single value on `kpis` itself. This is what lets the performance dashboard show a trend over time, and it's what the weighted scoring calculation reads from to compute a department's (or location's) overall performance for that period.
 - **`score_percentage` is stored, not computed on the fly**, because how "actual vs target" becomes a percentage isn't always a straight ratio (a KPI can be inverse, e.g. lower is better for "customer complaints"). The calculation logic lives once in application code, and the result is written here rather than every dashboard query re-deriving it differently.
-- **`kpi_scores` has no `deleted_at`, a deliberate exception to the top-level Conventions rule** that names "performance history" as needing soft delete. A scoring record for a closed period is a historical fact, not something that should ever disappear, even softly. If a score turns out wrong, the correction is a new period's record, not hiding the old one. Same reasoning as `workflow_instances` having no `deleted_at`, decided during the 2026-09-04 consistency pass.
+- **`kpis.is_inverse` (added 2026-09-30, found missing while implementing the scores upsert) is what actually tells that calculation which formula to use.** The note above always assumed something recorded which KPIs are inverse; nothing did. `FALSE` (default): `score_percentage = actual_value / target_value * 100`. `TRUE`: `score_percentage = target_value / actual_value * 100` — fewer complaints than target scores *over* 100%, more scores under.
+- **`kpi_scores` has no `deleted_at`, a deliberate exception to the top-level Conventions rule** that names "performance history" as needing soft delete. This applies once the row's period has actually closed (`period_end` has passed): a scoring record for a closed period is a historical fact, not something that should ever disappear, even softly, and any correction after that point is a new period's record, not hiding or editing the old one. **Before that point — while `period_end` is still in the future — the same row is meant to be updated repeatedly** (`POST /kpis/{id}/scores` upserts it), by `hr_administrator` or `business_executive`, as real-world numbers come in over the course of the quarter, so progress is visible before the period closes, not only after (08_DECISIONS.md 2026-09-29). Same "permanent once closed" reasoning as `workflow_instances` having no `deleted_at`, decided during the 2026-09-04 consistency pass.
 
 ```sql
 CREATE TABLE employee_kpi_scores (
@@ -391,9 +423,26 @@ CREATE TABLE tasks (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ
 );
+
+CREATE TABLE task_blocks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    task_id UUID NOT NULL REFERENCES tasks(id),
+    blocked_by_user_id UUID NOT NULL REFERENCES users(id),
+    category TEXT NOT NULL CHECK (category IN ('awaiting_approval','awaiting_other_department','external_dependency','other')),
+    reason TEXT NOT NULL,
+    blocked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    unblocked_at TIMESTAMPTZ,  -- null = still blocked
+    review_status TEXT NOT NULL DEFAULT 'pending' CHECK (review_status IN ('pending','approved','rejected')),
+    reviewed_by_user_id UUID REFERENCES users(id),
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ```
 
 **Design notes:**
+- **`task_blocks`, added 2026-09-22 (Jennifer's escalation/accountability submission, see `01_REQUIREMENTS.md` §6a and `08_DECISIONS.md`).** One table serves both the proactive case (an assignee marks a task blocked *before* it goes overdue, `unblocked_at` null while ongoing) and the reactive case (a task went overdue with no block recorded, the Overdue Celery Beat scan prompts, creating this row after the fact). Same `review_status` shape as `ai_suggestions` and membership deactivation, not a new pattern. `due_at` on `tasks` is never touched by this, "currently overdue" and "was this actually late for scoring" both become derived calculations that exclude any *approved* blocked duration, consistent with `due_at` being written once and never rewritten. A `pending` block holds that task out of KPI scoring entirely until reviewed, it is not scored provisionally and corrected later, since a closed period's `kpi_scores` must stay permanent history.
 - **One `tasks` table for both workflow-generated and standalone tasks.** `workflow_instance_id`/`workflow_step_id` are nullable so an ad hoc task (a manager just typing "follow up with vendor" with no template behind it) uses the exact same table and the exact same dashboard, rather than needing a second parallel task system.
 - **"Overdue" is not a stored status, it's derived: `status IN ('open','in_progress') AND due_at < now()`.** It isn't a state anyone chooses, it's a fact that becomes true the moment the clock passes `due_at` while nobody's touched the status. Storing it as an enum value would mean either a background job flipping it constantly, or it going stale between checks. Computing it at query/read time is simpler and always correct.
 - **Late completion is also derived, from history, not stored as a flag: `completed_at > due_at`.** Since both timestamps are just sitting on the row, "was this done on time" is answerable forever, even long after the task is closed, which is exactly what has to feed the performance-scoring calculation later.
@@ -412,12 +461,22 @@ CREATE TABLE attendance_records (
     employee_id UUID NOT NULL REFERENCES employees(id),
     clock_in_at TIMESTAMPTZ NOT NULL,
     clock_out_at TIMESTAMPTZ,
+    closed_by VARCHAR(20) CHECK (closed_by IN ('employee', 'system')),   -- null while open (2026-10-02)
+    close_reason TEXT,                                                    -- why the system closed it; null for an employee clock-out
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((clock_out_at IS NULL AND closed_by IS NULL AND close_reason IS NULL)
+        OR (clock_out_at IS NOT NULL AND closed_by IS NOT NULL)),         -- open or fully closed, never half
+    CHECK (clock_out_at IS NULL OR clock_out_at >= clock_in_at)
 );
+-- At most one OPEN record per employee: the database settles simultaneous clock-ins.
+CREATE UNIQUE INDEX uq_attendance_one_open_per_employee ON attendance_records (employee_id) WHERE clock_out_at IS NULL;
+CREATE INDEX idx_attendance_employee_clock_in ON attendance_records (organization_id, employee_id, clock_in_at);
+-- RLS: tenant_isolation policy on organization_id, like every other tenant table.
 ```
 
 **Design notes:**
+- **`closed_by = 'system'` marks a guess.** The nightly auto-close writes the org's midnight cutoff as `clock_out_at`; scoring and payroll later should treat those rows differently from a real employee clock-out. "Unverified" is derived from `closed_by`, not stored as a second flag. Not soft-deletable: a record is a historical fact.
 - **One row per clock-in/clock-out pair, that's the whole table.** "Currently clocked in" is derived (`clock_out_at IS NULL`), the same pattern as Overdue in Cluster 6, a fact computed from timestamps rather than a status column someone has to remember to flip.
 - **No `location_id` here.** Plain clock-in/clock-out doesn't need to record where someone clocked in from for MVP, no geofencing or per-site attendance requirement has come up. If that ever matters, the employee's `location_id` is already sitting on their row in Cluster 2.
 - **This table only feeds the task-visibility rule already in §5**, "task list appears after clock-in," it's read, not written, by that check. No leave-status interaction — see the `employees.status` note in Cluster 2.

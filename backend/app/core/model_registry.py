@@ -27,6 +27,29 @@ from app.modules.audit_and_notification.models import (
     AuditLog,
     Notification,
 )
+from app.modules.organization.models import (
+    Location,
+    Department,
+    Position,
+    Employee,
+)
+from app.modules.business_dna.models import (
+    BusinessDNA,
+    BusinessDNACoreValue,
+)
+from app.modules.okrs.models import (
+    OKR,
+    KeyResult,
+)
+from app.modules.ai.models import (
+    AISuggestion,
+    AIUsageLog,
+)
+from app.modules.kpis.models import (
+    KPI,
+    KPIScore,
+)
+from app.modules.attendance.models import AttendanceRecord
 
 __all__ = [
     "Organization",
@@ -38,4 +61,17 @@ __all__ = [
     "PasswordResetToken",
     "AuditLog",
     "Notification",
+    "Location",
+    "Department",
+    "Position",
+    "Employee",
+    "BusinessDNA",
+    "BusinessDNACoreValue",
+    "OKR",
+    "KeyResult",
+    "AISuggestion",
+    "AIUsageLog",
+    "KPI",
+    "KPIScore",
+    "AttendanceRecord",
 ]

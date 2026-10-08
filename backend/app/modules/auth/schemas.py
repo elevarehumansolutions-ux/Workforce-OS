@@ -1,5 +1,8 @@
-from pydantic import BaseModel, EmailStr, model_validator, Field
+"""Pydantic request/response schemas for the auth module's endpoints."""
+
+from pydantic import BaseModel, model_validator, Field
 import re
+from app.core.schemas import NormalizedEmail
 from app.modules.tenancy_identity.schemas import (
     UserResponse,
     OrganizationResponse,
@@ -24,7 +27,6 @@ def validate_password_strength(v: str) -> str:
         ValueError: If any strength requirement is not met.
 
     """
-
     if len(v) < 8:
         raise ValueError("Password must be at least 8 characters")
 
@@ -57,7 +59,7 @@ class RegisterRequest(BaseModel):
 
     """
     full_name: str = Field(..., min_length=6, max_length=255)
-    email: EmailStr
+    email: NormalizedEmail
     password: str = Field(..., min_length=8)
     confirm_password: str = Field(..., exclude=True)
     
@@ -72,7 +74,6 @@ class RegisterRequest(BaseModel):
             ValueError: If the two password fields differ.
 
         """
-
         if self.password != self.confirm_password:
             raise ValueError("Passwords do not match!")
         
@@ -94,13 +95,11 @@ class ResendVerificationRequest(BaseModel):
     which addresses are registered.
     """
 
-    email: EmailStr
+    email: NormalizedEmail
 
 
 class AuthResponse(BaseModel):
-    """
-    Full authentication response returned after register / login.
-    """
+    """Full authentication response returned after register / login."""
 
     user: UserResponse
     organization: OrganizationResponse
@@ -119,7 +118,7 @@ class LoginRequest(BaseModel):
     reset-password); applying them here would reject a legitimate existing
     user whose real password doesn't happen to satisfy today's rules.
     """
-    email: EmailStr
+    email: NormalizedEmail
     password: str = Field(..., min_length=1)
 
 
@@ -148,7 +147,7 @@ class ChangePasswordRequest(BaseModel):
 class ForgotPasswordRequest(BaseModel):
     """Payload for requesting a password reset link."""
 
-    email: EmailStr
+    email: NormalizedEmail
 
 
 class ResetPasswordRequest(BaseModel):
@@ -159,22 +158,28 @@ class ResetPasswordRequest(BaseModel):
 
     @model_validator(mode="after")
     def check_new_password_strength(self) -> "ResetPasswordRequest":
+        """Validate that the new password meets the strength requirements."""
         validate_password_strength(self.new_password)
         return self
 
 
 class MeResponse(BaseModel):
-    """Response for GET /me — the caller's identity plus every organization
-    they belong to, for the frontend's org-switcher."""
+    """Response for GET /me.
+
+    Contains the caller's identity plus every organization they belong to,
+    for the frontend's org-switcher.
+    """
 
     user: UserResponse
     memberships: list[MembershipWithOrganizationResponse]
 
 
 class AcceptInviteRequest(BaseModel):
-    """Payload for completing a teammate invite when the invited email has
-    no existing account — creates the User and the invited Membership
-    together, the same shape as RegisterRequest plus the invite token."""
+    """Payload for completing a teammate invite when there's no existing account.
+
+    Creates the User and the invited Membership together, the same shape
+    as RegisterRequest plus the invite token.
+    """
 
     token: str
     full_name: str = Field(..., min_length=6, max_length=255)
@@ -183,6 +188,7 @@ class AcceptInviteRequest(BaseModel):
 
     @model_validator(mode="after")
     def password_match(self) -> "AcceptInviteRequest":
+        """Validate that password and confirm_password match."""
         if self.password != self.confirm_password:
             raise ValueError("Passwords do not match!")
         return self

@@ -2,7 +2,6 @@
 from app.modules.tenancy_identity.enums import AccountStatus
 from app.modules.auth.schemas import RegisterRequest
 from app.modules.tenancy_identity.enums import AuthProvider
-from datetime import datetime, UTC, timedelta
 from uuid import uuid4
 import pytest_asyncio
 from app.core.database import AsyncSessionLocal
@@ -23,7 +22,6 @@ test_engine = create_async_engine(settings.database_url, poolclass=NullPool)
 
 def make_user(**overrides) -> User:
     """Create a User ORM instance with test defaults."""
-
     data = {
         "email": f"user_{uuid4().hex[:8]}@example.com",
         "full_name": "John Doe",
@@ -67,9 +65,7 @@ def register_payload(**overrides) -> dict:
 
 @pytest_asyncio.fixture
 async def db_session():
-    """
-    Provide a DB session that rolls back after each test.
-    """
+    """Provide a DB session that rolls back after each test."""
     async with test_engine.connect() as conn:
         await conn.begin()
         async with AsyncSessionLocal(bind=conn, expire_on_commit=False) as session:
@@ -78,10 +74,10 @@ async def db_session():
 
 
 async def set_org_context(db_session: AsyncSession, organization_id) -> None:
-    """Explicitly (re)establish RLS tenant context on a raw ``db_session``,
-    mirroring ``core/dependencies.py``'s ``get_current_membership``.
+    """Explicitly (re)establish RLS tenant context on a raw ``db_session``.
 
-    Needed when a test seeds rows directly via a service/repository rather
+    Mirrors ``core/dependencies.py``'s ``get_current_membership``. Needed
+    when a test seeds rows directly via a service/repository rather
     than through an authenticated client request — a real request sets this
     itself, per request, from the caller's JWT.
     """
@@ -89,6 +85,32 @@ async def set_org_context(db_session: AsyncSession, organization_id) -> None:
         text("SELECT set_config('app.current_org_id', :org_id, true)"),
         {"org_id": str(organization_id)},
     )
+
+
+def commit_like_production(db_session: AsyncSession, monkeypatch) -> None:
+    """Make ``db_session.commit()`` also drop the transaction-local tenant context.
+
+    The shared test session lives inside one outer transaction, so a router's
+    ``commit()`` never ends anything and ``app.current_org_id`` survives. In
+    production every commit ends the transaction and the setting is gone, so a
+    read issued after the commit sees no rows through row-level security. Call
+    this after any setup that needs the normal behaviour, right before the
+    request under test.
+
+    Clears ``app.current_user_id`` too: login sets it earlier in the shared
+    transaction, but ordinary requests never have it, and ``organizations``'
+    policy would otherwise fall back to it.
+    """
+    original_commit = db_session.commit
+
+    async def commit_and_forget_tenant_context():
+        await original_commit()
+        for setting in ("app.current_org_id", "app.current_user_id"):
+            await db_session.execute(
+                text("SELECT set_config(:name, '', true)"), {"name": setting}
+            )
+
+    monkeypatch.setattr(db_session, "commit", commit_and_forget_tenant_context)
 
 
 async def register_verified_and_login(client, **overrides) -> dict:
@@ -113,12 +135,12 @@ async def register_verified_and_login(client, **overrides) -> dict:
 
 @pytest_asyncio.fixture
 async def client(db_session):
-    """
-    An httpx client that drives the real FastAPI app (real routing, request
-    validation, dependency injection — not calling AuthService directly).
-    ``get_db`` is overridden to hand every request the same rolled-back
-    ``db_session`` used elsewhere, so router-level tests stay isolated
-    without needing a second database.
+    """An httpx client that drives the real FastAPI app.
+
+    Real routing, request validation, dependency injection — not calling
+    AuthService directly. ``get_db`` is overridden to hand every request the
+    same rolled-back ``db_session`` used elsewhere, so router-level tests
+    stay isolated without needing a second database.
     """
     from httpx import AsyncClient, ASGITransport
     from app.main import app

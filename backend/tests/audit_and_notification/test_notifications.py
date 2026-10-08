@@ -1,5 +1,8 @@
-"""HTTP-level tests for GET /notifications, POST /notifications/{id}/read,
-and POST /notifications/read-all."""
+"""HTTP-level tests for notification endpoints.
+
+Covers GET /notifications, POST /notifications/{id}/read, and POST
+/notifications/read-all.
+"""
 import pytest
 
 from app.modules.audit_and_notification.enums import NotificationCategory
@@ -41,6 +44,7 @@ async def _invite_and_accept(client, monkeypatch, owner, email: str, role: str) 
 
 @pytest.mark.asyncio
 async def test_notifications_endpoints_require_authentication(client):
+    """Both the list and mark-read endpoints return 401 without authentication."""
     resp1 = await client.get(NOTIFICATIONS)
     assert resp1.status_code == 401
 
@@ -50,8 +54,11 @@ async def test_notifications_endpoints_require_authentication(client):
 
 @pytest.mark.asyncio
 async def test_list_notifications_returns_only_own_stream(client, db_session, monkeypatch):
-    """No role restriction, but must self-scope — one recipient must never
-    see another recipient's notifications, even within the same org."""
+    """No role restriction, but must self-scope.
+
+    One recipient must never see another recipient's notifications, even
+    within the same org.
+    """
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner = await register_verified_and_login(client, email="notif_owner1@example.com")
@@ -81,6 +88,7 @@ async def test_list_notifications_returns_only_own_stream(client, db_session, mo
 
 @pytest.mark.asyncio
 async def test_list_notifications_filters_by_category(client, db_session):
+    """The category query param returns only notifications of that category."""
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner = await register_verified_and_login(client, email="notif_owner2@example.com")
@@ -113,6 +121,7 @@ async def test_list_notifications_filters_by_category(client, db_session):
 
 @pytest.mark.asyncio
 async def test_list_notifications_filters_by_unread(client, db_session):
+    """The unread=True query param excludes notifications that have already been marked read."""
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner = await register_verified_and_login(client, email="notif_owner3@example.com")
@@ -125,7 +134,7 @@ async def test_list_notifications_filters_by_unread(client, db_session):
         category=NotificationCategory.SYSTEM,
         title="Unread one",
     )
-    created = await service.notify(
+    await service.notify(
         organization_id=owner["organization"]["id"],
         recipient_user_ids=[owner["user"]["id"]],
         category=NotificationCategory.SYSTEM,
@@ -152,6 +161,7 @@ async def test_list_notifications_filters_by_unread(client, db_session):
 
 @pytest.mark.asyncio
 async def test_mark_notification_read_updates_read_at(client, db_session):
+    """Marking a notification read sets read_at from null to a timestamp."""
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner = await register_verified_and_login(client, email="notif_owner4@example.com")
@@ -177,6 +187,7 @@ async def test_mark_notification_read_updates_read_at(client, db_session):
 
 @pytest.mark.asyncio
 async def test_mark_notification_read_rejects_someone_elses_notification(client, db_session, monkeypatch):
+    """Marking read a notification that belongs to another recipient returns 404."""
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner = await register_verified_and_login(client, email="notif_owner5@example.com")
@@ -201,6 +212,7 @@ async def test_mark_notification_read_rejects_someone_elses_notification(client,
 
 @pytest.mark.asyncio
 async def test_mark_notification_read_rejects_unknown_id(client):
+    """Marking read a notification id that doesn't exist returns 404."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="notif_owner6@example.com")
@@ -214,6 +226,7 @@ async def test_mark_notification_read_rejects_unknown_id(client):
 
 @pytest.mark.asyncio
 async def test_mark_all_read_marks_only_own_unread(client, db_session, monkeypatch):
+    """Mark-all-read marks only the caller's own unread notifications, leaving other recipients' untouched."""
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner = await register_verified_and_login(client, email="notif_owner7@example.com")

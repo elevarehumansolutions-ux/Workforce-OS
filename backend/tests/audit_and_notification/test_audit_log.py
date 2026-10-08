@@ -17,8 +17,10 @@ def _auth_header(access_token: str) -> dict:
 
 
 async def _invite_and_accept(client, monkeypatch, owner, email: str, role: str) -> dict:
-    """Add a teammate with a given role and log them in — for testing role
-    gates other than the founder's own hr_administrator."""
+    """Add a teammate with a given role and log them in.
+
+    For testing role gates other than the founder's own hr_administrator.
+    """
     from unittest.mock import MagicMock
     import app.modules.tenancy_identity.router as membership_router_module
 
@@ -45,12 +47,14 @@ async def _invite_and_accept(client, monkeypatch, owner, email: str, role: str) 
 
 @pytest.mark.asyncio
 async def test_list_audit_log_requires_authentication(client):
+    """An unauthenticated request to the audit log endpoint returns 401."""
     resp = await client.get(AUDIT_LOG)
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_list_audit_log_rejects_employee_role(client, monkeypatch):
+    """A member with the employee role gets 403 when listing the audit log."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="audit_owner1@example.com")
@@ -62,6 +66,7 @@ async def test_list_audit_log_rejects_employee_role(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_list_audit_log_allows_business_executive_role(client, monkeypatch):
+    """A member with the business_executive role can list the audit log."""
     from tests.conftest import register_verified_and_login
 
     owner = await register_verified_and_login(client, email="audit_owner2@example.com")
@@ -75,8 +80,10 @@ async def test_list_audit_log_allows_business_executive_role(client, monkeypatch
 
 @pytest.mark.asyncio
 async def test_list_audit_log_returns_org_scoped_entries(client, db_session):
-    """RLS proof: an admin only ever sees their own org's audit trail, even
-    though both orgs' rows sit in the same table."""
+    """RLS proof: an admin only ever sees their own org's audit trail.
+
+    Even though both orgs' rows sit in the same table.
+    """
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner_a = await register_verified_and_login(client, email="audit_owner_a@example.com")
@@ -109,6 +116,7 @@ async def test_list_audit_log_returns_org_scoped_entries(client, db_session):
 
 @pytest.mark.asyncio
 async def test_list_audit_log_filters_by_entity_type_and_entity_id(client, db_session):
+    """The entity_type and entity_id query params each narrow results to matching rows only."""
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner = await register_verified_and_login(client, email="audit_owner3@example.com")
@@ -152,6 +160,7 @@ async def test_list_audit_log_filters_by_entity_type_and_entity_id(client, db_se
 
 @pytest.mark.asyncio
 async def test_list_audit_log_filters_by_actor_user_id(client, db_session, monkeypatch):
+    """The actor_user_id query param returns only entries logged by that actor."""
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner = await register_verified_and_login(client, email="audit_owner4@example.com")
@@ -187,9 +196,11 @@ async def test_list_audit_log_filters_by_actor_user_id(client, db_session, monke
 
 @pytest.mark.asyncio
 async def test_list_audit_log_date_range_filter(client, db_session):
-    """Seeds rows with explicit created_at values (bypassing log_action,
-    which deliberately never accepts a caller-supplied timestamp) to prove
-    date_from/date_to actually narrow results."""
+    """Seeds rows with explicit created_at values to prove date_from narrows results.
+
+    Bypasses log_action, which deliberately never accepts a caller-supplied
+    timestamp.
+    """
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner = await register_verified_and_login(client, email="audit_owner5@example.com")
@@ -227,6 +238,7 @@ async def test_list_audit_log_date_range_filter(client, db_session):
 
 @pytest.mark.asyncio
 async def test_list_audit_log_cursor_pagination(client, db_session):
+    """Cursor pagination returns all rows exactly once across pages, with no next_cursor on the last page."""
     from tests.conftest import register_verified_and_login, set_org_context
 
     owner = await register_verified_and_login(client, email="audit_owner6@example.com")

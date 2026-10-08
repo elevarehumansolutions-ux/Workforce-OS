@@ -6,6 +6,7 @@ BASE = "/api/v1/auth"
 
 @pytest.mark.asyncio
 async def test_get_me_returns_user_and_memberships(client):
+    """GET /me returns the authenticated user's profile and their org membership, including owner status."""
     from tests.conftest import register_verified_and_login
 
     auth = await register_verified_and_login(client, email="me_test@example.com")
@@ -24,5 +25,6 @@ async def test_get_me_returns_user_and_memberships(client):
 
 @pytest.mark.asyncio
 async def test_get_me_requires_authentication(client):
+    """GET /me without an Authorization header returns 401."""
     resp = await client.get(f"{BASE}/me")
     assert resp.status_code == 401

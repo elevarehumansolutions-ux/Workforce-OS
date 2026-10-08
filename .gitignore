@@ -1,6 +1,8 @@
 .env
 .env.*
 !.env.example
+!.env.admin.example
+!.env.db.example
 .mcp.json
 node_modules/
 __pycache__/
@@ -15,4 +17,3 @@ CLAUDE.md
 .coverage
 .pytest_cache/
 SESSION_HANDOFF.md
-scripts/

@@ -1,4 +1,4 @@
-"""Application settings loaded from environment variables and a .env file"""
+"""Application settings loaded from environment variables and a .env file."""
 
 import logging
 
@@ -80,12 +80,20 @@ class Settings(BaseSettings):
 
     # Email delivery (Resend — see 00_PROJECT_CONTEXT.md)
     resend_api_key: str | None = None
-    mail_from: str = "Elevare Workforce OS <noreply@elevare.com>"
+    mail_from: str = "Elevare Workforce OS <noreply@workforceos.online>"
     invite_expiry: int = 7
 
     # Claude API KEY
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-3-5-sonnet-20241022"
+    # Model tiers: callers ask for a tier, never a model id (06_AI_DESIGN.md).
+    anthropic_model_fast: str = "claude-haiku-4-5"
+    anthropic_model_strong: str = "claude-sonnet-5"
+
+    # AI suggestion guardrails — keep the review queue from filling with noise
+    # (08_DECISIONS.md 2026-09-25). Tunable once real output has been seen.
+    ai_max_missing_departments_per_run: int = 3
+    ai_max_critical_positions_per_department_per_run: int = 3
+    ai_max_pending_missing_departments: int = 5
 
     # Paystack — primary payment provider (billing module)
     paystack_secret_key: str | None = None
@@ -93,9 +101,11 @@ class Settings(BaseSettings):
 
     @property
     def cookie_secure(self) -> bool:
-        """Refresh-cookie Secure flag — derived from environment, not its own
-        setting, so it can't drift out of sync with ENVIRONMENT. See
-        03_ARCHITECTURE.md: true in staging/production, false in local dev.
+        """Refresh-cookie Secure flag — derived from environment, not its own setting.
+
+        This is derived rather than its own setting so it can't drift out of
+        sync with ENVIRONMENT. See 03_ARCHITECTURE.md: true in
+        staging/production, false in local dev.
         """
         return self.environment != "development"
 

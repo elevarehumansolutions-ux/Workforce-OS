@@ -1,0 +1,15 @@
+# Reverse proxy in front of the api container — the app is never bound to
+# a public port directly (docker-compose.prod.yml has no `ports:` on api).
+#
+# api.workforceos.online — the backend's own subdomain, split from the
+# bare domain (which now points at the Vercel-hosted frontend instead).
+# Caddy automatically requests and renews a free Let's Encrypt certificate
+# for this domain on startup, no other config needed. Requires the
+# subdomain's DNS A record to point at this server and not be
+# Cloudflare-proxied (DNS only / grey cloud) — a proxied record would
+# intercept the ACME HTTP challenge before it reaches Caddy. See
+# docs/11_DEPLOYMENT.md.
+
+api.workforceos.online {
+	reverse_proxy api:8000
+}

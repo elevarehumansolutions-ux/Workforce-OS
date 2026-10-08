@@ -13,9 +13,10 @@ from uuid import UUID
 from pydantic import (
     BaseModel,
     ConfigDict,
-    EmailStr,
-    Field,
+    field_validator,
 )
+
+from app.core.schemas import NormalizedEmail
 
 from .enums import SubscriptionStatus, AuthProvider, MembershipRole, AccountStatus
 
@@ -72,8 +73,11 @@ class MembershipResponse(BaseModel):
 
 
 class MembershipWithOrganizationResponse(BaseModel):
-    """A membership paired with its organization — used by GET /me to
-    render the org-switcher (a user may belong to more than one org)."""
+    """A membership paired with its organization.
+
+    Used by GET /me to render the org-switcher (a user may belong to more
+    than one org).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -85,8 +89,11 @@ class MembershipWithOrganizationResponse(BaseModel):
 
 
 class MembershipWithUserResponse(BaseModel):
-    """A membership paired with its user — used by the Team Management
-    screen (GET /memberships) to show who each membership belongs to."""
+    """A membership paired with its user.
+
+    Used by the Team Management screen (GET /memberships) to show who each
+    membership belongs to.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -110,9 +117,12 @@ class InviteResponse(BaseModel):
 
 
 class InviteTeammateResponse(BaseModel):
-    """Response for POST /memberships — tells the caller whether the
-    teammate was added immediately (already had an account) or a pending
-    invite was created and emailed (no account yet)."""
+    """Response for POST /memberships.
+
+    Tells the caller whether the teammate was added immediately (already
+    had an account) or a pending invite was created and emailed (no account
+    yet).
+    """
 
     status: Literal["added", "invited"]
     membership: MembershipWithUserResponse | None = None
@@ -126,20 +136,46 @@ class InviteTeammateResponse(BaseModel):
 class InviteTeammateRequest(BaseModel):
     """Payload for POST /memberships — invite or directly add a teammate."""
 
-    email: EmailStr
+    email: NormalizedEmail
     role: MembershipRole
+
+
+class ReactivateMembershipRequest(BaseModel):
+    """Payload for POST /memberships/{id}/reactivate.
+
+    ``role`` is optional: leave it out to restore the role the person had
+    when they were deactivated.
+    """
+
+    role: MembershipRole | None = None
 
 
 class UpdateMembershipRequest(BaseModel):
     """Payload for PATCH /memberships/{id}.
 
-    Both fields optional and independent: change the role, deactivate/
-    reactivate the person's account, or both in one call. At least one must
-    be provided.
+    Both fields optional and independent: change the role, deactivate the
+    person, or both in one call. At least one must be provided.
+    ``is_deactivated`` only accepts ``true``: bringing someone back is its own
+    action, ``POST /memberships/{id}/reactivate`` (08_DECISIONS.md
+    2026-10-02), which has the checks and the audit entry a bare flag flip
+    would skip. The service's ``update_membership`` still supports ``False``
+    internally, for ``POST /employees/{id}/reinstate``.
     """
 
     role: MembershipRole | None = None
     is_deactivated: bool | None = None
 
+    @field_validator("is_deactivated")
+    @classmethod
+    def _only_deactivation_here(cls, value: bool | None) -> bool | None:
+        """Reject ``false``: reactivation has its own endpoint."""
+        if value is False:
+            raise ValueError(
+                "is_deactivated can only be true here; to bring someone back use "
+                "POST /memberships/{id}/reactivate"
+            )
+        return value
+
     def has_updates(self) -> bool:
+        """Return whether at least one of role or is_deactivated was set."""
         return self.role is not None or self.is_deactivated is not None

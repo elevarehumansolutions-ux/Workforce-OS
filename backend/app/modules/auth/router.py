@@ -1,3 +1,5 @@
+"""FastAPI routes for registration, login, and account/session management."""
+
 import logging
 
 from fastapi import APIRouter, Cookie, Depends, Response
@@ -33,9 +35,7 @@ async def register(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> AuthResponse:
-    """
-    Register a new account and return tokens.
-    """
+    """Register a new account and return tokens."""
     service = AuthService(db)
     return await service.register(data, response)
 
@@ -45,9 +45,9 @@ async def verify_email(
     data: VerifyEmailRequest,
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
-    """
-    Verify a newly registered account's email address using the token from
-    the verification link.
+    """Verify a newly registered account's email address.
+
+    Uses the token from the verification link sent to the user's email.
     """
     service = AuthService(db)
     return await service.verify_email(data.token)
@@ -58,9 +58,10 @@ async def resend_verification(
     data: ResendVerificationRequest,
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
-    """
-    Request a new verification email. Always returns a generic success
-    message, regardless of whether the email exists or is already verified.
+    """Request a new verification email.
+
+    Always returns a generic success message, regardless of whether the
+    email exists or is already verified.
     """
     service = AuthService(db)
     return await service.resend_verification_email(data.email)
@@ -72,9 +73,7 @@ async def login(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> AuthResponse:
-    """
-    Authenticate by email/password and return tokens.
-    """
+    """Authenticate by email/password and return tokens."""
     service = AuthService(db)
     return await service.login(data, response)
 
@@ -85,9 +84,7 @@ async def refresh(
     db: AsyncSession = Depends(get_db),
     refresh_token: str | None = Cookie(default=None),
 ) -> TokenResponse:
-    """
-    Issue a new access token from the refresh token cookie.
-    """
+    """Issue a new access token from the refresh token cookie."""
     service = AuthService(db)
     return await service.refresh(refresh_token, response)
 
@@ -98,9 +95,7 @@ async def logout(
     db: AsyncSession = Depends(get_db),
     refresh_token: str | None = Cookie(default=None),
 ) -> MessageResponse:
-    """
-    Revoke the current refresh token and clear the cookie.
-    """
+    """Revoke the current refresh token and clear the cookie."""
     service = AuthService(db)
     return await service.logout(refresh_token, response)
 
@@ -111,9 +106,7 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MessageResponse:
-    """
-    Change the authenticated user's own password.
-    """
+    """Change the authenticated user's own password."""
     service = AuthService(db)
     return await service.change_password(current_user, data)
 
@@ -123,9 +116,10 @@ async def forgot_password(
     data: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
-    """
-    Request a password reset link. Always returns a generic success message,
-    regardless of whether the email is registered.
+    """Request a password reset link.
+
+    Always returns a generic success message, regardless of whether the
+    email is registered.
     """
     service = AuthService(db)
     return await service.forgot_password(data.email)
@@ -136,9 +130,7 @@ async def reset_password(
     data: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
-    """
-    Complete a password reset using the token from the reset-password email.
-    """
+    """Complete a password reset using the token from the reset-password email."""
     service = AuthService(db)
     return await service.reset_password(data.token, data.new_password)
 
@@ -148,9 +140,9 @@ async def me(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MeResponse:
-    """
-    The caller's identity plus every organization they belong to — feeds
-    the frontend's org-switcher for multi-membership users.
+    """Return the caller's identity plus every organization they belong to.
+
+    Feeds the frontend's org-switcher for multi-membership users.
     """
     service = AuthService(db)
     return await service.get_me(current_user)
@@ -162,9 +154,9 @@ async def accept_invite(
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> AuthResponse:
-    """
-    Complete a teammate invite for an email with no prior account — creates
-    the account and logs straight in, same as register().
+    """Complete a teammate invite for an email with no prior account.
+
+    Creates the account and logs straight in, same as register().
     """
     service = AuthService(db)
     return await service.accept_invite(data, response)

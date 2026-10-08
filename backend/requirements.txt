@@ -1,3 +1,4 @@
+anthropic==1.8.0
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
@@ -22,6 +23,11 @@ pytest-asyncio==0.23.6
 pytest-cov==6.0.0
 httpx==0.27.2
 structlog==24.4.0
+# IANA timezone data. Python's zoneinfo needs it on machines without a system
+# copy; it was only arriving transitively. Org timezones (organizations.timezone,
+# validated in business_dna/schemas.py and used by the attendance auto-close)
+# depend on it, so it's pinned explicitly.
+tzdata==2026.4
 
 # Auth
 python-jose[cryptography]==3.3.0

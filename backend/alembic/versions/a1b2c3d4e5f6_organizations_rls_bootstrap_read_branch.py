@@ -1,4 +1,4 @@
-"""organizations RLS: add bootstrap-read branch for GET /me multi-org support
+"""Add bootstrap-read branch to the organizations RLS policy for GET /me multi-org support.
 
 Revision ID: a1b2c3d4e5f6
 Revises: ce685af9fd0d
@@ -17,6 +17,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """Replace organizations' tenant_isolation policy with a bootstrap-read variant.
+
+    Adds a USING-clause branch that, when no org is yet selected
+    (``app.current_org_id`` unset), allows a session identified only by
+    ``app.current_user_id`` to see every organization row it holds a
+    membership in — mirroring the bootstrap pattern memberships' own policy
+    already uses. Needed for GET /me multi-org support: without it, RLS
+    only ever allowed seeing one org's row at a time.
+    """
     # organizations' USING clause had no bootstrap-read exception at all
     # (only WITH CHECK, for registration's insert) — meaning a session
     # identified only by app.current_user_id (login, GET /me, before any one
@@ -51,6 +60,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Restore organizations' tenant_isolation policy to its single-org-only form."""
     op.execute("DROP POLICY tenant_isolation ON organizations")
     op.execute(
         """

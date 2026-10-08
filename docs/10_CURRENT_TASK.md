@@ -1,37 +1,62 @@
 # Current Task
 
-**M3 — Audit Log & Notifications** (infrastructure modules, see `09_PROGRESS.md`)
+**M10 — Task** (see `09_PROGRESS.md`), after finishing M9's housekeeping.
 
-Backend is done and verified (2026-09-20) on `m3-audit-notifications` — full
-design writeup in `08_DECISIONS.md` 2026-09-20. Not yet committed/pushed/PR'd
-— that's the next mechanical step, same as M2's "commit → review → PR →
-merge" flow (`08_DECISIONS.md`/`09_PROGRESS.md`).
+M9 (Attendance) backend is built and committed on `m9-attendance`, not yet merged.
+See `docs/SESSION_HANDOFF.md` for exactly what shipped and `08_DECISIONS.md`'s
+2026-10-01 and 2026-10-02 entries for the design trail (including the
+prerequisite work it uncovered: login <-> employee linking, email
+normalization, reactivation split). `.claude/study/M9_STUDY_GUIDE.md` is the
+study guide. M9's frontend is Uche's track, tracked on the Trello board, not
+blocking this milestone's backend.
 
-**Backend, shipped:** `audit_log`/`notifications` tables + RLS policies
-(`04_DATABASE.md` Clusters 8–9), `log_action()`/`notify()` internal services,
-all four endpoints (`GET /audit-log`, `GET /notifications`,
-`POST /notifications/{id}/read`, `POST /notifications/read-all`). Both
-completeness gaps flagged in the 2026-09-18 review — `GET /audit-log`'s
-missing filters/pagination, and bulk mark-all-read — are closed. 16 new
-tests (`tests/audit_and_notification/`), 90 tests passing total, run
-against the real dev DB (not just reasoned about).
+**Housekeeping, do this first:** `git push -u origin m9-attendance`, open the
+PR, merge it on GitHub; then `git checkout main && git pull origin main`,
+delete `m8-kpis` and `m9-attendance` (local + remote), and branch
+`m10-tasks` off the updated `main`.
 
-**Backend, not yet done:** nothing outstanding — see `08_DECISIONS.md`
-2026-09-20 for the full list of what shipped in this pass.
+## Backend scope
 
-**Frontend:** Notification bell/center (role-filtered stream, category
-filter, mark-read). Not started. No audit log viewer screen needed
-(explicitly deferred, `07_SECURITY.md`).
+**`tasks`** (`04_DATABASE.md` Cluster 6) and **`task_blocks`**, per
+`09_PROGRESS.md` M10:
+- Standalone task CRUD, `POST /tasks/{id}/complete`, KPI-weight inheritance
+  (calls Performance's service, never queries `kpis` directly).
+- **Clock-in-gated task list:** the list is only visible once the employee is
+  clocked in. Attendance has no "is this employee clocked in?" method on its
+  service yet (only the repository's `get_open_record`); M10 will need one, and
+  it should go through `AttendanceService`, not a direct `attendance_records`
+  query.
+- Overdue as derived state, plus a Celery Beat scan that notifies the assignee
+  and the **department manager** when `due_at` passes.
+- Filters: department, assignee, status, kpi, overdue.
+- `task_blocks` and `POST /tasks/{id}/block|unblock`, plus the approve/reject
+  review lifecycle (same shape as `ai_suggestions`).
+- The live-progress read for `task_count`-tracking KPIs (08_DECISIONS.md 2026-09-30).
 
-**Depends on:** M2 (`actor_user_id`/`recipient_user_id` — done).
+## Decisions needed before building (not already settled, talk them through first)
 
-## Next recommended action
+1. **RESOLVED 2026-10-06:** a department's manager is `departments.head_employee_id`, one
+   named person set by HR (`08_DECISIONS.md` 2026-10-06). **Built** (2026-10-06, branch
+   `m4-followups`, migration `34c5feaf5535`): validation, clearing on offboard, audit, tests.
+   **What M10 must still do with it:** when a department has no head, send the alert to the
+   HR administrators instead of nowhere. The original gap, for context:
+   **"Department manager" was not modelled anywhere** (found 2026-10-02):
+   `departments` has no manager/head column, yet the overdue scan and M11's
+   workflow routing both need one. Options in `09_PROGRESS.md` M10: an explicit
+   `departments.head_employee_id`, derive from the `manager` role in that
+   department, or derive from the top position's manager. Needs a product call.
+2. **Cancel and reassignment** (gaps flagged 2026-09-18): `tasks.status`
+   includes `cancelled` but no endpoint closes a task without counting it as
+   completed; nothing describes changing `assigned_to_employee_id` after creation.
+3. M9's two parked questions are answered and built (`invite_status` on employee
+   responses; `PATCH /memberships` no longer reactivates), see `SESSION_HANDOFF.md`.
 
-1. Review the diff on `m3-audit-notifications`, commit, push, open a PR,
-   merge, delete the branch (local + remote) per the standard workflow.
-2. Decide: M3 frontend (notification bell), or move on to M4 (Org
-   Structure) backend — both are unblocked at this point.
-3. Before M4 starts: `09_PROGRESS.md`'s M4 entry already flags an open
-   cross-module question (does offboarding an employee also deactivate
-   their `Membership`?) that needs a decision before that milestone's
-   design is settled, not discovered mid-build.
+## Depends on
+
+M8 (KPI weights) and M9 (clock-in check): both done.
+
+## Not this milestone's job
+
+Frontend: the daily task list, Assign Task screen, block/unblock UI. That is
+Uche's track. When M10's endpoints change what a screen needs, update the
+Trello board in the same session (see `CLAUDE.md`, "Frontend impact").

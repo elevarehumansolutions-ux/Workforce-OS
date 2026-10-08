@@ -7,17 +7,14 @@
 Grouped by the PRD's phase structure. Items marked **(MVP)** appear explicitly in the PRD's MVP roadmap list.
 
 ### 1. Business Foundation — Business DNA Engine (MVP)
-Capture how the organization operates and creates value:
+Capture how the organization operates and creates value. Field set resolved 2026-09-21 (`08_DECISIONS.md`) — the `business_dna` questionnaire itself captures:
 - Business identity, industry, products & services
 - Vision, mission, core values, business model
-- Strategic objectives, annual goals, OKRs, business priorities
-- Organizational structure, departments, business units, reporting relationships
-- Job architecture
 - Revenue drivers, operational drivers, customer value drivers
 - Performance philosophy, workforce rules
 - **Capital investment amount** (added 2026-09-03) — e.g. ₦25,000,000. Feeds the revenue-target generation mechanism described in §4, unrelated to payroll.
 
-> ⚠ **Gap:** discovery notes describe this as a fixed questionnaire covering only "vision, mission, industry, value chain" — materially narrower than the PRD's field list above. The PRD list is used here as the spec since it's the primary source; confirm the actual questionnaire will cover all of it.
+**Not asked again here, captured by their own modules instead:** organizational structure, departments, business units, reporting relationships, and job architecture are M4 (Org Structure); strategic objectives, annual goals, and OKRs are M6 (OKR). The PRD's original Business Foundation list named all of these as part of "Business DNA" narratively, but by the time each became its own schema/milestone, re-asking them in the Business DNA step would just be a duplicate data-entry step feeding nothing new.
 
 ### 2. Organization & Workforce Structure (MVP)
 - Organization setup, business units, departments, locations
@@ -41,7 +38,7 @@ Identify positions that are revenue generating, revenue enabling, operationally 
 - **Department** — gets revenue allocation. Example given: Operations. Marked via a "Critical" toggle at the department level during org setup.
 - **Position** — gets the criticality flag. Example given: General Manager. Criticality attaches to the role in the job architecture, never to the person occupying it — if the GM leaves, the position is still critical. AI suggests candidate critical positions from departments already marked critical; HR Administrator approves/edits/rejects.
 
-**AI is restricted to entities that already exist (added 2026-09-04).** The AI must only tag departments and job titles that HR has already created during Organization setup — it must never invent a department or role name that isn't already a real record. This is what keeps suggestions from becoming nonsensical as the org grows.
+**AI is restricted to entities that already exist (added 2026-09-04).** The AI must only tag departments and job titles that HR has already created during Organization setup — it must never invent a department or role name that isn't already a real record. This is what keeps suggestions from becoming nonsensical as the org grows. **One deliberate, capped exception (clarified 2026-09-25):** `missing_department` may propose a department *name* that doesn't exist yet (HR still has to accept it before any row is created), guarded by the volume caps in `06_AI_DESIGN.md` "Guardrails against noise". There is no "missing position" suggestion.
 
 **Missing-department suggestion — a separate feature from critical-role tagging (added 2026-09-04).** If the AI detects a likely gap (e.g. a business with this kind of OKR typically needs a Sales department, and none exists), it surfaces a distinct, clearly-labeled suggestion with an explicit "Add Department" action — it does not pretend the department already exists or attach criticality to a non-existent record. Only after HR accepts and the department is actually created can it go through normal critical-role tagging like any other department.
 
@@ -78,6 +75,20 @@ When an employee starts their day, present: daily priorities, tasks, KPIs, deliv
 - **Default assignees exist to remove repetitive manager decisions**, not to replace manager judgment entirely: a department whose incoming step is always handled the same way (e.g. "the same two people, in the same order, every time") should have that saved once, rather than a manager re-deciding it on every single occurrence. A department whose routing genuinely varies (workload-dependent, e.g. "whichever of my 3 people is free") should leave the default blank and keep deciding case by case.
 - **Deadlines and lateness:** every task has a `due_at` (computed from the step's default turnaround, or overridden by whoever assigns it) and a `completed_at` (set when marked done). A task still open past its `due_at` flips to **Overdue** and notifies the assignee and the department's manager, even if it isn't finished yet, lateness is surfaced while it's happening, not only judged afterward. The gap between `due_at` and `completed_at` is also the same input that produces the weighted KPI scoring described in §7, this isn't a separate mechanism, it's the same comparison feeding both.
 - **Who can build templates:** HR Administrator (org-wide) or any Manager (who may need steps spanning other departments, in which case they're expected to have already confirmed realistic turnaround times with those departments' managers, the same coordination that would happen with no software involved — the tool doesn't enforce a cross-department approval step for this in MVP, that would be solving a people problem with unnecessary engineering).
+
+### 6a. Task Blocking & Escalation (added 2026-09-22, Jennifer's submission after reviewing early screens)
+
+**The problem this solves:** an employee can be blamed for a late/undelivered task when the real cause was upstream, someone else's delayed approval, another department not delivering on time, an external dependency. Jennifer asked for an "avenue" for the employee to explain, reviewed by "the upper team." Sharpened into a real mechanism below, following established precedent (Google SRE's "blameless postmortem" practice, and the SLA-pause pattern used by Jira Service Management/ServiceNow) rather than a bespoke design.
+
+**The mechanism, `task_blocks`:** an assignee can mark a task blocked, with a reason and a category (`awaiting_approval`, `awaiting_other_department`, `external_dependency`, `other`). While blocked, the task is not flagged Overdue and does not count against the assignee for scoring, this is the proactive case, marked *before* the deadline passes, and prevents the accusatory situation from arising at all. If a task goes overdue with no block ever recorded, the existing Overdue Celery Beat scan (§6) prompts the employee to explain, creating a `task_blocks` row after the fact, the reactive fallback. Either way, the record goes through the same approve/reject review lifecycle already used for `ai_suggestions` and membership deactivation, reviewed by the assignee's manager or HR Administrator.
+
+`due_at` itself is never mutated, matching the existing principle of not rewriting history (`04_DATABASE.md`, `due_at` written once at task creation). "Currently overdue" and "was this actually late for scoring" are both derived calculations that exclude any *approved* blocked duration. A pending (not yet reviewed) block holds that task's contribution out of KPI scoring entirely until resolved, not scored provisionally and corrected later, this preserves the existing rule that a closed period's `kpi_scores` are permanent history.
+
+**AI incident narrative:** reuses the same shared LLM-calling utility already built for AI Suggestions and Executive Summaries (§8, §11), applied to a new content type, structured `task_blocks` data (department, employee, category, duration, outcome) lets the narrative distinguish systemic patterns ("Operations missed its target primarily due to repeated cross-department approval delays") from genuine individual underperformance, which is the actual point of a blameless-postmortem-style mechanism, surfacing process problems the business can fix, not just producing a fairness feature for the employee.
+
+**Explicitly deferred, a real Phase 2 candidate:** fully proactive SLA-pause where a workflow step's own clock formally pauses mid-flight (rather than the assignee self-reporting a block) is the more mature version of this same idea, but requires redesigning how `workflow_steps`' turnaround/deadline computation works. The self-reported block above is the right MVP scope, simpler, and doesn't require that redesign.
+
+**Known limitations (accepted, see `08_DECISIONS.md` 2026-09-23):** a block recorded *after* `due_at` has already passed can't be verified against how long the delay genuinely was, reviewer judgment carries more weight there than on a proactive block, by design, letting the assignee backdate `blocked_at` was considered and rejected as it would make a system timestamp user-editable. Separately, `task_blocks` explains individual task lateness only, it does not explain why an entire multi-step workflow instance ran long overall, that's a different, unsolved, and currently unrequested metric.
 
 ### 7. Performance Intelligence (MVP: basic performance tracking)
 - Employee performance, KPI achievement, task completion, quality indicators

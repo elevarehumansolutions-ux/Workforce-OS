@@ -1,3 +1,5 @@
+"""FastAPI routes for reading the audit trail and managing notifications."""
+
 import uuid
 from datetime import datetime
 
@@ -32,10 +34,11 @@ async def list_audit_log(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(require_org_role(*_AUDIT_LOG_ROLES)),
 ) -> CursorPaginationResponse:
-    """
-    Org-wide audit trail (no viewer screen for MVP, reachable via API for
-    support/debugging use per 07_SECURITY.md). hr_administrator/
-    business_executive only.
+    """List the org-wide audit trail, cursor-paginated and filterable.
+
+    No viewer screen for MVP, reachable via API for support/debugging use
+    per 07_SECURITY.md. Restricted to hr_administrator/business_executive
+    roles via ``require_org_role``.
     """
     service = AuditService(db)
     result = await service.list_audit_log(
@@ -66,10 +69,10 @@ async def list_notifications(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(get_current_membership),
 ) -> list[NotificationResponse]:
-    """
-    The caller's own notification stream — self-scoped by
-    recipient_user_id, no role restriction (every role gets their own
-    stream, per 04_DATABASE.md Cluster 8's design note).
+    """List the caller's own notification stream, optionally filtered.
+
+    Self-scoped by recipient_user_id, no role restriction — every role
+    gets their own stream, per 04_DATABASE.md Cluster 8's design note.
     """
     service = NotificationService(db)
     notifications = await service.list_notifications(
@@ -87,6 +90,14 @@ async def mark_notification_read(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(get_current_membership),
 ) -> NotificationResponse:
+    """Mark one of the caller's own notifications as read and commit.
+
+    Raises:
+        NotificationNotFoundException: If no notification with that id
+            exists for the caller (also covers another user's notification
+            id, since the lookup is scoped to the caller).
+
+    """
     service = NotificationService(db)
     notification = await service.mark_read(
         notification_id=notification_id,
@@ -101,6 +112,7 @@ async def mark_all_notifications_read(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(get_current_membership),
 ) -> MarkAllReadResponse:
+    """Mark all of the caller's unread notifications as read and commit."""
     service = NotificationService(db)
     count = await service.mark_all_read(
         organization_id=caller.organization_id,
