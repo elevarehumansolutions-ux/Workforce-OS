@@ -645,6 +645,34 @@ class NotClockedInException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class TaskNotFoundException(PlatformError):
+    """Raised when a task doesn't exist, or exists but the caller may not see it."""
+
+    def __init__(
+        self,
+        message: str = "Task not found",
+        code: str = "TASK_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskNotOpenException(PlatformError):
+    """Raised when changing a task that is already completed or cancelled."""
+
+    def __init__(
+        self,
+        message: str = "This task is already completed or cancelled and can't be changed",
+        code: str = "TASK_NOT_OPEN",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class MembershipNotDeactivatedException(PlatformError):
     """Raised when reactivating a membership that is not deactivated."""
 

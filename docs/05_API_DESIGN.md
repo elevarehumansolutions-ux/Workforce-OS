@@ -141,12 +141,19 @@ Nothing below this line exists as a real endpoint today — every path here 404s
 - `GET /employees/leaderboard` (filter: `department_id`, `period`) — ranked employee scores.
 - `GET /company-performance-summary` (filter: `period`) — the headline dashboard section in one call.
 
-### Task (M10+)
+### Task (M10)
 
-- `POST /tasks` — standalone/ad hoc.
-- `GET /tasks` (filter: `department_id`, `assigned_to_employee_id`, `status`, `kpi_id`, `overdue=true`)
-- `GET|PATCH /tasks/{id}`
-- `POST /tasks/{id}/complete`
+**Built (slice A, 2026-10-07):**
+
+- `POST /tasks` — body `{department_id, title, description?, due_at?, kpi_id?, assigned_to_employee_id?}`. `due_at` must carry a timezone. Allowed to an HR administrator, the `manager` role, or the head of `department_id`. `department_id` is the department *doing the work*. A creator from another department cannot pick the individual (422 `VALIDATION_FAILED`); the task is assigned to that department's head, or stays unassigned (`assigned_to_employee_id: null`) with the HR administrators notified if it has none. A plain employee gets 403 `PERMISSION_DENIED`. 404 `DEPARTMENT_NOT_FOUND` / `EMPLOYEE_NOT_FOUND` / `KPI_NOT_FOUND`; 422 for an offboarded assignee, empty title, or a `due_at` with no timezone. The assignee (or the head, for a cross-department task) gets an in-app notification "New task: <title>".
+- `GET /tasks` — paginated (`page`, `limit`, `{data, pagination}`), newest first. Filters: `department_id`, `assigned_to_employee_id`, `status` (`open`/`in_progress`/`completed`/`cancelled`), `kpi_id`. HR administrators and business executives see all; everyone else sees tasks assigned to them, created by them, or belonging to a department they head (the `manager` role also sees its own department).
+- `GET /tasks/{id}` — 404 `TASK_NOT_FOUND` both when it doesn't exist and when it is outside the caller's view.
+- `PATCH /tasks/{id}` — `title`, `description`, `due_at`, `kpi_id` only; any other field (including `status`, `assigned_to_employee_id`, `department_id`) is rejected with 422. At least one field required. Allowed to HR, the department head and the creator; the assignee gets 403. 409 `TASK_NOT_OPEN` if the task is completed or cancelled. Changing `due_at` is audit-logged with old and new values.
+- `POST /tasks/{id}/complete` — allowed to the assignee, the department head and HR (403 for anyone else who can see it). Not idempotent: a second call is 409 `TASK_NOT_OPEN` and the first `completed_at` stands.
+
+`TaskResponse`: `id, organization_id, workflow_instance_id, workflow_step_id, department_id, kpi_id, assigned_to_employee_id, title, description, due_at, completed_at, status, created_by_user_id, created_at, updated_at`. There is **no** `overdue` field yet (slice C).
+
+**Not built yet:** `POST /tasks/{id}/cancel` and `/reassign` (slice B), the `overdue=true` filter and clock-in gate (C), overdue notifications (D), `block`/`unblock` (E), the `task_count` KPI read (F).
 
 ### Workflow (M11+)
 

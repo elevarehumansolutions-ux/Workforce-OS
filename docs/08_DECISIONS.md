@@ -897,3 +897,25 @@ Full task list in `09_PROGRESS.md` M4.
 **Accepted, not built:** two simultaneous requests (`A to B` and `B to A`) could each pass and together make a ring; closing that needs row locking, out of proportion for HR editing an org chart. A `GET /positions/hierarchy` tree endpoint (the frontend can build the tree from `GET /positions`).
 
 **Impact:** `05_API_DESIGN.md`, `09_PROGRESS.md` (M4). Tests: `tests/organization/test_position_hierarchy.py` (8). Full suite 520 passing.
+
+## 2026-10-07 — M10 (Task) design decisions, part 1: slicing, permissions, due dates, cancel, reassign
+
+Settled in a design conversation before any M10 code. The user's decisions unless noted.
+
+**Slicing (M10 is much larger than M8/M9, so it ships as slices on one branch, merging as each is solid):** A core tasks (model, migration, create/read/update/complete) -> B cancel and reassign -> C the clock-in gate and the derived "overdue" filter -> D the overdue scan with notifications -> E `task_blocks` -> F the `task_count` KPI read.
+
+**`workflow_instance_id` / `workflow_step_id` are plain nullable UUID columns with no foreign key for now**, because `workflow_instances` and `workflow_steps` are M11's tables and cannot be referenced yet. M11's migration adds the named constraints (every existing value is null, so nothing to backfill). Not an ORM relationship.
+
+**Who can create a task:** an HR administrator, **or** a member with the `manager` role, **or** the head of the task's department (`departments.head_employee_id`). Plain employees cannot create tasks, not even for themselves, in the MVP. *Why the role stays in the rule even though departments have heads:* the head is optional, empty right after onboarding and cleared when the head is offboarded, so a "heads only" rule would leave managers unable to assign anything until HR sets heads; and a head can hold a plain `employee` role. There is no Manager class or table: "manager" is a membership *role* (permission), `employees.manager_id` (a person's own boss) and `departments.head_employee_id` (who runs a department).
+
+**Cross-department tasks:** `tasks.department_id` is the department that *does the work*; the creator is recorded separately (`created_by_user_id`). A creator who belongs to another department cannot choose the individual: the task lands with the work department's head, who delegates. With no head, it is left unassigned and the HR administrators are told. HR may create anywhere (HR is often the founder with no employee record and so no department of their own).
+
+**Assignees are not read-only:** an assignee can read their own tasks and must be able to complete them (and move them to `in_progress`). Read scope proposed, not yet confirmed: assignee sees their own, a department head sees their department's, HR sees all.
+
+**`due_at` can be edited after creation** by an authorized person (creator, the department head, HR), audit-logged with old and new. This refines the earlier note that `due_at` is "written once": the principle is that *system events* (a template edit, a block) never move it, not that a person with authority cannot.
+
+**Every reassignment requires a new `due_at`** (in the future), so the new assignee always gets a fair clock rather than inheriting the previous holder's lateness. Reassign is its own endpoint (`POST /tasks/{id}/reassign`), not a `PATCH` field, following the rule that state-changing actions get their own endpoint. Consequences, accepted: the previous assignee's lateness is not attributed to them after a reassign (the audit log keeps old and new values; assignment history could be added later), and a manager could in principle reset a late task's clock. Mitigated by restricting who may reassign (creator, department head, HR), the audit trail, and notifying the new assignee.
+
+**Cancel:** a cancelled task counts neither as completed nor as late (it never earned a score). Allowed to the creator, the department head and HR, **not the assignee** (otherwise cancelling becomes a way to dodge a late task; the assignee uses a block). A reason is required and goes in the audit log. Final: no reopening (create a new task). A completed task cannot be cancelled (409).
+
+**Still open:** read scope for the `manager` role and business executives; whether `in_progress` is a separate action; what happens to an open block when a task is cancelled or reassigned.
