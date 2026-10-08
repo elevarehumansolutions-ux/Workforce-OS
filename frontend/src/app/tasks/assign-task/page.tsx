@@ -1,260 +1,298 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { ApiError, apiFetch } from "@/lib/api";
+import AppShell from "@/components/AppShell";
+import {
+  activeEmployees,
+  canCreateTasks,
+  canPickAssignee,
+  errorMessage,
+  fullName,
+  loadCaller,
+  localInputToIso,
+  roleLabel,
+} from "@/lib/tasks";
+import type { CallerContext, Task } from "@/lib/tasks";
 
-const SIDEBAR_ITEMS: { label: string; href: string }[] = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Employees", href: "/employees" },
-  { label: "Team Management", href: "/team-management" },
-  { label: "Organization Structure", href: "/organization-structure" },
-  { label: "Attendance", href: "/attendance" },
-  { label: "Leave Management", href: "/leave" },
-  { label: "Workflow", href: "/workflow/templates" },
-  { label: "Tasks", href: "/tasks" },
-  { label: "Payroll", href: "/payroll" },
-  { label: "Reports", href: "/reports" },
-  { label: "Settings", href: "/settings" },
-];
-
-function SidebarNav(activeLabel: string) {
-  return (
-    <nav className="flex flex-col gap-1 px-3">
-      {SIDEBAR_ITEMS.map(function (item) {
-        const isActive = item.label === activeLabel;
-        let linkClass = "rounded-lg px-3 py-2.5 text-sm transition ";
-        if (isActive) {
-          linkClass = linkClass + "bg-indigo-500/15 text-indigo-300 font-medium";
-        } else {
-          linkClass = linkClass + "text-gray-400 hover:bg-white/5 hover:text-gray-200";
-        }
-        return (
-          <a key={item.label} href={item.href} className={linkClass}>
-            {item.label}
-          </a>
-        );
-      })}
-    </nav>
-  );
-}
-
-function SidebarShell(activeLabel: string) {
-  return (
-    <aside className="hidden w-64 flex-col justify-between border-r border-white/10 bg-[#0a0e1a] py-6 lg:flex">
-      <div>
-        <div className="mb-8 flex items-center gap-3 px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="8" width="4" height="9" rx="1" fill="white" />
-              <rect x="13" y="3" width="4" height="14" rx="1" fill="white" />
-            </svg>
-          </div>
-          <span className="text-base font-bold text-white">Elevare</span>
-        </div>
-        {SidebarNav(activeLabel)}
-      </div>
-      <div className="flex items-center gap-3 border-t border-white/10 px-6 pt-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-500 text-xs font-semibold text-white">
-          NA
-        </div>
-        <div>
-          <p className="text-sm font-medium text-white">Ngozi Adeyemi</p>
-          <p className="text-xs text-gray-500">Engineering Manager</p>
-        </div>
-      </div>
-    </aside>
-  );
-}
-
-type Priority = "Low" | "Medium" | "High";
-
-interface AssignTaskFormData {
-  assignTo: string;
-  taskTitle: string;
-  taskDescription: string;
-  linkedKpi: string;
-  dueDate: string;
-  priority: Priority;
-}
+const inputClass =
+  "w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500";
 
 export default function AssignTaskPage() {
   const router = useRouter();
-  const [formData, setFormData] = useState<AssignTaskFormData>({
-    assignTo: "Adaeze Okonkwo",
-    taskTitle: "Optimize database query indexing for metrics endpoint",
-    taskDescription:
-      "Investigate high response latency on the main telemetry load paths. Review existing indexes on performance metrics table and propose missing indexes to satisfy API SLAs.",
-    linkedKpi: "Code Review Turnaround",
-    dueDate: "2026-08-29",
-    priority: "Medium",
-  });
+  const [ctx, setCtx] = useState<CallerContext | null>(null);
+  const [ctxError, setCtxError] = useState("");
 
-  function updateField(field: keyof AssignTaskFormData, value: string) {
-    setFormData(function (prev) {
-      return { ...prev, [field]: value };
-    });
+  const [departmentId, setDepartmentId] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [dueLocal, setDueLocal] = useState("");
+  const [kpiId, setKpiId] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(function () {
+    let cancelled = false;
+    loadCaller()
+      .then(function (loaded) {
+        if (cancelled) return;
+        setCtx(loaded);
+      })
+      .catch(function (err) {
+        if (cancelled) return;
+        setCtxError(errorMessage(err, "Couldn't load the form. Check your connection and try again."));
+      });
+    return function () {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedDepartment = ctx
+    ? ctx.departments.find(function (d) {
+        return d.id === departmentId;
+      })
+    : undefined;
+  const pickerAllowed = ctx !== null && departmentId !== "" && canPickAssignee(ctx, departmentId);
+  const departmentKpis = ctx
+    ? ctx.kpis.filter(function (k) {
+        return k.department_id === departmentId;
+      })
+    : [];
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!ctx) return;
+    setFormError("");
+
+    const newErrors: Record<string, string> = {};
+    const trimmedTitle = title.trim();
+    if (!departmentId) newErrors.department_id = "Choose the department that will do the work.";
+    if (!trimmedTitle) newErrors.title = "Give the task a title.";
+    if (trimmedTitle.length > 255) newErrors.title = "The title can be at most 255 characters.";
+    let dueIso: string | null = null;
+    if (dueLocal) {
+      dueIso = localInputToIso(dueLocal);
+      if (!dueIso) newErrors.due_at = "That deadline isn't a valid date and time.";
+    }
+    setErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) return;
+
+    const body: Record<string, string> = { department_id: departmentId, title: trimmedTitle };
+    if (description.trim()) body.description = description.trim();
+    if (dueIso) body.due_at = dueIso;
+    if (kpiId) body.kpi_id = kpiId;
+    if (pickerAllowed && assigneeId) body.assigned_to_employee_id = assigneeId;
+
+    setSubmitting(true);
+    try {
+      const created = await apiFetch<Task>("/tasks", { method: "POST", body: body });
+      router.push("/tasks/" + created.id);
+    } catch (err) {
+      if (err instanceof ApiError && Object.keys(err.fieldErrors).length > 0) {
+        setErrors(err.fieldErrors);
+        setFormError(err.message);
+      } else {
+        setFormError(errorMessage(err, "Couldn't create the task. Check your connection and try again."));
+      }
+      setSubmitting(false);
+    }
   }
 
-  const PRIORITIES: Priority[] = ["Low", "Medium", "High"];
+  const allowed = ctx !== null && canCreateTasks(ctx);
 
   return (
-    <div className="flex min-h-screen w-full bg-[#05070f] text-white">
-      {SidebarShell("Tasks")}
+    <AppShell
+      activeLabel="Tasks"
+      title="Assign task"
+      breadcrumb="Dashboard > Tasks > Assign task"
+      userName={ctx ? ctx.userName : undefined}
+      userRole={ctx ? roleLabel(ctx.role) : undefined}
+    >
+      {ctxError ? (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-300">{ctxError}</div>
+      ) : null}
+      {!ctx && !ctxError ? <p className="text-sm text-gray-400">Loading…</p> : null}
 
-      <div className="flex flex-1 flex-col">
-        <div className="flex items-center justify-between border-b border-white/10 px-8 py-5">
-          <div>
-            <h1 className="text-xl font-bold text-white">Assign Task</h1>
-            <p className="text-sm text-gray-500">Create and delegate action items to your engineering workforce</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <button type="button" className="relative text-gray-400 hover:text-gray-200" aria-label="Notifications">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-              </svg>
-              <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-semibold text-white">
-                1
-              </span>
-            </button>
-            <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300">
-              WOS MVP Ready
-            </span>
-          </div>
+      {ctx && !allowed ? (
+        <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-xl">
+          <p className="text-base font-semibold">You can&apos;t assign tasks</p>
+          <p className="mt-2 max-w-xl text-sm text-gray-400">
+            Tasks can be created by HR administrators, managers and department heads. Ask one of them if something
+            needs doing.
+          </p>
+          <Link href="/tasks" className="mt-4 inline-block text-sm font-medium text-indigo-400 hover:text-indigo-300">
+            Back to tasks
+          </Link>
         </div>
+      ) : null}
 
-        <main className="flex-1 px-8 py-8">
-          <div className="max-w-2xl rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-xl">
-            <h2 className="text-base font-semibold text-white">Task Details</h2>
-            <p className="mt-1 text-sm text-gray-500">Fill out the fields below to dispatch a new workforce assignment.</p>
+      {ctx && allowed ? (
+        <form
+          onSubmit={handleSubmit}
+          className="max-w-2xl space-y-5 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-xl"
+        >
+          {formError ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {formError}
+            </div>
+          ) : null}
 
-            <div className="mt-6 space-y-5">
+          <div>
+            <label htmlFor="department" className="mb-2 block text-sm font-medium text-gray-200">
+              Department doing the work
+            </label>
+            <select
+              id="department"
+              value={departmentId}
+              onChange={function (e) {
+                setDepartmentId(e.target.value);
+                setKpiId("");
+                setAssigneeId("");
+              }}
+              className={inputClass}
+            >
+              <option value="">Select department…</option>
+              {ctx.departments.map(function (d) {
+                return (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                );
+              })}
+            </select>
+            {errors.department_id ? <p className="mt-1 text-xs text-red-400">{errors.department_id}</p> : null}
+          </div>
+
+          <div>
+            <label htmlFor="title" className="mb-2 block text-sm font-medium text-gray-200">
+              Task title
+            </label>
+            <input
+              id="title"
+              type="text"
+              value={title}
+              onChange={function (e) {
+                setTitle(e.target.value);
+              }}
+              placeholder="e.g. Prepare the Q4 sales forecast"
+              className={inputClass}
+            />
+            {errors.title ? <p className="mt-1 text-xs text-red-400">{errors.title}</p> : null}
+          </div>
+
+          <div>
+            <label htmlFor="description" className="mb-2 block text-sm font-medium text-gray-200">
+              Description <span className="text-gray-500">(optional)</span>
+            </label>
+            <textarea
+              id="description"
+              rows={4}
+              value={description}
+              onChange={function (e) {
+                setDescription(e.target.value);
+              }}
+              className={inputClass}
+            />
+            {errors.description ? <p className="mt-1 text-xs text-red-400">{errors.description}</p> : null}
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label htmlFor="due" className="mb-2 block text-sm font-medium text-gray-200">
+                Deadline <span className="text-gray-500">(optional)</span>
+              </label>
+              <input
+                id="due"
+                type="datetime-local"
+                value={dueLocal}
+                onChange={function (e) {
+                  setDueLocal(e.target.value);
+                }}
+                className={inputClass}
+              />
+              {errors.due_at ? <p className="mt-1 text-xs text-red-400">{errors.due_at}</p> : null}
+            </div>
+
+            <div>
+              <label htmlFor="kpi" className="mb-2 block text-sm font-medium text-gray-200">
+                Linked KPI <span className="text-gray-500">(optional)</span>
+              </label>
+              <select
+                id="kpi"
+                value={kpiId}
+                disabled={!departmentId}
+                onChange={function (e) {
+                  setKpiId(e.target.value);
+                }}
+                className={inputClass + " disabled:opacity-60"}
+              >
+                <option value="">{departmentId ? "No linked KPI" : "Choose a department first"}</option>
+                {departmentKpis.map(function (k) {
+                  return (
+                    <option key={k.id} value={k.id}>
+                      {k.name}
+                    </option>
+                  );
+                })}
+              </select>
+              {errors.kpi_id ? <p className="mt-1 text-xs text-red-400">{errors.kpi_id}</p> : null}
+            </div>
+          </div>
+
+          {departmentId ? (
+            pickerAllowed ? (
               <div>
-                <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Assign To *
+                <label htmlFor="assignee" className="mb-2 block text-sm font-medium text-gray-200">
+                  Assign to
                 </label>
                 <select
-                  value={formData.assignTo}
-                  onChange={(e) => updateField("assignTo", e.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
+                  id="assignee"
+                  value={assigneeId}
+                  onChange={function (e) {
+                    setAssigneeId(e.target.value);
+                  }}
+                  className={inputClass}
                 >
-                  <option>Adaeze Okonkwo</option>
-                  <option>Tunde Balogun</option>
-                  <option>Emeka Nwankwo</option>
-                  <option>Amara Eze</option>
-                </select>
-                <p className="mt-1 text-xs text-gray-600">Engineering &bull; Software Engineer</p>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Task Title *
-                </label>
-                <input
-                  type="text"
-                  value={formData.taskTitle}
-                  onChange={(e) => updateField("taskTitle", e.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Task Description
-                </label>
-                <textarea
-                  rows={4}
-                  value={formData.taskDescription}
-                  onChange={(e) => updateField("taskDescription", e.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Linked KPI
-                  </label>
-                  <select
-                    value={formData.linkedKpi}
-                    onChange={(e) => updateField("linkedKpi", e.target.value)}
-                    className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
-                  >
-                    <option>Code Review Turnaround</option>
-                    <option>Deployment Frequency</option>
-                    <option>Incident Response Time</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Due Date *
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.dueDate}
-                    onChange={(e) => updateField("dueDate", e.target.value)}
-                    className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                  Task Priority *
-                </label>
-                <div className="flex gap-2">
-                  {PRIORITIES.map(function (priority) {
-                    const isActive = priority === formData.priority;
-                    let dotClass = "h-2 w-2 rounded-full ";
-                    if (priority === "Low") {
-                      dotClass = dotClass + "bg-emerald-400";
-                    } else if (priority === "Medium") {
-                      dotClass = dotClass + "bg-amber-400";
-                    } else {
-                      dotClass = dotClass + "bg-red-400";
-                    }
-                    let btnClass = "flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition ";
-                    if (isActive) {
-                      btnClass = btnClass + "border-indigo-500 bg-indigo-500/15 text-white";
-                    } else {
-                      btnClass = btnClass + "border-white/10 text-gray-300 hover:bg-white/5";
-                    }
+                  <option value="">Leave unassigned for now</option>
+                  {activeEmployees(ctx).map(function (emp) {
                     return (
-                      <button
-                        key={priority}
-                        type="button"
-                        onClick={() => updateField("priority", priority)}
-                        className={btnClass}
-                      >
-                        <span className={dotClass} />
-                        {priority}
-                      </button>
+                      <option key={emp.id} value={emp.id}>
+                        {fullName(emp)}
+                      </option>
                     );
                   })}
-                </div>
+                </select>
+                {errors.assigned_to_employee_id ? (
+                  <p className="mt-1 text-xs text-red-400">{errors.assigned_to_employee_id}</p>
+                ) : null}
               </div>
-            </div>
+            ) : (
+              <div className="rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-gray-400">
+                {selectedDepartment && selectedDepartment.head_employee_id
+                  ? "This task is for another department, so it goes to that department's head, who can hand it on."
+                  : "This task is for another department that has no head yet. It will be created unassigned and HR will be notified."}
+              </div>
+            )
+          ) : null}
 
-            <div className="mt-8 flex items-center justify-end gap-3 border-t border-white/10 pt-6">
-              <button
-                type="button"
-                onClick={() => router.back()}
-                className="rounded-lg border border-white/10 px-5 py-2.5 text-sm font-medium text-gray-300 transition hover:bg-white/5"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => console.log("Assign task payload:", formData)}
-                className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-600"
-              >
-                Assign Task
-              </button>
-            </div>
+          <div className="flex items-center justify-between border-t border-white/10 pt-5">
+            <Link href="/tasks" className="text-sm font-medium text-gray-400 hover:text-gray-200">
+              Cancel
+            </Link>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="rounded-lg bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? "Creating…" : "Create task"}
+            </button>
           </div>
-        </main>
-      </div>
-    </div>
+        </form>
+      ) : null}
+    </AppShell>
   );
 }
-
