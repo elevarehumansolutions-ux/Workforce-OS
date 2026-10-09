@@ -3,14 +3,15 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import not_, or_, select, text, update
+from sqlalchemy import false, not_, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import paginate
 from app.core.schemas import PaginationResponse
+from app.modules.organization.models import Employee
 
-from .enums import OPEN_STATUSES, TaskStatus
-from .models import Task
+from .enums import OPEN_STATUSES, ReviewStatus, TaskStatus
+from .models import Task, TaskBlock
 from .overdue import overdue_clause
 
 # The atomic complete relies on RETURNING for the truth about what changed.
@@ -203,6 +204,231 @@ class TaskRepository:
         await self._db.flush()
         return result.scalar_one_or_none()
 
+    async def mark_task_blocked(self, task_id: uuid.UUID, now: datetime) -> Task | None:
+        """Atomically mark a task blocked, but only if it is open and not already blocked.
+
+        One UPDATE does the check and the change, so two people blocking the
+        same task at once can't both succeed.
+
+        Args:
+            task_id: Id of the task.
+            now: The moment the block starts.
+
+        Returns:
+            The updated ``Task``, or ``None`` if nothing changed (it is
+            completed, cancelled, already blocked, or doesn't exist).
+        """
+        stmt = (
+            update(Task)
+            .where(
+                Task.id == task_id,
+                Task.deleted_at.is_(None),
+                Task.status.in_(OPEN_STATUSES),
+                Task.blocked_since.is_(None),
+            )
+            .values(blocked_since=now)
+            .returning(Task)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return result.scalar_one_or_none()
+
+    async def create_block(self, block: dict) -> TaskBlock:
+        """Insert a new block row, flush, and refresh it from the database.
+
+        Args:
+            block: Field values for the new ``TaskBlock``.
+
+        Returns:
+            The newly created ``TaskBlock``.
+        """
+        new_block = TaskBlock(**block)
+        self._db.add(new_block)
+        await self._db.flush()
+        await self._db.refresh(new_block)
+        return new_block
+
+    async def get_open_block(self, task_id: uuid.UUID) -> TaskBlock | None:
+        """Get the task's current block (the one with no ``unblocked_at``), if any."""
+        stmt = select(TaskBlock).where(
+            TaskBlock.task_id == task_id,
+            TaskBlock.unblocked_at.is_(None),
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_blocks_for_task(self, task_id: uuid.UUID) -> list[TaskBlock]:
+        """List every block a task has had, newest first."""
+        stmt = (
+            select(TaskBlock)
+            .where(TaskBlock.task_id == task_id)
+            .order_by(TaskBlock.blocked_at.desc(), TaskBlock.id)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def close_block(self, block_id: uuid.UUID, now: datetime) -> TaskBlock | None:
+        """Atomically end a block, but only if it is still open.
+
+        Args:
+            block_id: Id of the block.
+            now: The moment the block ends.
+
+        Returns:
+            The closed ``TaskBlock``, or ``None`` if it was already closed.
+        """
+        stmt = (
+            update(TaskBlock)
+            .where(TaskBlock.id == block_id, TaskBlock.unblocked_at.is_(None))
+            .values(unblocked_at=now)
+            .returning(TaskBlock)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return result.scalar_one_or_none()
+
+    async def get_block_by_id(self, block_id: uuid.UUID) -> TaskBlock | None:
+        """Get one block by its id (RLS already limits it to the caller's organization)."""
+        result = await self._db.execute(select(TaskBlock).where(TaskBlock.id == block_id))
+        return result.scalar_one_or_none()
+
+    async def get_tasks_by_ids(self, task_ids: list[uuid.UUID]) -> dict[uuid.UUID, Task]:
+        """Get several tasks at once, as a dictionary from task id to task."""
+        if not task_ids:
+            return {}
+        result = await self._db.execute(select(Task).where(Task.id.in_(task_ids)))
+        return {task.id: task for task in result.scalars().all()}
+
+    async def list_blocks_for_review(
+        self,
+        reviewer_user_id: uuid.UUID,
+        sees_all: bool,
+        department_ids: list[uuid.UUID],
+        manager_employee_id: uuid.UUID | None,
+        review_status: ReviewStatus | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> PaginationResponse:
+        """List the blocks a reviewer is allowed to review, newest first.
+
+        This is the database form of the rule "who may review a block"
+        (the Python form is ``TaskService._can_review``; a test keeps them in
+        step). A block is reviewable by HR (``sees_all``), by the head of its
+        task's department, or by the blocker's own reporting manager, and
+        never by the person who recorded it.
+
+        Args:
+            reviewer_user_id: The reviewer's user id (their own blocks are left out).
+            sees_all: True for HR administrators.
+            department_ids: Departments the reviewer heads.
+            manager_employee_id: The reviewer's employee id, to find the people
+                who report to them; ``None`` if they have no employee record.
+            review_status: Only blocks in this state (``None`` for all).
+            page: 1-indexed page number.
+            limit: Maximum number of rows per page.
+
+        Returns:
+            A paginated response wrapping the matching ``TaskBlock`` rows.
+        """
+        stmt = select(TaskBlock).join(Task, Task.id == TaskBlock.task_id)
+        stmt = stmt.where(TaskBlock.blocked_by_user_id != reviewer_user_id)
+        if not sees_all:
+            conditions = []
+            if department_ids:
+                conditions.append(Task.department_id.in_(department_ids))
+            if manager_employee_id is not None:
+                my_reports = select(Employee.user_id).where(
+                    Employee.manager_id == manager_employee_id,
+                    Employee.user_id.is_not(None),
+                )
+                conditions.append(TaskBlock.blocked_by_user_id.in_(my_reports))
+            if conditions:
+                stmt = stmt.where(or_(*conditions))
+            else:
+                stmt = stmt.where(false())  # not a head, not anyone's manager: nothing to review
+        if review_status is not None:
+            stmt = stmt.where(TaskBlock.review_status == review_status.value)
+        stmt = stmt.order_by(TaskBlock.blocked_at.desc(), TaskBlock.id)
+        return await paginate(stmt, page, limit, self._db)
+
+    async def review_block(
+        self,
+        block_id: uuid.UUID,
+        decision: ReviewStatus,
+        reviewer_user_id: uuid.UUID,
+        now: datetime,
+    ) -> TaskBlock | None:
+        """Atomically approve or reject a block, but only if it is still pending.
+
+        Args:
+            block_id: Id of the block.
+            decision: ``APPROVED`` or ``REJECTED``.
+            reviewer_user_id: Who is deciding.
+            now: The moment of the decision.
+
+        Returns:
+            The reviewed ``TaskBlock``, or ``None`` if it was not pending any more.
+        """
+        stmt = (
+            update(TaskBlock)
+            .where(
+                TaskBlock.id == block_id,
+                TaskBlock.review_status == ReviewStatus.PENDING.value,
+            )
+            .values(
+                review_status=decision.value,
+                reviewed_by_user_id=reviewer_user_id,
+                reviewed_at=now,
+            )
+            .returning(TaskBlock)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return result.scalar_one_or_none()
+
+    async def add_approved_seconds(self, task_id: uuid.UUID, seconds: int) -> None:
+        """Add approved blocked time to a task's running total.
+
+        The effective deadline moves later, so the "overdue" alert is allowed
+        to fire again for the new moment.
+        """
+        await self._db.execute(
+            update(Task)
+            .where(Task.id == task_id)
+            .values(
+                approved_blocked_seconds=Task.approved_blocked_seconds + seconds,
+                overdue_notified_at=None,
+            )
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        await self._db.flush()
+
+    async def clear_blocked_state(self, task_id: uuid.UUID, approved_seconds_to_add: int) -> None:
+        """Mark a task as no longer blocked, crediting any approved blocked time.
+
+        Called when a block ends. ``approved_seconds_to_add`` is 0 unless the
+        block was already approved. Credited time moves the effective deadline,
+        so the "overdue" alert is allowed to fire again for the new moment.
+
+        Args:
+            task_id: Id of the task.
+            approved_seconds_to_add: Blocked seconds to add to the running total.
+        """
+        values = {"blocked_since": None}
+        if approved_seconds_to_add > 0:
+            values["approved_blocked_seconds"] = Task.approved_blocked_seconds + approved_seconds_to_add
+            values["overdue_notified_at"] = None
+        await self._db.execute(
+            update(Task)
+            .where(Task.id == task_id)
+            .values(**values)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        await self._db.flush()
+
     async def list_organizations_with_unannounced_overdue_tasks(self) -> list[uuid.UUID]:
         """List every organization that has an overdue task nobody has been told about yet.
 
@@ -328,6 +554,10 @@ class TaskRepository:
                 due_at=due_at,
                 status=TaskStatus.OPEN.value,
                 overdue_notified_at=None,  # the new deadline gets its own alert
+                # A clean slate for the new assignee: blocked time approved for the
+                # previous person belonged to their deadline, not this one.
+                blocked_since=None,
+                approved_blocked_seconds=0,
             )
             .returning(Task)
             .execution_options(**_ATOMIC_UPDATE_OPTIONS)

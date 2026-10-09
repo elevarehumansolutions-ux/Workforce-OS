@@ -25,16 +25,22 @@ add `?overdue=true` and an `overdue` field on `TaskResponse`.
 passes; **no head set -> notify the HR administrators** (the fallback from the
 department-head decision). Must be idempotent (a retry or late run must not notify twice).
 
-**E. `task_blocks`** and `POST /tasks/{id}/block|unblock`, plus approve/reject review
-(same shape as `ai_suggestions`). The reactive "why is this late" prompt belongs to D's scan.
+**E. DONE 2026-10-09** (`task_blocks`, block/unblock, the review, blocked time in the overdue
+rule, complete/cancel/reassign end a block, the "was something holding up?" prompt; see
+`09_PROGRESS.md` "SLICE E BUILT" and `08_DECISIONS.md` 2026-10-09).
 
-**F. `task_count` KPI live-progress read** (08_DECISIONS.md 2026-09-30).
+**F. `task_count` KPI live-progress read** (08_DECISIONS.md 2026-09-30). **The only slice left.**
+Count completed tasks linked to a `task_count` KPI (`tasks.kpi_id`) within the current fiscal
+quarter (`core/fiscal.py`), computed on read, plus one read endpoint. Decide first where the
+endpoint lives: under `/kpis/...` but coded in the Task module (no change to the KPI module), or
+in the KPI module (needs the user's permission to touch it).
 
 ## Open questions (settle before the slice that needs them)
 
 1. Is `in_progress` a separate action (`POST /tasks/{id}/start`) or just the first clock-in /
    unused for now? The status exists; nothing sets it.
-2. What happens to an open `task_block` when a task is cancelled or reassigned? (Slice E:
+2. **RESOLVED 2026-10-09:** cancel, reassign and complete end an open block (reassign also resets
+   the approved blocked time). Original question: what happens to an open `task_block` when a task is cancelled or reassigned? (Slice E:
    cancel and reassign now exist and ignore blocks, since none exist yet.)
 3. Should an assignee have to belong to the task's department? Slice A only requires "active
    employee of the org". Decide with the user.

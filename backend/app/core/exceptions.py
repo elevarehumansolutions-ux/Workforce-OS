@@ -687,6 +687,62 @@ class TaskChangedException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class TaskAlreadyBlockedException(PlatformError):
+    """Raised when blocking a task that is already blocked."""
+
+    def __init__(
+        self,
+        message: str = "This task is already blocked. Unblock it first",
+        code: str = "TASK_ALREADY_BLOCKED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskNotBlockedException(PlatformError):
+    """Raised when unblocking a task that is not blocked."""
+
+    def __init__(
+        self,
+        message: str = "This task is not blocked",
+        code: str = "TASK_NOT_BLOCKED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskBlockNotFoundException(PlatformError):
+    """Raised when a block doesn't exist, or the caller isn't allowed to review it."""
+
+    def __init__(
+        self,
+        message: str = "Block not found",
+        code: str = "TASK_BLOCK_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskBlockAlreadyReviewedException(PlatformError):
+    """Raised when approving or rejecting a block that has already been reviewed."""
+
+    def __init__(
+        self,
+        message: str = "This block has already been reviewed",
+        code: str = "TASK_BLOCK_ALREADY_REVIEWED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class MembershipNotDeactivatedException(PlatformError):
     """Raised when reactivating a membership that is not deactivated."""
 

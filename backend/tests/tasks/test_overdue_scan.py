@@ -8,14 +8,14 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.celery_app import celery
 from app.modules.audit_and_notification.models import Notification
 from app.modules.tasks import tasks as task_jobs
 from app.modules.tasks.repository import TaskRepository
 from tests.conftest import set_org_context
-from tests.tasks.test_tasks_router import NOTIFICATIONS, TASKS, _task, _world
+from tests.tasks.test_tasks_router import NOTIFICATIONS, TASKS, _clock_in, _task, _world
 
 LONG_AGO = "2020-01-01T00:00:00+00:00"
 ANOTHER_LONG_AGO = "2021-01-01T00:00:00+00:00"
@@ -35,6 +35,47 @@ async def _overdue_titles(client, headers) -> list[str]:
     """The 'Task overdue: ...' notifications a person has received."""
     resp = await client.get(NOTIFICATIONS, headers=headers)
     return [n["title"] for n in resp.json() if n["title"].startswith("Task overdue")]
+
+
+async def _prompts(client, headers) -> list[str]:
+    """The 'Was something holding up ...?' invitations a person has received."""
+    resp = await client.get(NOTIFICATIONS, headers=headers)
+    return [n["title"] for n in resp.json() if n["title"].startswith("Was something holding up")]
+
+
+@pytest.mark.asyncio
+async def test_the_assignee_is_invited_to_explain_the_delay_and_nobody_else_is(client, monkeypatch, db_session):
+    """Chidi gets the 'was something holding it up?' note; Tunde and HR only get the plain overdue alert."""
+    w = await _world(client, monkeypatch, "d14")
+    await _task(client, w.hr, w.dispatch, "Fix route", assigned_to_employee_id=w.chidi.employee_id, due_at=LONG_AGO)
+
+    await _run_scan_for(db_session, w)
+
+    assert await _prompts(client, w.chidi.h) == ["Was something holding up: Fix route?"]
+    assert await _prompts(client, w.tunde.h) == []
+    assert await _prompts(client, w.hr) == []
+    assert await _overdue_titles(client, w.chidi.h) == ["Task overdue: Fix route"]      # the alert still goes out
+
+
+@pytest.mark.asyncio
+async def test_no_invitation_when_the_assignee_has_already_recorded_a_block_or_nobody_is_assigned(
+    client, monkeypatch, db_session
+):
+    """Don't nag someone who already explained, and there is no one to invite on an unassigned task."""
+    w = await _world(client, monkeypatch, "d15")
+    await _clock_in(client, w.chidi)
+    explained = (await _task(client, w.hr, w.dispatch, "Explained", assigned_to_employee_id=w.chidi.employee_id, due_at=LONG_AGO)).json()["id"]
+    await client.post(
+        f"{TASKS}/{explained}/block", json={"category": "other", "reason": "Waiting on a supplier"}, headers=w.chidi.h
+    )
+    await client.post(f"{TASKS}/{explained}/unblock", headers=w.chidi.h)      # a block exists, the task is overdue again
+    await _task(client, w.hr, w.dispatch, "Unassigned", due_at=LONG_AGO)
+
+    announced = await _run_scan_for(db_session, w)
+
+    assert announced == 2                                      # both are announced to the head...
+    assert await _prompts(client, w.chidi.h) == []             # ...but nobody is invited to explain
+    assert sorted(await _overdue_titles(client, w.tunde.h)) == ["Task overdue: Explained", "Task overdue: Unassigned"]
 
 
 @pytest.mark.asyncio
@@ -157,6 +198,46 @@ async def test_the_lookup_finds_only_organizations_with_unannounced_overdue_task
 
     assert busy_id in before and quiet_id not in before
     assert busy_id not in after
+
+
+@pytest.mark.asyncio
+async def test_blocked_and_extended_tasks_are_not_announced_and_do_not_wake_the_scan(client, monkeypatch, db_session):
+    """A blocked task, or one whose approved time covers the delay, is not announced; its org is not even queued."""
+    quiet = await _world(client, monkeypatch, "d12")
+    org_id = uuid.UUID(quiet.owner["organization"]["id"])
+    blocked = (await _task(client, quiet.hr, quiet.dispatch, "Blocked", due_at=LONG_AGO)).json()["id"]
+    extended = (await _task(client, quiet.hr, quiet.dispatch, "Extended", due_at=LONG_AGO)).json()["id"]
+    await set_org_context(db_session, org_id)
+    await db_session.execute(text("UPDATE tasks SET blocked_since = now() WHERE id = :id"), {"id": blocked})
+    # About 63 years of approved time, so the real deadline is far in the future.
+    await db_session.execute(
+        text("UPDATE tasks SET approved_blocked_seconds = 2000000000 WHERE id = :id"), {"id": extended}
+    )
+
+    await set_org_context(db_session, uuid.uuid4())      # the real scan has no tenant of its own
+    found = await TaskRepository(db_session).list_organizations_with_unannounced_overdue_tasks()
+    announced = await _run_scan_for(db_session, quiet)
+
+    assert org_id not in found
+    assert announced == 0
+    assert await _overdue_titles(client, quiet.tunde.h) == []
+
+
+@pytest.mark.asyncio
+async def test_a_task_announced_while_overdue_can_be_announced_again_after_time_is_approved(
+    client, monkeypatch, db_session
+):
+    """Approving blocked time moves the deadline, so the mark is cleared and the new moment gets its alert."""
+    w = await _world(client, monkeypatch, "d13")
+    org_id = w.owner["organization"]["id"]
+    tid = (await _task(client, w.hr, w.dispatch, "Slipped", due_at=LONG_AGO)).json()["id"]
+    first = await _run_scan_for(db_session, w)
+    await set_org_context(db_session, org_id)
+    await TaskRepository(db_session).add_approved_seconds(uuid.UUID(tid), 60)     # a reviewer approved a minute
+    again = await _run_scan_for(db_session, w)                                    # still overdue, new deadline passed
+
+    assert (first, again) == (1, 1)
+    assert len(await _overdue_titles(client, w.tunde.h)) == 2
 
 
 @pytest.mark.asyncio

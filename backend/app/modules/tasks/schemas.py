@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .enums import TaskStatus
+from .enums import BlockCategory, ReviewStatus, TaskStatus
 
 
 def _require_timezone(value: datetime | None) -> datetime | None:
@@ -126,6 +126,49 @@ class TaskReassignRequest(BaseModel):
         return _require_timezone(value)
 
 
+class TaskBlockRequest(BaseModel):
+    """Request body for marking a task blocked: why, in a category and in words."""
+
+    # Spaces are trimmed before the length check, so "   " counts as empty.
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    category: BlockCategory
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class TaskBlockResponse(BaseModel):
+    """API representation of a block (one blocked period of a task and its review)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    task_id: uuid.UUID
+    blocked_by_user_id: uuid.UUID
+    category: BlockCategory
+    reason: str
+    blocked_at: datetime
+    unblocked_at: datetime | None
+    review_status: ReviewStatus
+    reviewed_by_user_id: uuid.UUID | None
+    reviewed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskBlockReviewItem(TaskBlockResponse):
+    """One block in a reviewer's list, with the task details a reviewer needs.
+
+    A reviewer (for example the blocker's reporting manager) may not be allowed
+    to open the task itself, so the task's title, department and deadline come
+    along here.
+    """
+
+    task_title: str
+    task_department_id: uuid.UUID
+    task_due_at: datetime | None
+
+
 class TaskResponse(BaseModel):
     """API representation of a task, returned by the task endpoints."""
 
@@ -147,6 +190,10 @@ class TaskResponse(BaseModel):
     # Not a database column: "overdue" is worked out when the response is built
     # (see tasks/overdue.py), so the default here is only a placeholder.
     overdue: bool = False
+    # Null unless the task is blocked right now.
+    blocked_since: datetime | None
+    # Total blocked time a reviewer approved; it pushes the overdue moment later.
+    approved_blocked_seconds: int
     created_by_user_id: uuid.UUID | None
     deleted_at: datetime | None
     created_at: datetime

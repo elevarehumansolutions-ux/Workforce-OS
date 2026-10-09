@@ -17,10 +17,12 @@ from app.core.exceptions import ValidationException
 from app.core.schemas import PaginationResponse
 from app.modules.tenancy_identity.models import Membership
 
-from .enums import TaskStatus
+from .enums import ReviewStatus, TaskStatus
 from .models import Task
 from .overdue import is_overdue
 from .schemas import (
+    TaskBlockRequest,
+    TaskBlockResponse,
     TaskCancelRequest,
     TaskCreateRequest,
     TaskReassignRequest,
@@ -281,3 +283,174 @@ async def reassign_task(
     )
     await db.commit()
     return _task_response(task, datetime.now(UTC))
+
+
+@router.post("/tasks/{task_id}/block", status_code=200)
+async def block_task(
+    task_id: uuid.UUID,
+    data: TaskBlockRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskBlockResponse:
+    """Mark a task blocked because something outside the assignee's hands is holding it up.
+
+    Only the assignee can do this. While blocked, the task is never overdue.
+    A reviewer later approves or rejects the block; only an approved block
+    gives the blocked time back. Recording a block after the deadline has
+    passed is allowed (the time starts counting from now, never backdated).
+
+    Args:
+        task_id: Id of the task.
+        data: The category and the reason.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The new block, with ``review_status: "pending"``.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+        PermissionDeniedException: If the caller is not the assignee (403).
+        TaskNotOpenException: If the task is completed or cancelled (409).
+        TaskAlreadyBlockedException: If it is already blocked (409).
+        TaskChangedException: If somebody changed it at the same moment (409).
+    """
+    block = await TaskService(db).block_task(caller, task_id, data.category, data.reason)
+    await db.commit()
+    return TaskBlockResponse.model_validate(block)
+
+
+@router.post("/tasks/{task_id}/unblock", status_code=200)
+async def unblock_task(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskBlockResponse:
+    """End a task's current block.
+
+    Allowed to the assignee, the department head and HR.
+
+    Args:
+        task_id: Id of the task.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The block, now with ``unblocked_at`` set.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+        PermissionDeniedException: If the caller may see but not unblock it (403).
+        TaskNotBlockedException: If the task is not blocked (409).
+        TaskChangedException: If somebody changed it at the same moment (409).
+    """
+    block = await TaskService(db).unblock_task(caller, task_id)
+    await db.commit()
+    return TaskBlockResponse.model_validate(block)
+
+
+@router.get("/tasks/{task_id}/blocks", status_code=200)
+async def list_task_blocks(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> list[TaskBlockResponse]:
+    """List every block a task has had, newest first.
+
+    Args:
+        task_id: Id of the task.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The task's blocks, with their review status.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+    """
+    blocks = await TaskService(db).list_task_blocks(caller, task_id)
+    return [TaskBlockResponse.model_validate(block) for block in blocks]
+
+
+@router.get("/task-blocks", status_code=200)
+async def list_blocks_for_review(
+    review_status: ReviewStatus = Query(default=ReviewStatus.PENDING),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> PaginationResponse:
+    """List the blocks the caller can approve or reject: a reviewer's to-do list.
+
+    Pending ones unless ``review_status`` says otherwise. The caller sees a
+    block if they are an HR administrator, the head of its task's
+    department, or the blocker's own reporting manager. Their own blocks are
+    never listed. Each row includes the task's title, department and deadline.
+
+    Args:
+        review_status: ``pending`` (default), ``approved`` or ``rejected``.
+        page: 1-indexed page number.
+        limit: Maximum number of rows per page (1-100).
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        A paginated response of blocks, newest first.
+    """
+    return await TaskService(db).list_blocks_for_review(caller, review_status, page, limit)
+
+
+@router.post("/task-blocks/{block_id}/approve", status_code=200)
+async def approve_block(
+    block_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskBlockResponse:
+    """Approve a block: the blocked time is not held against the assignee.
+
+    Allowed to HR, the head of the task's department and the blocker's
+    reporting manager, never to the blocker. The approved time pushes the
+    task's deadline later (the task's ``approved_blocked_seconds``).
+
+    Args:
+        block_id: Id of the block.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The block, now ``approved``.
+
+    Raises:
+        TaskBlockNotFoundException: If it doesn't exist or the caller may not review it (404).
+        TaskBlockAlreadyReviewedException: If it was already decided (409).
+    """
+    block = await TaskService(db).approve_block(caller, block_id)
+    await db.commit()
+    return TaskBlockResponse.model_validate(block)
+
+
+@router.post("/task-blocks/{block_id}/reject", status_code=200)
+async def reject_block(
+    block_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskBlockResponse:
+    """Reject a block: the task is judged as if it had never been blocked.
+
+    Same permissions and errors as approve.
+
+    Args:
+        block_id: Id of the block.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The block, now ``rejected``.
+
+    Raises:
+        TaskBlockNotFoundException: If it doesn't exist or the caller may not review it (404).
+        TaskBlockAlreadyReviewedException: If it was already decided (409).
+    """
+    block = await TaskService(db).reject_block(caller, block_id)
+    await db.commit()
+    return TaskBlockResponse.model_validate(block)

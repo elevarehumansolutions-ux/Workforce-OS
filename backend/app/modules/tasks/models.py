@@ -10,11 +10,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import UUID, CheckConstraint, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import UUID, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import BaseModel
-from .enums import TaskStatus
+from .enums import BlockCategory, ReviewStatus, TaskStatus
 
 
 class Task(BaseModel):
@@ -61,6 +61,10 @@ class Task(BaseModel):
             "(status = 'cancelled' AND cancel_reason IS NOT NULL)"
             " OR (status <> 'cancelled' AND cancel_reason IS NULL)",
             name="check_task_cancel_reason_matches_status",
+        ),
+        CheckConstraint(
+            "approved_blocked_seconds >= 0",
+            name="check_task_approved_blocked_seconds_not_negative",
         ),
         Index("idx_tasks_assignee_status", "organization_id", "assigned_to_employee_id", "status"),
         Index("idx_tasks_department_status", "organization_id", "department_id", "status"),
@@ -139,6 +143,23 @@ class Task(BaseModel):
         ),
     )
 
+    blocked_since: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc="When the current block started; null = the task is not blocked right now",
+    )
+
+    approved_blocked_seconds: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+        doc=(
+            "Total blocked time a reviewer has approved. Added to due_at when judging "
+            "whether the task is overdue; due_at itself is never changed"
+        ),
+    )
+
     cancel_reason: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
@@ -165,4 +186,115 @@ class Task(BaseModel):
         nullable=True,
         index=True,
         doc="Soft delete timestamp: non-null means the task is deleted.",
+    )
+
+
+class TaskBlock(BaseModel):
+    """One period during which a task could not move forward, and what a reviewer decided.
+
+    Example: Chidi's task waits on Finance from Wednesday to Thursday. That is
+    one row: ``blocked_at`` Wednesday, ``unblocked_at`` Thursday, category
+    ``awaiting_other_department``. While ``unblocked_at`` is empty the task is
+    blocked right now. A reviewer then approves or rejects it; only an approved
+    block gives the time back (see ``Task.approved_blocked_seconds``).
+
+    A task can be blocked many times over its life but only once at a time.
+    ``blocked_at`` is always the moment the row was recorded, never backdated,
+    so a block recorded after the deadline passed is plainly visible as late.
+    Organization-scoped (RLS). See 08_DECISIONS.md 2026-10-09.
+    """
+
+    __tablename__ = "task_blocks"
+
+    __table_args__ = (
+        CheckConstraint(
+            f"category IN {tuple(c.value for c in BlockCategory)}",
+            name="check_task_block_category",
+        ),
+        CheckConstraint(
+            f"review_status IN {tuple(s.value for s in ReviewStatus)}",
+            name="check_task_block_review_status",
+        ),
+        CheckConstraint(
+            "unblocked_at IS NULL OR unblocked_at >= blocked_at",
+            name="check_task_block_unblocked_after_blocked",
+        ),
+        # A reviewed block must say who reviewed it and when; a pending one must not.
+        CheckConstraint(
+            "(review_status = 'pending' AND reviewed_by_user_id IS NULL AND reviewed_at IS NULL)"
+            " OR (review_status <> 'pending' AND reviewed_by_user_id IS NOT NULL"
+            " AND reviewed_at IS NOT NULL)",
+            name="check_task_block_review_fields_match_status",
+        ),
+        # At most one open block (no unblocked_at yet) per task.
+        Index(
+            "uq_task_blocks_one_open_per_task",
+            "task_id",
+            unique=True,
+            postgresql_where=text("unblocked_at IS NULL"),
+        ),
+        Index("idx_task_blocks_org_review", "organization_id", "review_status"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id"),
+        nullable=False,
+        index=True,
+        doc="Organization this block belongs to",
+    )
+
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tasks.id"),
+        nullable=False,
+        index=True,
+        doc="The task that was blocked",
+    )
+
+    blocked_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+        doc="The user who recorded the block (the task's assignee)",
+    )
+
+    category: Mapped[BlockCategory] = mapped_column(
+        String(30), nullable=False, doc="Why the task is blocked, picked from a short list"
+    )
+
+    reason: Mapped[str] = mapped_column(Text, nullable=False, doc="The assignee's explanation")
+
+    blocked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+        doc="When the block was recorded. Never backdated",
+    )
+
+    unblocked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc="When the block ended; null = the task is still blocked",
+    )
+
+    review_status: Mapped[ReviewStatus] = mapped_column(
+        String(20),
+        nullable=False,
+        default=ReviewStatus.PENDING.value,
+        server_default=ReviewStatus.PENDING.value,
+        doc="pending, approved or rejected",
+    )
+
+    reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=True,
+        doc="The user who approved or rejected it; null while pending",
+    )
+
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc="When it was reviewed; null while pending",
     )

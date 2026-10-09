@@ -50,7 +50,7 @@ from app.modules.kpis.models import (
     KPIScore,
 )
 from app.modules.attendance.models import AttendanceRecord
-from app.modules.tasks.models import Task
+from app.modules.tasks.models import Task, TaskBlock
 
 __all__ = [
     "Organization",
@@ -76,4 +76,5 @@ __all__ = [
     "KPIScore",
     "AttendanceRecord",
     "Task",
+    "TaskBlock",
 ]

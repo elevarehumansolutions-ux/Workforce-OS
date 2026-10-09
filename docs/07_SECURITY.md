@@ -24,7 +24,7 @@ A scheduled job has no tenant to start from, so it can't ask "which organization
 |---|---|---|
 | `organization_fiscal_months_for_quarterly_review()` | Quarterly Objective Review Beat job | every organization's id and `fiscal_year_start_month` |
 | `organizations_with_open_attendance()` | Attendance auto-close Beat job | id and `timezone` of each organization with at least one open attendance record; no employee, time or count |
-| `organizations_with_unannounced_overdue_tasks()` | Task overdue-scan Beat job (added 2026-10-08, decision in `08_DECISIONS.md` 2026-10-08) | only the id of each organization that has an overdue, not-yet-announced task; no task, person or count |
+| `organizations_with_unannounced_overdue_tasks()` | Task overdue-scan Beat job (added 2026-10-08, decision in `08_DECISIONS.md` 2026-10-08) | only the id of each organization that has an overdue, not-yet-announced task; no task, person or count. Its condition follows the block-aware overdue rule since 2026-10-09 (migration `a3d9e61c7b25`) |
 
 Adding another one is a deliberate decision to log in `08_DECISIONS.md`, not a convenience.
 

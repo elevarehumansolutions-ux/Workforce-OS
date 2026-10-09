@@ -20,7 +20,11 @@ from app.core.exceptions import (
     KPINotFoundException,
     NotClockedInException,
     PermissionDeniedException,
+    TaskAlreadyBlockedException,
+    TaskBlockAlreadyReviewedException,
+    TaskBlockNotFoundException,
     TaskChangedException,
+    TaskNotBlockedException,
     TaskNotFoundException,
     TaskNotOpenException,
     ValidationException,
@@ -41,9 +45,10 @@ from app.modules.tenancy_identity.enums import MembershipRole
 from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.service import MembershipService
 
-from .enums import OPEN_STATUSES, TaskStatus
-from .models import Task
+from .enums import OPEN_STATUSES, BlockCategory, ReviewStatus, TaskStatus
+from .models import Task, TaskBlock
 from .repository import TaskRepository, TaskScope
+from .schemas import TaskBlockResponse, TaskBlockReviewItem
 
 # Roles that can see every task in the organization.
 _ORG_WIDE_ROLES = [MembershipRole.HR_ADMINISTRATOR.value, MembershipRole.BUSINESS_EXECUTIVE.value]
@@ -488,7 +493,9 @@ class TaskService:
 
         # Read before the UPDATE: it refreshes this same object in place.
         old_status = task.status
-        completed = await self._repo.complete_task(task.id, datetime.now(UTC))
+        now = datetime.now(UTC)
+        await self._end_open_block(task.id, now)  # before the update, so the response is fresh
+        completed = await self._repo.complete_task(task.id, now)
         if completed is None:
             raise TaskNotOpenException()
         await self._audit.log_action(
@@ -530,6 +537,7 @@ class TaskService:
 
         # Read before the UPDATE: it refreshes this same object in place.
         old_status = task.status
+        await self._end_open_block(task.id, datetime.now(UTC))  # before the update, so the response is fresh
         cancelled = await self._repo.cancel_task(task.id, reason)
         if cancelled is None:
             raise TaskNotOpenException()
@@ -598,6 +606,7 @@ class TaskService:
         previous_assignee_id = task.assigned_to_employee_id
         old_due_at = task.due_at
         old_status = task.status
+        await self._end_open_block(task.id, datetime.now(UTC))  # before the update, so the response is fresh
         updated = await self._repo.reassign_task(
             task.id, previous_assignee_id, assigned_to_employee_id, due_at
         )
@@ -643,6 +652,323 @@ class TaskService:
         )
         return updated
 
+    async def block_task(
+        self, caller: Membership, task_id: uuid.UUID, category: BlockCategory, reason: str
+    ) -> TaskBlock:
+        """Mark a task blocked: it can't move forward because of something outside the assignee's hands.
+
+        Only the person the task is assigned to can do this. While blocked the
+        task is never overdue. The block then waits for a reviewer to approve
+        or reject it. ``blocked_at`` is always now, never backdated, so a block
+        recorded after the deadline is plainly a late one.
+
+        Raises:
+            TaskNotFoundException: If it doesn't exist or is outside the caller's view.
+            PermissionDeniedException: If the caller is not the assignee.
+            TaskNotOpenException: If the task is completed or cancelled.
+            TaskAlreadyBlockedException: If it is blocked already.
+            TaskChangedException: If somebody changed it at the same moment.
+        """
+        ctx = await self._context(caller)
+        task = await self._load_visible(task_id, ctx)
+        if not ctx.is_assignee(task):
+            raise PermissionDeniedException(
+                "Only the person the task is assigned to can mark it blocked"
+            )
+        if task.status not in OPEN_STATUSES:
+            raise TaskNotOpenException()
+        if task.blocked_since is not None:
+            raise TaskAlreadyBlockedException()
+
+        now = datetime.now(UTC)
+        if await self._repo.mark_task_blocked(task.id, now) is None:
+            # It was open and unblocked when we read it, so somebody changed it in between.
+            raise TaskChangedException()
+        block = await self._repo.create_block(
+            {
+                "organization_id": task.organization_id,
+                "task_id": task.id,
+                "blocked_by_user_id": caller.user_id,
+                "category": category.value,
+                "reason": reason,
+                "blocked_at": now,
+            }
+        )
+        await self._audit.log_action(
+            organization_id=task.organization_id,
+            actor_user_id=caller.user_id,
+            action="block",
+            entity_type="task",
+            entity_id=task.id,
+            changes={
+                "old": {"blocked": False},
+                "new": jsonable_encoder(
+                    {"blocked": True, "block_id": block.id, "category": category.value, "reason": reason}
+                ),
+            },
+        )
+        await self._notify_reviewers(task, block)
+        return block
+
+    async def unblock_task(self, caller: Membership, task_id: uuid.UUID) -> TaskBlock:
+        """End a task's current block, because whatever it was waiting for has arrived.
+
+        Allowed to the assignee, the department head and HR (a head may need to
+        free a task whose assignee is away). The blocked period is closed. If a
+        reviewer has already approved it, that time is credited to the task now;
+        otherwise it is credited when the reviewer approves.
+
+        Raises:
+            TaskNotFoundException: If it doesn't exist or is outside the caller's view.
+            PermissionDeniedException: If the caller may see but not unblock it.
+            TaskNotBlockedException: If the task is not blocked.
+            TaskChangedException: If somebody changed it at the same moment.
+        """
+        ctx = await self._context(caller)
+        task = await self._load_visible(task_id, ctx)
+        if not (ctx.is_assignee(task) or ctx.is_hr or ctx.heads(task.department_id)):
+            raise PermissionDeniedException(
+                "Only the assignee, the department head or HR can unblock a task"
+            )
+        block = await self._repo.get_open_block(task.id)
+        if block is None:
+            raise TaskNotBlockedException()
+
+        closed = await self._close_block(task.id, block, datetime.now(UTC))
+        await self._audit.log_action(
+            organization_id=task.organization_id,
+            actor_user_id=caller.user_id,
+            action="unblock",
+            entity_type="task",
+            entity_id=task.id,
+            changes={
+                "old": jsonable_encoder({"blocked": True, "block_id": closed.id}),
+                "new": jsonable_encoder({"blocked": False, "unblocked_at": closed.unblocked_at}),
+            },
+        )
+        return closed
+
+    async def list_blocks_for_review(
+        self,
+        caller: Membership,
+        review_status: ReviewStatus | None = ReviewStatus.PENDING,
+        page: int = 1,
+        limit: int = 20,
+    ) -> PaginationResponse:
+        """List the blocks the caller is allowed to review, newest first.
+
+        Pending ones by default (the reviewer's to-do list). Each row carries
+        the task's title, department and deadline, because a reviewer such as
+        the blocker's reporting manager may not be allowed to open the task.
+
+        Args:
+            caller: The acting membership.
+            review_status: Only blocks in this state; ``None`` for all.
+            page: 1-indexed page number.
+            limit: Maximum number of rows per page.
+
+        Returns:
+            A paginated response of ``TaskBlockReviewItem`` rows.
+        """
+        ctx = await self._context(caller)
+        manager_employee_id = ctx.employee.id if ctx.employee is not None else None
+        result = await self._repo.list_blocks_for_review(
+            reviewer_user_id=caller.user_id,
+            sees_all=ctx.is_hr,
+            department_ids=ctx.headed_department_ids,
+            manager_employee_id=manager_employee_id,
+            review_status=review_status,
+            page=page,
+            limit=limit,
+        )
+        tasks = await self._repo.get_tasks_by_ids([block.task_id for block in result.data])
+        items = []
+        for block in result.data:
+            task = tasks[block.task_id]
+            fields = TaskBlockResponse.model_validate(block).model_dump()
+            items.append(
+                TaskBlockReviewItem(
+                    **fields,
+                    task_title=task.title,
+                    task_department_id=task.department_id,
+                    task_due_at=task.due_at,
+                )
+            )
+        result.data = items
+        return result
+
+    async def approve_block(self, caller: Membership, block_id: uuid.UUID) -> TaskBlock:
+        """Approve a block: its blocked time is not held against the assignee.
+
+        Allowed to HR, the head of the task's department and the blocker's
+        reporting manager, never to the blocker. If the block has already
+        ended, its length is added to the task's approved blocked time now
+        (pushing the deadline later); if the task is still blocked, that
+        happens when it is unblocked.
+
+        Raises:
+            TaskBlockNotFoundException: If it doesn't exist or the caller may not review it.
+            TaskBlockAlreadyReviewedException: If it was already approved or rejected.
+        """
+        return await self._review_block(caller, block_id, ReviewStatus.APPROVED)
+
+    async def reject_block(self, caller: Membership, block_id: uuid.UUID) -> TaskBlock:
+        """Reject a block: the task is judged as if it had never been blocked.
+
+        Same rules and errors as :meth:`approve_block`.
+        """
+        return await self._review_block(caller, block_id, ReviewStatus.REJECTED)
+
+    async def _review_block(
+        self, caller: Membership, block_id: uuid.UUID, decision: ReviewStatus
+    ) -> TaskBlock:
+        """Record a reviewer's decision on a block (shared by approve and reject)."""
+        ctx = await self._context(caller)
+        block = await self._repo.get_block_by_id(block_id)
+        task = None
+        if block is not None:
+            task = await self._repo.get_task_by_id(block.task_id)
+        # Not found and not-allowed look the same, so a block's existence isn't revealed.
+        if block is None or task is None or not await self._can_review(ctx, block, task):
+            raise TaskBlockNotFoundException()
+        if block.review_status != ReviewStatus.PENDING.value:
+            raise TaskBlockAlreadyReviewedException()
+
+        reviewed = await self._repo.review_block(block.id, decision, caller.user_id, datetime.now(UTC))
+        if reviewed is None:
+            raise TaskBlockAlreadyReviewedException()  # someone decided at the same moment
+
+        if decision == ReviewStatus.APPROVED and reviewed.unblocked_at is not None:
+            seconds = int((reviewed.unblocked_at - reviewed.blocked_at).total_seconds())
+            await self._repo.add_approved_seconds(task.id, seconds)
+
+        await self._audit.log_action(
+            organization_id=task.organization_id,
+            actor_user_id=caller.user_id,
+            action=f"{decision.value}_block",
+            entity_type="task_block",
+            entity_id=reviewed.id,
+            changes={
+                "old": {"review_status": ReviewStatus.PENDING.value},
+                "new": {"review_status": decision.value, "task_id": str(task.id)},
+            },
+        )
+        await self._notifications.notify(
+            organization_id=task.organization_id,
+            recipient_user_ids=[reviewed.blocked_by_user_id],
+            category=NotificationCategory.TASK,
+            title=f"Block {decision.value}: {task.title}",
+            body=(
+                "Your blocked time was approved and won't count against you."
+                if decision == ReviewStatus.APPROVED
+                else "Your block was rejected, so the task is judged as if it was not blocked."
+            ),
+            link_type="task",
+            link_id=task.id,
+        )
+        return reviewed
+
+    async def _can_review(self, ctx: _CallerContext, block: TaskBlock, task: Task) -> bool:
+        """Whether the caller may approve or reject ``block``.
+
+        HR, the head of the task's department, or the blocker's own reporting
+        manager. Nobody reviews their own block, whoever they are. The database
+        form of this rule is ``TaskRepository.list_blocks_for_review``.
+        """
+        if block.blocked_by_user_id == ctx.membership.user_id:
+            return False
+        if ctx.is_hr or ctx.heads(task.department_id):
+            return True
+        blocker = await self._employee_repo.get_employee_by_user_id(block.blocked_by_user_id)
+        if blocker is None or blocker.manager_id is None or ctx.employee is None:
+            return False
+        return blocker.manager_id == ctx.employee.id
+
+    async def _review_recipients(self, task: Task, block: TaskBlock) -> list[uuid.UUID]:
+        """Work out who to tell that a block needs review.
+
+        The blocker's reporting manager if they have one (and a login);
+        otherwise the department head; otherwise the HR administrators. The
+        first group that has anyone wins, and the blocker is never in it.
+        """
+        # 1. The blocker's own reporting manager.
+        blocker = await self._employee_repo.get_employee_by_user_id(block.blocked_by_user_id)
+        if blocker is not None and blocker.manager_id is not None:
+            boss = await self._employee_repo.get_employee_by_id(blocker.manager_id)
+            if boss is not None and boss.status != EmployeeStatus.INACTIVE.value and boss.user_id is not None:
+                if boss.user_id != block.blocked_by_user_id:
+                    return [boss.user_id]
+
+        # 2. The head of the task's department.
+        department = await self._department_repo.get_department_by_id(task.department_id)
+        if department is not None and department.head_employee_id is not None:
+            head = await self._employee_repo.get_employee_by_id(department.head_employee_id)
+            if head is not None and head.user_id is not None:
+                if head.user_id != block.blocked_by_user_id:
+                    return [head.user_id]
+
+        # 3. The HR administrators.
+        hr_user_ids = await self._membership_service.list_active_user_ids_by_role(
+            task.organization_id, MembershipRole.HR_ADMINISTRATOR.value
+        )
+        return [user_id for user_id in hr_user_ids if user_id != block.blocked_by_user_id]
+
+    async def _notify_reviewers(self, task: Task, block: TaskBlock) -> None:
+        """Tell whoever should review a new block that it is waiting for them."""
+        recipients = await self._review_recipients(task, block)
+        if not recipients:
+            return
+        category = block.category.replace("_", " ")
+        await self._notifications.notify(
+            organization_id=task.organization_id,
+            recipient_user_ids=recipients,
+            category=NotificationCategory.TASK,
+            title=f"Task blocked: {task.title}",
+            body=f"Reason ({category}): {block.reason}. It needs your review.",
+            link_type="task_block",
+            link_id=block.id,
+        )
+
+    async def _end_open_block(self, task_id: uuid.UUID, now: datetime) -> None:
+        """End the task's open block, if it has one.
+
+        Called when a task is completed, cancelled or reassigned: a block
+        shouldn't outlive the situation it describes. The block's review
+        status is left alone, so a reviewer can still judge it for the record.
+        """
+        block = await self._repo.get_open_block(task_id)
+        if block is not None:
+            await self._close_block(task_id, block, now)
+
+    async def _close_block(self, task_id: uuid.UUID, block: TaskBlock, now: datetime) -> TaskBlock:
+        """End ``block`` at ``now`` and update the task to match.
+
+        Used when someone unblocks, and also when a blocked task is cancelled
+        or reassigned (the block ends with it). If the block is already
+        approved, its length is added to the task's approved blocked time.
+
+        Raises:
+            TaskChangedException: If the block was closed by somebody else first.
+        """
+        closed = await self._repo.close_block(block.id, now)
+        if closed is None:
+            raise TaskChangedException()
+        approved_seconds = 0
+        if closed.review_status == ReviewStatus.APPROVED.value:
+            approved_seconds = int((closed.unblocked_at - closed.blocked_at).total_seconds())
+        await self._repo.clear_blocked_state(task_id, approved_seconds)
+        return closed
+
+    async def list_task_blocks(self, caller: Membership, task_id: uuid.UUID) -> list[TaskBlock]:
+        """List every block a task has had, newest first, for a caller who can see the task.
+
+        Raises:
+            TaskNotFoundException: If it doesn't exist or is outside the caller's view.
+        """
+        ctx = await self._context(caller)
+        task = await self._load_visible(task_id, ctx)
+        return await self._repo.list_blocks_for_task(task.id)
+
     async def announce_overdue_tasks(self, organization_id: uuid.UUID, now: datetime) -> int:
         """Tell the right people about every overdue task not announced yet.
 
@@ -672,7 +998,36 @@ class TaskService:
                 link_type="task",
                 link_id=task.id,
             )
+            await self._prompt_assignee_to_explain(task)
         return len(tasks)
+
+    async def _prompt_assignee_to_explain(self, task: Task) -> None:
+        """Invite the assignee to record a block, if the task is overdue and has never had one.
+
+        The "why is this late?" prompt (01_REQUIREMENTS.md 6a): if something
+        outside their control held the task up, they can say so and a reviewer
+        will judge it. Skipped when the task is unassigned, the assignee has
+        left or has no login, or they have already recorded a block.
+        """
+        if task.assigned_to_employee_id is None:
+            return
+        if await self._repo.list_blocks_for_task(task.id):
+            return  # they have already explained
+        assignee = await self._employee_repo.get_employee_by_id(task.assigned_to_employee_id)
+        if assignee is None or assignee.status == EmployeeStatus.INACTIVE.value or assignee.user_id is None:
+            return
+        await self._notifications.notify(
+            organization_id=task.organization_id,
+            recipient_user_ids=[assignee.user_id],
+            category=NotificationCategory.TASK,
+            title=f"Was something holding up: {task.title}?",
+            body=(
+                "This task is overdue. If something outside your control held it up, "
+                "mark it blocked and say why, so a reviewer can take it into account."
+            ),
+            link_type="task",
+            link_id=task.id,
+        )
 
     async def _overdue_recipients(self, task: Task) -> list[uuid.UUID]:
         """Work out which users to tell that ``task`` is overdue.
