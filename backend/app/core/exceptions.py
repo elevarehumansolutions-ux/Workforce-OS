@@ -586,6 +586,23 @@ class KPIScorePeriodClosedException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class KPITrackedByTasksException(PlatformError):
+    """Raised when typing in a value for a KPI whose progress is counted from tasks."""
+
+    def __init__(
+        self,
+        message: str = (
+            "This KPI is counted from completed tasks, so its value can't be typed in. "
+            "Change its tracking mode first if you want to enter values by hand."
+        ),
+        code: str = "KPI_TRACKED_BY_TASKS",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class EmployeeUserAlreadyLinkedException(PlatformError):
     """Raised when a user is already linked to another employee in the org."""
 

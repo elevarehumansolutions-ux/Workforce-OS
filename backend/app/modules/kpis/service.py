@@ -7,7 +7,7 @@ repository but never commits — the router commits after a successful
 call, same convention as every other module.
 """
 
-from app.core.exceptions import KPIScorePeriodClosedException
+from app.core.exceptions import KPIScorePeriodClosedException, KPITrackedByTasksException
 from datetime import date
 import decimal
 import uuid
@@ -16,6 +16,7 @@ from .schemas import KPIUpdate, KPIGroupUpdateRequest, KPIScoreCreate
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
+from .enums import KPITrackingMode
 from .models import KPI, KPIScore
 from .repository import KPIRepository, KPIScoreRepository
 from .schemas import KPICreate
@@ -310,12 +311,20 @@ class KPIService:
         Raises:
             KPINotFoundException: If no non-deleted KPI with that id
                 exists in the caller's org.
+            KPITrackedByTasksException: If the KPI is counted from completed
+                tasks (``tracking_mode`` ``task_count``), so a typed-in value
+                isn't allowed.
             KPIScorePeriodClosedException: If ``period_end`` has already
                 passed.
         """
         kpi = await self.kpi_repo.get_kpi_by_id(kpi_id)
         if kpi is None:
             raise KPINotFoundException()
+
+        # A task-count KPI gets its number from completed tasks; a typed-in value would
+        # contradict it.
+        if kpi.tracking_mode == KPITrackingMode.TASK_COUNT.value:
+            raise KPITrackedByTasksException()
 
         if data.period_end < date.today():
             raise KPIScorePeriodClosedException()

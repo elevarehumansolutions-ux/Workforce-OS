@@ -31,8 +31,9 @@ rule, complete/cancel/reassign end a block, the "was something holding up?" prom
 
 **F. DONE 2026-10-09:** `GET /kpis/{kpi_id}/task-progress`, coded in the Task module. The gap that
 no API could set `tracking_mode = task_count` was closed with the user's permission (2 lines in
-`kpis/schemas.py`). Open KPI-module items, noted only: typed-in scores are not refused for a
-task-count KPI; `PATCH /kpis/{id}` with `null` on `name`/`weight`/`is_inverse` is a 500.
+`kpis/schemas.py`). Two follow-ups were fixed the same day with the user's permission: typed-in
+scores are refused for a task-count KPI (409 `KPI_TRACKED_BY_TASKS`); `PATCH /kpis/{id}` with `null`
+on `name`/`weight`/`is_inverse` is a 422, not a 500.
 
 **M10 is feature-complete.** Next: push `m10-tasks`, open the PR, merge, run the six migrations on
 the VPS, then rewrite this file for the next milestone (M11 Workflow).

@@ -61,15 +61,16 @@ class KPIUpdate(BaseModel):
     group's total too, which nothing asked for).
     """
 
-    name: str | None = None
+    # name, weight, is_inverse and tracking_mode are required on every KPI. Leaving one out keeps
+    # its current value; sending null is refused (422) instead of crashing at the database.
+    # That is why their types are not "| None", unlike the fields that may really be empty.
+    name: str = None
     description: str | None = None
-    weight: decimal.Decimal | None = None
-    is_inverse: bool | None = None
+    weight: decimal.Decimal = None
+    is_inverse: bool = None
     target_value: decimal.Decimal | None = None
     unit: str | None = None
     key_result_id: uuid.UUID | None = None
-    # Leaving this out keeps the current mode. Sending null is refused (422), because every
-    # KPI must have a mode. That is why the type is not "| None", unlike the fields above.
     tracking_mode: KPITrackingMode = None
 
 
