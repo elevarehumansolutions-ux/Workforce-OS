@@ -37,16 +37,18 @@ in the KPI module (needs the user's permission to touch it).
 
 ## Open questions (settle before the slice that needs them)
 
-1. Is `in_progress` a separate action (`POST /tasks/{id}/start`) or just the first clock-in /
-   unused for now? The status exists; nothing sets it.
-2. **RESOLVED 2026-10-09:** cancel, reassign and complete end an open block (reassign also resets
-   the approved blocked time). Original question: what happens to an open `task_block` when a task is cancelled or reassigned? (Slice E:
-   cancel and reassign now exist and ignore blocks, since none exist yet.)
-3. Should an assignee have to belong to the task's department? Slice A only requires "active
-   employee of the org". Decide with the user.
-4. The `manager` role's read scope was implemented as "its own department plus what it
-   created"; confirm that is what the product wants, and what a business executive may do
-   beyond reading.
+All settled on 2026-10-09 (`08_DECISIONS.md`, entry "M10's open questions and the offboarding gap"):
+
+1. **`in_progress`:** deferred. Unused for now; a `POST /tasks/{id}/start` is a small later addition.
+2. **Open block on cancel/reassign/complete:** ends it (reassign also resets the approved time). Built.
+3. **Assignee must belong to the department:** no, kept as is. Revisit at M12 (noted as an improvement).
+4. **Read scope:** kept as is (manager role: own department plus created; executive: read-only,
+   sees all). Later refinement: scope managers by reporting line.
+
+**Offboarding handover: BUILT 2026-10-09** as a sweep inside the Task module's scan (no change to
+the Organization module, the user's choice): an offboarded employee's open tasks are unassigned,
+their open blocks end, and the department head (or HR) is told. Details in the same decision entry.
+**The only slice left in M10 is F (the `task_count` live read).**
 
 ## Not this milestone's job
 

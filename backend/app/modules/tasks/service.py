@@ -969,6 +969,80 @@ class TaskService:
         task = await self._load_visible(task_id, ctx)
         return await self._repo.list_blocks_for_task(task.id)
 
+    async def release_orphaned_tasks(self, organization_id: uuid.UUID) -> int:
+        """Hand over the open tasks of employees who have been offboarded.
+
+        A departure is a handover (08_DECISIONS.md 2026-10-09). For each open
+        task still assigned to an inactive employee: its open block (if any)
+        is ended, and it becomes unassigned, which puts it back in the
+        department queue. Then the department's head (or the HR
+        administrators, if there is no head) is told, in one message per
+        department and person who left, so they can reassign each task with a
+        new deadline. Completed and cancelled tasks are never touched.
+
+        Called by the task scan once per organization, with that
+        organization's RLS context already set. Safe to run repeatedly: once
+        a task is unassigned it no longer matches.
+
+        Args:
+            organization_id: The organization being scanned.
+
+        Returns:
+            How many tasks were handed over.
+        """
+        orphaned_tasks = await self._repo.list_open_tasks_of_inactive_employees()
+        now = datetime.now(UTC)
+        titles_by_department_and_person: dict[tuple[uuid.UUID, uuid.UUID], list[str]] = {}
+
+        for task in orphaned_tasks:
+            former_assignee_id = task.assigned_to_employee_id  # read before the update changes it
+            await self._end_open_block(task.id, now)
+            released = await self._repo.unassign_task(task.id, former_assignee_id)
+            if released is None:
+                continue  # somebody reassigned it in the meantime
+            await self._audit.log_action(
+                organization_id=organization_id,
+                actor_user_id=None,  # a system action, not a person
+                action="unassign",
+                entity_type="task",
+                entity_id=task.id,
+                changes={
+                    "old": {"assigned_to_employee_id": str(former_assignee_id)},
+                    "new": {"assigned_to_employee_id": None, "reason": "the assignee was offboarded"},
+                },
+            )
+            group = (task.department_id, former_assignee_id)
+            titles_by_department_and_person.setdefault(group, []).append(task.title)
+
+        for (department_id, former_assignee_id), titles in titles_by_department_and_person.items():
+            await self._tell_about_released_tasks(organization_id, department_id, former_assignee_id, titles)
+        return sum(len(titles) for titles in titles_by_department_and_person.values())
+
+    async def _tell_about_released_tasks(
+        self,
+        organization_id: uuid.UUID,
+        department_id: uuid.UUID,
+        former_assignee_id: uuid.UUID,
+        titles: list[str],
+    ) -> None:
+        """Tell a department's head (or HR) that a leaver's tasks now need a new owner."""
+        recipients = await self._head_or_hr_user_ids(department_id, organization_id)
+        if not recipients:
+            return
+        former = await self._employee_repo.get_employee_by_id(former_assignee_id)
+        name = f"{former.first_name} {former.last_name}" if former is not None else "An employee"
+        shown = ", ".join(f'"{title}"' for title in titles[:5])
+        more = f" and {len(titles) - 5} more" if len(titles) > 5 else ""
+        await self._notifications.notify(
+            organization_id=organization_id,
+            recipient_user_ids=recipients,
+            category=NotificationCategory.TASK,
+            title=f"{name} left: {len(titles)} task(s) need a new owner",
+            body=f"These tasks have no owner now: {shown}{more}. Assign each one to someone, with a new deadline.",
+            link_type="department",
+            link_id=department_id,
+        )
+
     async def announce_overdue_tasks(self, organization_id: uuid.UUID, now: datetime) -> int:
         """Tell the right people about every overdue task not announced yet.
 
@@ -1048,22 +1122,30 @@ class TaskService:
             ):
                 user_ids.append(assignee.user_id)
 
-        head = None
-        department = await self._department_repo.get_department_by_id(task.department_id)
-        if department is not None and department.head_employee_id is not None:
-            head = await self._employee_repo.get_employee_by_id(department.head_employee_id)
-
-        if head is not None and head.user_id is not None:
-            people_to_add = [head.user_id]
-        else:
-            people_to_add = await self._membership_service.list_active_user_ids_by_role(
-                task.organization_id, MembershipRole.HR_ADMINISTRATOR.value
-            )
-        for user_id in people_to_add:
+        for user_id in await self._head_or_hr_user_ids(task.department_id, task.organization_id):
             if user_id not in user_ids:
                 user_ids.append(user_id)
 
         return user_ids
+
+    async def _head_or_hr_user_ids(
+        self, department_id: uuid.UUID, organization_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        """The people accountable for a department's tasks: its head, else the HR administrators.
+
+        If the department has no head (or the head has no login), the HR
+        administrators are returned instead, so there is always someone.
+        """
+        head = None
+        department = await self._department_repo.get_department_by_id(department_id)
+        if department is not None and department.head_employee_id is not None:
+            head = await self._employee_repo.get_employee_by_id(department.head_employee_id)
+
+        if head is not None and head.user_id is not None:
+            return [head.user_id]
+        return await self._membership_service.list_active_user_ids_by_role(
+            organization_id, MembershipRole.HR_ADMINISTRATOR.value
+        )
 
     async def _notify_employee(
         self, task: Task, employee_id: uuid.UUID | None, caller: Membership, title: str, body: str

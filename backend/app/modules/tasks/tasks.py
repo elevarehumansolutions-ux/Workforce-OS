@@ -1,13 +1,16 @@
-"""Celery tasks for the Task module: telling people when a task becomes overdue.
+"""Celery tasks for the Task module: the scan that keeps tasks in order.
 
 Built like ``attendance/tasks.py``. Two tasks:
 
 - ``overdue_scan`` is scheduled by Celery Beat. It asks which organizations
-  have an overdue task nobody has been told about (the one cross-tenant read,
-  through a narrow ``SECURITY DEFINER`` function) and queues one job for each.
-- ``announce_organization_overdue_tasks`` does the telling for ONE
-  organization, under that organization's row-level security. One
-  organization failing or retrying never holds up the others.
+  need attention (an overdue task nobody has been told about, or an open task
+  held by an offboarded employee; the one cross-tenant read, through a narrow
+  ``SECURITY DEFINER`` function) and queues one job for each.
+- ``announce_organization_overdue_tasks`` does the work for ONE organization,
+  under that organization's row-level security: it hands over the tasks of
+  employees who have left, then announces overdue tasks. One organization
+  failing or retrying never holds up the others. (The name stays as it is
+  because Celery and the Beat schedule refer to it.)
 
 Each overdue task is announced once (``tasks.overdue_notified_at``), and again
 only if its deadline later changes.
@@ -44,7 +47,7 @@ async def run_overdue_scan(db: AsyncSession) -> int:
     Returns:
         How many organizations were queued.
     """
-    organization_ids = await TaskRepository(db).list_organizations_with_unannounced_overdue_tasks()
+    organization_ids = await TaskRepository(db).list_organizations_needing_scan()
     for organization_id in organization_ids:
         celery.send_task(ANNOUNCE_ORG_TASK, args=[str(organization_id)])
     return len(organization_ids)
@@ -55,6 +58,11 @@ async def run_announce_for_organization(
 ) -> int:
     """Announce one organization's overdue tasks, then commit once.
 
+    This is the scan's whole job for one organization. It first hands over
+    the open tasks of employees who have been offboarded (they become
+    unassigned and the head or HR is told), then announces overdue tasks.
+    Both happen in one transaction.
+
     A Celery task has no web request to set the tenant context, so this sets
     it first. After that, every query only sees this organization's rows.
 
@@ -64,7 +72,7 @@ async def run_announce_for_organization(
         now: The current moment; tests pass a fixed one.
 
     Returns:
-        How many tasks were announced.
+        How many overdue tasks were announced.
     """
     if now is None:
         now = datetime.now(UTC)
@@ -72,12 +80,18 @@ async def run_announce_for_organization(
         text("SELECT set_config('app.current_org_id', :org_id, true)"),
         {"org_id": str(organization_id)},
     )
-    announced = await TaskService(db).announce_overdue_tasks(organization_id, now)
+    service = TaskService(db)
+    released = await service.release_orphaned_tasks(organization_id)
+    announced = await service.announce_overdue_tasks(organization_id, now)
     await db.commit()
-    if announced:
+    if released or announced:
         logger.info(
-            "Overdue tasks announced",
-            extra={"organization_id": str(organization_id), "announced_count": announced},
+            "Task scan finished",
+            extra={
+                "organization_id": str(organization_id),
+                "announced_count": announced,
+                "released_count": released,
+            },
         )
     return announced
 

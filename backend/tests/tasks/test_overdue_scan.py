@@ -191,10 +191,10 @@ async def test_the_lookup_finds_only_organizations_with_unannounced_overdue_task
     repo = TaskRepository(db_session)
 
     await set_org_context(db_session, uuid.uuid4())     # no tenant of its own, like the real scan
-    before = await repo.list_organizations_with_unannounced_overdue_tasks()
+    before = await repo.list_organizations_needing_scan()
     await _run_scan_for(db_session, busy)
     await set_org_context(db_session, uuid.uuid4())
-    after = await repo.list_organizations_with_unannounced_overdue_tasks()
+    after = await repo.list_organizations_needing_scan()
 
     assert busy_id in before and quiet_id not in before
     assert busy_id not in after
@@ -215,7 +215,7 @@ async def test_blocked_and_extended_tasks_are_not_announced_and_do_not_wake_the_
     )
 
     await set_org_context(db_session, uuid.uuid4())      # the real scan has no tenant of its own
-    found = await TaskRepository(db_session).list_organizations_with_unannounced_overdue_tasks()
+    found = await TaskRepository(db_session).list_organizations_needing_scan()
     announced = await _run_scan_for(db_session, quiet)
 
     assert org_id not in found

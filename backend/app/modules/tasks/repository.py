@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import paginate
 from app.core.schemas import PaginationResponse
+from app.modules.organization.enums import EmployeeStatus
 from app.modules.organization.models import Employee
 
 from .enums import OPEN_STATUSES, ReviewStatus, TaskStatus
@@ -429,22 +430,72 @@ class TaskRepository:
         )
         await self._db.flush()
 
-    async def list_organizations_with_unannounced_overdue_tasks(self) -> list[uuid.UUID]:
-        """List every organization that has an overdue task nobody has been told about yet.
+    async def list_organizations_needing_scan(self) -> list[uuid.UUID]:
+        """List every organization the task scan should look at.
+
+        An organization qualifies if it has an overdue task nobody has been
+        told about yet, or an open task held by an offboarded employee.
 
         The one deliberate exception to row-level security in this module,
         and the scan's only way to find which organizations to look at: with
         no tenant context set, RLS returns nothing. It calls the ``SECURITY
-        DEFINER`` function ``organizations_with_unannounced_overdue_tasks()``
-        (see its migration), which reveals only organization ids.
+        DEFINER`` function ``organizations_needing_task_scan()`` (see its
+        migration), which reveals only organization ids.
 
         Returns:
             The ids of the organizations to scan.
         """
-        result = await self._db.execute(
-            text("SELECT organization_id FROM organizations_with_unannounced_overdue_tasks()")
-        )
+        result = await self._db.execute(text("SELECT organization_id FROM organizations_needing_task_scan()"))
         return [row.organization_id for row in result]
+
+    async def list_open_tasks_of_inactive_employees(self) -> list[Task]:
+        """List the open tasks assigned to employees who have been offboarded.
+
+        Runs inside one organization's RLS context. Completed and cancelled
+        tasks are left out: their history stays on the person's name.
+        """
+        stmt = (
+            select(Task)
+            .join(Employee, Employee.id == Task.assigned_to_employee_id)
+            .where(
+                Task.deleted_at.is_(None),
+                Task.status.in_(OPEN_STATUSES),
+                Employee.status == EmployeeStatus.INACTIVE.value,
+            )
+            .order_by(Task.created_at, Task.id)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def unassign_task(self, task_id: uuid.UUID, expected_assignee_id: uuid.UUID) -> Task | None:
+        """Atomically take a task off its assignee, but only if they are still the assignee.
+
+        Same safe pattern as reassign: if somebody reassigned the task in the
+        meantime, nothing changes. The task stays open; its assignee becomes
+        empty, so it falls back to the department queue.
+
+        Args:
+            task_id: Id of the task.
+            expected_assignee_id: The assignee the caller saw.
+
+        Returns:
+            The updated ``Task``, or ``None`` if nothing matched.
+        """
+        stmt = (
+            update(Task)
+            .where(
+                Task.id == task_id,
+                Task.deleted_at.is_(None),
+                Task.status.in_(OPEN_STATUSES),
+                Task.assigned_to_employee_id == expected_assignee_id,
+            )
+            .values(assigned_to_employee_id=None)
+            .returning(Task)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return result.scalar_one_or_none()
 
     async def claim_unannounced_overdue_tasks(self, now: datetime) -> list[Task]:
         """Mark every overdue task not yet announced as announced, and return them.

@@ -180,7 +180,9 @@ Nothing below this line exists as a real endpoint today — every path here 404s
 
 `TaskResponse`: `id, organization_id, workflow_instance_id, workflow_step_id, department_id, kpi_id, assigned_to_employee_id, title, description, due_at, completed_at, cancel_reason, status, overdue, blocked_since, approved_blocked_seconds, created_by_user_id, deleted_at, created_at, updated_at`.
 
-**Not built yet:** the `task_count` KPI read (F), any way to set `in_progress`, and anything about what happens to a person's open tasks when they are offboarded (undecided).
+**Built (2026-10-09): handover when someone is offboarded** (no endpoint; the same 10-minute background job). Open tasks (`open`/`in_progress`) assigned to an offboarded employee become **unassigned** (`assigned_to_employee_id: null`, status unchanged), any open block on them is ended, and the department head (or the HR administrators if there is no head) gets one in-app notification per person who left: `category: "task"`, title `<First Last> left: <N> task(s) need a new owner`, `link_type: "department"`, `link_id` = the department id. The head then reassigns each with `POST /tasks/{id}/reassign` (new deadline required). Completed and cancelled tasks keep the person's name. It can take up to about 10 minutes after the offboarding. Reinstating the employee does not give the tasks back. **Consequence for screens:** an open task can become unassigned *after* creation, so every task view must handle `assigned_to_employee_id: null` (show an "Assign" action).
+
+**Not built yet:** the `task_count` KPI read (F), and any way to set `in_progress` (deferred, a small later endpoint).
 
 ### Workflow (M11+)
 
