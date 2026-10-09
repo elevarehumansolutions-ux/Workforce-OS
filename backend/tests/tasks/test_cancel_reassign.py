@@ -19,6 +19,7 @@ from tests.tasks.test_tasks_router import (
     DUE,
     NOTIFICATIONS,
     TASKS,
+    _clock_in,
     _task,
     _world,
 )
@@ -34,6 +35,7 @@ def _titles(resp) -> list[str]:
 async def test_who_can_cancel_a_task(client, monkeypatch):
     """HR, the head and the creator can; the assignee and a mere viewer cannot."""
     w = await _world(client, monkeypatch, "b1")
+    await _clock_in(client, w.chidi)
     tid = (await _task(client, w.hr, w.dispatch, "Old job", assigned_to_employee_id=w.chidi.employee_id)).json()["id"]
     url = f"{TASKS}/{tid}/cancel"
     body = {"reason": "Customer withdrew the order"}
@@ -182,6 +184,7 @@ async def test_reassign_is_refused_for_bad_input(client, monkeypatch):
 async def test_who_can_reassign(client, monkeypatch):
     """HR, the head and the creator-in-department can; the assignee, a viewer and an outsider creator cannot."""
     w = await _world(client, monkeypatch, "b8")
+    await _clock_in(client, w.chidi)
     payload = {"assigned_to_employee_id": w.bola.employee_id, "due_at": NEW_DUE}
     hr_made = (await _task(client, w.hr, w.dispatch, assigned_to_employee_id=w.chidi.employee_id)).json()["id"]
     dana_made = (await _task(client, w.dana.h, w.dispatch, assigned_to_employee_id=w.chidi.employee_id)).json()["id"]

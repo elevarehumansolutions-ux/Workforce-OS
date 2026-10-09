@@ -7,6 +7,7 @@ assignee sees and completes their own; HR and executives see everything).
 """
 
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,8 @@ from app.core.schemas import PaginationResponse
 from app.modules.tenancy_identity.models import Membership
 
 from .enums import TaskStatus
+from .models import Task
+from .overdue import is_overdue
 from .schemas import (
     TaskCancelRequest,
     TaskCreateRequest,
@@ -27,6 +30,13 @@ from .schemas import (
 from .service import TaskService
 
 router = APIRouter()
+
+
+def _task_response(task: Task, now: datetime) -> TaskResponse:
+    """Build the API response for a task, including whether it is overdue at ``now``."""
+    response = TaskResponse.model_validate(task)
+    response.overdue = is_overdue(task, now)
+    return response
 
 
 @router.post("/tasks", status_code=200)
@@ -60,7 +70,7 @@ async def create_task(
     """
     task = await TaskService(db).create_task(caller, data.model_dump())
     await db.commit()
-    return TaskResponse.model_validate(task)
+    return _task_response(task, datetime.now(UTC))
 
 
 @router.get("/tasks", status_code=200)
@@ -69,6 +79,7 @@ async def list_tasks(
     assigned_to_employee_id: uuid.UUID | None = Query(default=None),
     status: TaskStatus | None = Query(default=None),
     kpi_id: uuid.UUID | None = Query(default=None),
+    overdue: bool | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -85,18 +96,30 @@ async def list_tasks(
         assigned_to_employee_id: Only tasks assigned to this employee.
         status: Only tasks in this status.
         kpi_id: Only tasks linked to this KPI.
+        overdue: ``true`` for only overdue tasks, ``false`` for only tasks that
+            are not overdue, left out for both.
         page: 1-indexed page number.
         limit: Maximum number of rows per page (1-100).
         db: Database session dependency.
         caller: Caller's membership.
 
     Returns:
-        A paginated response of tasks.
+        A paginated response of tasks, each with an ``overdue`` flag.
     """
+    # One moment for the whole request: the filter and every row's flag use it.
+    now = datetime.now(UTC)
     result = await TaskService(db).list_tasks(
-        caller, department_id, assigned_to_employee_id, status, kpi_id, page, limit
+        caller,
+        department_id,
+        assigned_to_employee_id,
+        status,
+        kpi_id,
+        page,
+        limit,
+        overdue=overdue,
+        now=now,
     )
-    result.data = [TaskResponse.model_validate(task) for task in result.data]
+    result.data = [_task_response(task, now) for task in result.data]
     return result
 
 
@@ -120,7 +143,8 @@ async def get_task(
         TaskNotFoundException: If it doesn't exist, or exists but is outside
             the caller's view (the same 404, so its existence isn't revealed).
     """
-    return TaskResponse.model_validate(await TaskService(db).get_task(caller, task_id))
+    task = await TaskService(db).get_task(caller, task_id)
+    return _task_response(task, datetime.now(UTC))
 
 
 @router.patch("/tasks/{task_id}", status_code=200)
@@ -156,7 +180,7 @@ async def update_task(
         raise ValidationException(message="Provide at least one field to update")
     task = await TaskService(db).update_task(caller, task_id, data.model_dump(exclude_unset=True))
     await db.commit()
-    return TaskResponse.model_validate(task)
+    return _task_response(task, datetime.now(UTC))
 
 
 @router.post("/tasks/{task_id}/complete", status_code=200)
@@ -185,7 +209,7 @@ async def complete_task(
     """
     task = await TaskService(db).complete_task(caller, task_id)
     await db.commit()
-    return TaskResponse.model_validate(task)
+    return _task_response(task, datetime.now(UTC))
 
 
 @router.post("/tasks/{task_id}/cancel", status_code=200)
@@ -217,7 +241,7 @@ async def cancel_task(
     """
     task = await TaskService(db).cancel_task(caller, task_id, data.reason)
     await db.commit()
-    return TaskResponse.model_validate(task)
+    return _task_response(task, datetime.now(UTC))
 
 
 @router.post("/tasks/{task_id}/reassign", status_code=200)
@@ -256,4 +280,4 @@ async def reassign_task(
         caller, task_id, data.assigned_to_employee_id, data.due_at
     )
     await db.commit()
-    return TaskResponse.model_validate(task)
+    return _task_response(task, datetime.now(UTC))

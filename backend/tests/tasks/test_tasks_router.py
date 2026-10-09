@@ -83,6 +83,12 @@ async def _task(client, h, department_id: str, title: str = "Deliver the shipmen
     return await client.post(TASKS, json={"department_id": department_id, "title": title, **extra}, headers=h)
 
 
+async def _clock_in(client, *people) -> None:
+    """Clock people in: an assignee only sees and works on their tasks while clocked in."""
+    for person in people:
+        assert (await client.post("/api/v1/attendance/clock-in", headers=person.h)).status_code == 200
+
+
 def _ids(resp) -> list[str]:
     return [t["id"] for t in resp.json()["data"]]
 
@@ -180,6 +186,7 @@ async def test_a_colleague_in_the_same_department_can_choose_the_assignee(client
 async def test_who_can_see_which_tasks(client, monkeypatch):
     """Assignee: own. Head and same-department manager: the department's. Other manager: only what they created. HR: all."""
     w = await _world(client, monkeypatch, "7")
+    await _clock_in(client, w.chidi, w.bola)
     t_chidi = (await _task(client, w.hr, w.dispatch, "Chidi's", assigned_to_employee_id=w.chidi.employee_id)).json()["id"]
     t_bola = (await _task(client, w.hr, w.dispatch, "Bola's", assigned_to_employee_id=w.bola.employee_id)).json()["id"]
     t_sam = (await _task(client, w.sam.h, w.dispatch, "Sam's request")).json()["id"]
@@ -197,6 +204,7 @@ async def test_who_can_see_which_tasks(client, monkeypatch):
 async def test_who_can_edit_a_task_and_what_cannot_be_edited(client, monkeypatch):
     """HR, the head and the creator can; the assignee cannot; status and the assignee are not editable here."""
     w = await _world(client, monkeypatch, "8")
+    await _clock_in(client, w.chidi)
     tid = (await _task(client, w.hr, w.dispatch, assigned_to_employee_id=w.chidi.employee_id, due_at=DUE)).json()["id"]
     url = f"{TASKS}/{tid}"
 
@@ -225,6 +233,7 @@ async def test_who_can_edit_a_task_and_what_cannot_be_edited(client, monkeypatch
 async def test_completing_a_task(client, monkeypatch):
     """The assignee, the head and HR can; others cannot; a second completion is a 409 and the first time stands."""
     w = await _world(client, monkeypatch, "9")
+    await _clock_in(client, w.chidi)
     mine = (await _task(client, w.hr, w.dispatch, "Mine", assigned_to_employee_id=w.chidi.employee_id)).json()["id"]
     theirs = (await _task(client, w.hr, w.dispatch, "Theirs", assigned_to_employee_id=w.bola.employee_id)).json()["id"]
     hrs = (await _task(client, w.hr, w.dispatch, "HR closes")).json()["id"]

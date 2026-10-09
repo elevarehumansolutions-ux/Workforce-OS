@@ -144,6 +144,9 @@ class TaskResponse(BaseModel):
     completed_at: datetime | None
     cancel_reason: str | None
     status: TaskStatus
+    # Not a database column: "overdue" is worked out when the response is built
+    # (see tasks/overdue.py), so the default here is only a placeholder.
+    overdue: bool = False
     created_by_user_id: uuid.UUID | None
     deleted_at: datetime | None
     created_at: datetime

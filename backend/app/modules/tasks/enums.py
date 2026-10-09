@@ -21,3 +21,9 @@ class TaskStatus(str, Enum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+
+
+# The statuses of a task that is still "live": it can be edited, completed,
+# cancelled or reassigned. Every other place that needs this list imports it
+# from here, so it is only written once.
+OPEN_STATUSES = (TaskStatus.OPEN.value, TaskStatus.IN_PROGRESS.value)

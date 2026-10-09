@@ -13,13 +13,15 @@ and `05_API_DESIGN.md` (### Task (M10)) for the exact contract, and
 
 ## Remaining slices, in order
 
-**C. Clock-in gate and derived overdue.** An "is this employee clocked in?" method on
+**C. DONE 2026-10-08:** the clock-in gate (uses Attendance's existing `get_open_record`), the
+overdue rule in `tasks/overdue.py`, `overdue` on every response and `?overdue=true|false` on the
+list, with an agreement test. Nothing left in C. An "is this employee clocked in?" method on
 `AttendanceService` (only the repository's `get_open_record` exists today; go through the
 service, not a direct `attendance_records` query). The gate applies to the employee's own
 task list. `overdue` is derived (`due_at < now` and status open/in progress), never stored;
 add `?overdue=true` and an `overdue` field on `TaskResponse`.
 
-**D. Overdue scan (Celery Beat).** Notify the assignee and the department head when `due_at`
+**D. DONE 2026-10-08** (see `09_PROGRESS.md` "SLICE D BUILT"). Original description: Overdue scan (Celery Beat). Notify the assignee and the department head when `due_at`
 passes; **no head set -> notify the HR administrators** (the fallback from the
 department-head decision). Must be idempotent (a retry or late run must not notify twice).
 

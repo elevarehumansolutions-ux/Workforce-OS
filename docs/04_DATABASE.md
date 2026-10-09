@@ -418,6 +418,7 @@ CREATE TABLE tasks (
     due_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,  -- set exactly when status = 'completed' (CHECK check_task_completed_at_matches_status)
     cancel_reason TEXT,        -- set exactly when status = 'cancelled' (CHECK check_task_cancel_reason_matches_status); added M10 slice B, migration c8e41d7a5b92
+    overdue_notified_at TIMESTAMPTZ,  -- when the "task is overdue" notification was sent; NULL = not sent yet. Cleared when due_at changes or the task is reassigned. Added M10 slice D, migration e5a07b3c9d14 (same migration adds the function organizations_with_unannounced_overdue_tasks())
     status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','in_progress','completed','cancelled')),
     created_by_user_id UUID REFERENCES users(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -1,17 +1,17 @@
 """Data-access layer for the Task module."""
 
 import uuid
-from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import not_, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import paginate
 from app.core.schemas import PaginationResponse
 
-from .enums import TaskStatus
+from .enums import OPEN_STATUSES, TaskStatus
 from .models import Task
+from .overdue import overdue_clause
 
 # The atomic complete relies on RETURNING for the truth about what changed.
 # synchronize_session=False stops SQLAlchemy guessing in Python which loaded
@@ -20,10 +20,7 @@ from .models import Task
 # modules' atomic UPDATEs.
 _ATOMIC_UPDATE_OPTIONS = {"synchronize_session": False, "populate_existing": True}
 
-_OPEN_STATUSES = (TaskStatus.OPEN.value, TaskStatus.IN_PROGRESS.value)
 
-
-@dataclass(frozen=True)
 class TaskScope:
     """Which tasks a caller may see.
 
@@ -36,24 +33,34 @@ class TaskScope:
         sees_all: True for roles with an organization-wide view.
         user_id: The caller's user id, to match ``created_by_user_id``.
         employee_id: The caller's employee id, or ``None`` if they have no
-            employee record.
-        department_ids: Departments whose tasks the caller may see.
+            employee record (or aren't clocked in, see the service).
+        department_ids: A list of departments whose tasks the caller may see.
     """
 
-    sees_all: bool
-    user_id: uuid.UUID
-    employee_id: uuid.UUID | None
-    department_ids: frozenset[uuid.UUID]
+    def __init__(
+        self,
+        sees_all: bool,
+        user_id: uuid.UUID,
+        employee_id: uuid.UUID | None,
+        department_ids: list[uuid.UUID],
+    ):
+        """Store who the caller is and what they are allowed to see."""
+        self.sees_all = sees_all
+        self.user_id = user_id
+        self.employee_id = employee_id
+        self.department_ids = department_ids
 
     def allows(self, task: Task) -> bool:
         """Whether this caller may see ``task``."""
         if self.sees_all:
             return True
-        return (
-            (self.employee_id is not None and task.assigned_to_employee_id == self.employee_id)
-            or task.created_by_user_id == self.user_id
-            or task.department_id in self.department_ids
-        )
+        if self.employee_id is not None and task.assigned_to_employee_id == self.employee_id:
+            return True  # it is assigned to me
+        if task.created_by_user_id == self.user_id:
+            return True  # I created it
+        if task.department_id in self.department_ids:
+            return True  # it belongs to a department I look after
+        return False
 
 
 class TaskRepository:
@@ -103,6 +110,8 @@ class TaskRepository:
         kpi_id: uuid.UUID | None = None,
         page: int = 1,
         limit: int = 20,
+        overdue: bool | None = None,
+        now: datetime | None = None,
     ) -> PaginationResponse:
         """List the tasks a caller may see, newest first, with optional filters.
 
@@ -114,6 +123,10 @@ class TaskRepository:
             kpi_id: Only tasks linked to this KPI.
             page: 1-indexed page number.
             limit: Maximum number of rows per page.
+            overdue: True for only overdue tasks, False for only tasks that
+                are not overdue, None for both.
+            now: The moment "overdue" is judged against. Required when
+                ``overdue`` is given.
 
         Returns:
             A paginated response wrapping the matching ``Task`` rows.
@@ -134,6 +147,10 @@ class TaskRepository:
             stmt = stmt.where(Task.status == status.value)
         if kpi_id is not None:
             stmt = stmt.where(Task.kpi_id == kpi_id)
+        if overdue is True:
+            stmt = stmt.where(overdue_clause(now))
+        elif overdue is False:
+            stmt = stmt.where(not_(overdue_clause(now)))
         stmt = stmt.order_by(Task.created_at.desc(), Task.id)
         return await paginate(stmt, page, limit, self._db)
 
@@ -149,6 +166,9 @@ class TaskRepository:
         """
         for field, value in data.items():
             setattr(task, field, value)
+        # A new deadline gets its own "overdue" alert, so forget the old one.
+        if "due_at" in data:
+            task.overdue_notified_at = None
         await self._db.flush()
         await self._db.refresh(task)
         return task
@@ -173,7 +193,7 @@ class TaskRepository:
             .where(
                 Task.id == task_id,
                 Task.deleted_at.is_(None),
-                Task.status.in_(_OPEN_STATUSES),
+                Task.status.in_(OPEN_STATUSES),
             )
             .values(status=TaskStatus.COMPLETED.value, completed_at=completed_at)
             .returning(Task)
@@ -182,6 +202,55 @@ class TaskRepository:
         result = await self._db.execute(stmt)
         await self._db.flush()
         return result.scalar_one_or_none()
+
+    async def list_organizations_with_unannounced_overdue_tasks(self) -> list[uuid.UUID]:
+        """List every organization that has an overdue task nobody has been told about yet.
+
+        The one deliberate exception to row-level security in this module,
+        and the scan's only way to find which organizations to look at: with
+        no tenant context set, RLS returns nothing. It calls the ``SECURITY
+        DEFINER`` function ``organizations_with_unannounced_overdue_tasks()``
+        (see its migration), which reveals only organization ids.
+
+        Returns:
+            The ids of the organizations to scan.
+        """
+        result = await self._db.execute(
+            text("SELECT organization_id FROM organizations_with_unannounced_overdue_tasks()")
+        )
+        return [row.organization_id for row in result]
+
+    async def claim_unannounced_overdue_tasks(self, now: datetime) -> list[Task]:
+        """Mark every overdue task not yet announced as announced, and return them.
+
+        One UPDATE finds the tasks AND marks them, so two workers running at
+        the same time can't both announce the same task: the second one's
+        UPDATE no longer matches it. Runs inside the current organization's
+        RLS context, so it only sees that organization's tasks. The caller
+        commits after sending the notifications, so if sending fails the
+        marks are rolled back too and the next run tries again.
+
+        Args:
+            now: The moment "overdue" is judged against, also stored as the
+                time of announcement.
+
+        Returns:
+            The tasks that were just marked.
+        """
+        stmt = (
+            update(Task)
+            .where(
+                overdue_clause(now),
+                Task.deleted_at.is_(None),
+                Task.overdue_notified_at.is_(None),
+            )
+            .values(overdue_notified_at=now)
+            .returning(Task)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return list(result.scalars().all())
 
     async def cancel_task(self, task_id: uuid.UUID, reason: str) -> Task | None:
         """Atomically cancel a task, but only if it is still open or in progress.
@@ -203,7 +272,7 @@ class TaskRepository:
             .where(
                 Task.id == task_id,
                 Task.deleted_at.is_(None),
-                Task.status.in_(_OPEN_STATUSES),
+                Task.status.in_(OPEN_STATUSES),
             )
             .values(status=TaskStatus.CANCELLED.value, cancel_reason=reason)
             .returning(Task)
@@ -239,18 +308,26 @@ class TaskRepository:
             The updated ``Task``, or ``None`` if nothing matched (it closed,
             or somebody else reassigned it first).
         """
+        # "Still assigned to who the caller saw". An unassigned task has no
+        # assignee (NULL), and NULL can't be compared with ==, so it needs .is_(None).
+        if expected_assignee_id is None:
+            still_assigned_as_seen = Task.assigned_to_employee_id.is_(None)
+        else:
+            still_assigned_as_seen = Task.assigned_to_employee_id == expected_assignee_id
+
         stmt = (
             update(Task)
             .where(
                 Task.id == task_id,
                 Task.deleted_at.is_(None),
-                Task.status.in_(_OPEN_STATUSES),
-                Task.assigned_to_employee_id.is_not_distinct_from(expected_assignee_id),
+                Task.status.in_(OPEN_STATUSES),
+                still_assigned_as_seen,
             )
             .values(
                 assigned_to_employee_id=new_assignee_id,
                 due_at=due_at,
                 status=TaskStatus.OPEN.value,
+                overdue_notified_at=None,  # the new deadline gets its own alert
             )
             .returning(Task)
             .execution_options(**_ATOMIC_UPDATE_OPTIONS)

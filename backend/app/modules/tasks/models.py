@@ -130,6 +130,15 @@ class Task(BaseModel):
         doc="When it was completed; set exactly when status is 'completed'",
     )
 
+    overdue_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc=(
+            "When the 'task is overdue' notification was sent; null = not sent yet. "
+            "Cleared whenever the deadline changes, so a new deadline gets its own alert"
+        ),
+    )
+
     cancel_reason: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,

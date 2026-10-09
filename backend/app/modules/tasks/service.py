@@ -9,7 +9,6 @@ The decisions behind these rules are in 08_DECISIONS.md 2026-10-07.
 """
 
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from fastapi.encoders import jsonable_encoder
@@ -19,6 +18,7 @@ from app.core.exceptions import (
     DepartmentNotFoundException,
     EmployeeNotFoundException,
     KPINotFoundException,
+    NotClockedInException,
     PermissionDeniedException,
     TaskChangedException,
     TaskNotFoundException,
@@ -27,6 +27,7 @@ from app.core.exceptions import (
 )
 from app.core.schemas import PaginationResponse
 from app.modules.audit_and_notification.enums import NotificationCategory
+from app.modules.attendance.repository import AttendanceRepository
 from app.modules.audit_and_notification.service import AuditService, NotificationService
 from app.modules.kpis.repository import KPIRepository
 from app.modules.organization.enums import EmployeeStatus
@@ -40,15 +41,15 @@ from app.modules.tenancy_identity.enums import MembershipRole
 from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.service import MembershipService
 
-from .enums import TaskStatus
+from .enums import OPEN_STATUSES, TaskStatus
 from .models import Task
 from .repository import TaskRepository, TaskScope
 
-_ORG_WIDE_ROLES = {MembershipRole.HR_ADMINISTRATOR.value, MembershipRole.BUSINESS_EXECUTIVE.value}
-_OPEN_STATUSES = {TaskStatus.OPEN.value, TaskStatus.IN_PROGRESS.value}
+# Roles that can see every task in the organization.
+_ORG_WIDE_ROLES = [MembershipRole.HR_ADMINISTRATOR.value, MembershipRole.BUSINESS_EXECUTIVE.value]
+_CLOCK_IN_MESSAGE = "Clock in to see and work on your tasks."
 
 
-@dataclass(frozen=True)
 class _CallerContext:
     """Who is calling, as far as task rules care.
 
@@ -58,18 +59,33 @@ class _CallerContext:
             administrator often has none).
         own_department_id: The department the caller works in, via their
             position, or ``None`` without an employee record.
-        headed_department_ids: Departments the caller is the named head of.
+        headed_department_ids: A list of departments the caller is the named head of.
+        clocked_in: Whether the caller is clocked in right now. Tasks are
+            "never shown before clock-in" (01_REQUIREMENTS.md), so an
+            employee who isn't clocked in does not get the "assigned to me"
+            part of their view; see :meth:`scope`.
+        is_hr: Whether the caller is an HR administrator.
     """
 
-    membership: Membership
-    employee: Employee | None
-    own_department_id: uuid.UUID | None
-    headed_department_ids: frozenset[uuid.UUID]
+    def __init__(
+        self,
+        membership: Membership,
+        employee: Employee | None,
+        own_department_id: uuid.UUID | None,
+        headed_department_ids: list[uuid.UUID],
+        clocked_in: bool,
+    ):
+        """Store who the caller is."""
+        self.membership = membership
+        self.employee = employee
+        self.own_department_id = own_department_id
+        self.headed_department_ids = headed_department_ids
+        self.clocked_in = clocked_in
+        self.is_hr = membership.role == MembershipRole.HR_ADMINISTRATOR.value
 
-    @property
-    def is_hr(self) -> bool:
-        """Whether the caller is an HR administrator."""
-        return self.membership.role == MembershipRole.HR_ADMINISTRATOR.value
+    def is_assignee(self, task: Task) -> bool:
+        """Whether the caller is the employee the task is assigned to."""
+        return self.employee is not None and task.assigned_to_employee_id == self.employee.id
 
     def heads(self, department_id: uuid.UUID) -> bool:
         """Whether the caller is the named head of ``department_id``."""
@@ -100,15 +116,32 @@ class _CallerContext:
         )
 
     def scope(self) -> TaskScope:
-        """The set of tasks this caller may see."""
-        departments = set(self.headed_department_ids)
-        if self.membership.role == MembershipRole.MANAGER.value and self.own_department_id:
-            departments.add(self.own_department_id)
+        """The set of tasks this caller may see.
+
+        The clock-in gate lives here: a caller who isn't clocked in is given
+        no employee id, so the "assigned to me" clause matches nothing. Only
+        that clause is gated. What they see as a creator, a department head,
+        a manager, HR or an executive is unaffected, so Tunde can still look
+        after Dispatch before he clocks in.
+        """
+        # Departments whose tasks I may see: the ones I head, plus my own
+        # department if I have the manager role.
+        departments = list(self.headed_department_ids)
+        is_manager = self.membership.role == MembershipRole.MANAGER.value
+        if is_manager and self.own_department_id and self.own_department_id not in departments:
+            departments.append(self.own_department_id)
+
+        # The clock-in gate: not clocked in means no employee id, so the
+        # "assigned to me" check can never match.
+        employee_id = None
+        if self.employee is not None and self.clocked_in:
+            employee_id = self.employee.id
+
         return TaskScope(
             sees_all=self.membership.role in _ORG_WIDE_ROLES,
             user_id=self.membership.user_id,
-            employee_id=self.employee.id if self.employee else None,
-            department_ids=frozenset(departments),
+            employee_id=employee_id,
+            department_ids=departments,
         )
 
 
@@ -124,36 +157,58 @@ class TaskService:
         self._position_repo = PositionRepository(db)
         self._kpi_repo = KPIRepository(db)
         self._membership_service = MembershipService(db)
+        self._attendance_repo = AttendanceRepository(db)
         self._audit = AuditService(db)
         self._notifications = NotificationService(db)
 
     async def _context(self, caller: Membership) -> _CallerContext:
-        """Work out the caller's employee record, department and headed departments."""
+        """Work out the caller's employee record, department, headed departments and clock-in."""
         employee = await self._employee_repo.get_employee_by_user_id(caller.user_id)
         own_department_id = None
-        headed: frozenset[uuid.UUID] = frozenset()
+        headed_department_ids = []
+        clocked_in = False
+
+        # Someone with no employee record (a founder or HR administrator, say)
+        # has no department, heads nothing and can't be clocked in.
         if employee is not None:
+            # "Clocked in" means an open attendance record (no clock-out yet).
+            open_record = await self._attendance_repo.get_open_record(employee.id)
+            clocked_in = open_record is not None
+
             position = await self._position_repo.get_position_by_id(employee.position_id)
             if position is not None:
                 own_department_id = position.department_id
-            headed = frozenset(
-                d.id for d in await self._department_repo.list_departments_headed_by(employee.id)
-            )
-        return _CallerContext(caller, employee, own_department_id, headed)
+
+            headed_departments = await self._department_repo.list_departments_headed_by(employee.id)
+            for department in headed_departments:
+                headed_department_ids.append(department.id)
+
+        return _CallerContext(caller, employee, own_department_id, headed_department_ids, clocked_in)
 
     async def _load_visible(self, task_id: uuid.UUID, ctx: _CallerContext) -> Task:
         """Fetch a task the caller may see; anything else is simply 'not found'.
 
         A task that exists but is outside the caller's view returns the same
-        404 as one that doesn't exist, so its existence isn't revealed.
+        404 as one that doesn't exist, so its existence isn't revealed. The
+        one exception is the clock-in gate: if the caller is the task's
+        assignee and would see it but for not being clocked in, they already
+        know it exists, so they get an explicit 409 that tells the app what to
+        ask them to do.
 
         Raises:
             TaskNotFoundException: If it doesn't exist or the caller can't see it.
+            NotClockedInException: If the caller is the assignee, sees it only
+                as such, and isn't clocked in.
         """
         task = await self._repo.get_task_by_id(task_id)
-        if task is None or not ctx.scope().allows(task):
+        if task is None:
             raise TaskNotFoundException()
-        return task
+        if ctx.scope().allows(task):
+            return task
+        if ctx.is_assignee(task):
+            # Assignees are always in scope when clocked in, so this is the gate.
+            raise NotClockedInException(message=_CLOCK_IN_MESSAGE)
+        raise TaskNotFoundException()
 
     async def _validate_assignee(self, employee_id: uuid.UUID) -> Employee:
         """Check an employee can be given a task: in this org and still active.
@@ -324,6 +379,8 @@ class TaskService:
         kpi_id: uuid.UUID | None = None,
         page: int = 1,
         limit: int = 20,
+        overdue: bool | None = None,
+        now: datetime | None = None,
     ) -> PaginationResponse:
         """List the tasks the caller may see, with optional filters.
 
@@ -335,13 +392,41 @@ class TaskService:
             kpi_id: Only tasks linked to this KPI.
             page: 1-indexed page number.
             limit: Maximum number of rows per page.
+            overdue: True for only overdue tasks, False for only tasks that
+                are not overdue, None for both.
+            now: The moment "overdue" is judged against. The router passes
+                the same moment it uses for each row's flag; defaults to the
+                current time.
 
         Returns:
             A paginated response of ``Task`` rows.
+
+        Raises:
+            NotClockedInException: If the caller asks for their own tasks
+                (``assigned_to_employee_id`` is their own id) and isn't
+                clocked in. Without this the screen would get an empty list
+                and could not tell "nothing today" from "clock in first".
         """
         ctx = await self._context(caller)
+        if (
+            ctx.employee is not None
+            and assigned_to_employee_id == ctx.employee.id
+            and not ctx.clocked_in
+        ):
+            raise NotClockedInException(message=_CLOCK_IN_MESSAGE)
+
+        if now is None:
+            now = datetime.now(UTC)
         return await self._repo.list_tasks(
-            ctx.scope(), department_id, assigned_to_employee_id, status, kpi_id, page, limit
+            ctx.scope(),
+            department_id,
+            assigned_to_employee_id,
+            status,
+            kpi_id,
+            page,
+            limit,
+            overdue=overdue,
+            now=now,
         )
 
     async def update_task(self, caller: Membership, task_id: uuid.UUID, data: dict) -> Task:
@@ -364,12 +449,12 @@ class TaskService:
             raise PermissionDeniedException(
                 "Only HR, the department head or the task's creator can edit a task"
             )
-        if task.status not in _OPEN_STATUSES:
+        if task.status not in OPEN_STATUSES:
             raise TaskNotOpenException()
         if data.get("kpi_id") is not None:
             await self._validate_kpi(data["kpi_id"])
 
-        old_data = jsonable_encoder({field: getattr(task, field) for field in data})
+        old_data =jsonable_encoder({field: getattr(task, field) for field in data})
         task = await self._repo.update_task(task, data)
         await self._audit.log_action(
             organization_id=task.organization_id,
@@ -500,7 +585,7 @@ class TaskService:
                 "Only HR, the department head or the task's creator in that department "
                 "can reassign a task"
             )
-        if task.status not in _OPEN_STATUSES:
+        if task.status not in OPEN_STATUSES:
             raise TaskNotOpenException()
         if due_at <= datetime.now(UTC):
             raise ValidationException(message="A reassigned task needs a new deadline in the future")
@@ -557,6 +642,73 @@ class TaskService:
             body="This task has been given to someone else and is no longer yours.",
         )
         return updated
+
+    async def announce_overdue_tasks(self, organization_id: uuid.UUID, now: datetime) -> int:
+        """Tell the right people about every overdue task not announced yet.
+
+        Called by the overdue scan (``tasks/tasks.py``) once per organization,
+        with that organization's RLS context already set. Each overdue task is
+        announced once: the claim marks it, so the next scan skips it, until
+        its deadline changes. The router commits after this returns.
+
+        Args:
+            organization_id: The organization being scanned.
+            now: The moment "overdue" is judged against.
+
+        Returns:
+            How many tasks were announced.
+        """
+        tasks = await self._repo.claim_unannounced_overdue_tasks(now)
+        for task in tasks:
+            recipient_ids = await self._overdue_recipients(task)
+            if not recipient_ids:
+                continue  # nobody to tell (no HR administrator with a login either)
+            await self._notifications.notify(
+                organization_id=organization_id,
+                recipient_user_ids=recipient_ids,
+                category=NotificationCategory.TASK,
+                title=f"Task overdue: {task.title}",
+                body=f'"{task.title}" was due {task.due_at:%d %b %Y, %H:%M} UTC and is not done yet.',
+                link_type="task",
+                link_id=task.id,
+            )
+        return len(tasks)
+
+    async def _overdue_recipients(self, task: Task) -> list[uuid.UUID]:
+        """Work out which users to tell that ``task`` is overdue.
+
+        The assignee (if there is one, still active, and has a login), plus
+        the department's head. If the department has no head (or the head has
+        no login), the HR administrators are told instead, so an overdue task
+        is never left with nobody accountable. Nobody appears twice.
+        """
+        user_ids = []
+
+        if task.assigned_to_employee_id is not None:
+            assignee = await self._employee_repo.get_employee_by_id(task.assigned_to_employee_id)
+            if (
+                assignee is not None
+                and assignee.status != EmployeeStatus.INACTIVE.value
+                and assignee.user_id is not None
+            ):
+                user_ids.append(assignee.user_id)
+
+        head = None
+        department = await self._department_repo.get_department_by_id(task.department_id)
+        if department is not None and department.head_employee_id is not None:
+            head = await self._employee_repo.get_employee_by_id(department.head_employee_id)
+
+        if head is not None and head.user_id is not None:
+            people_to_add = [head.user_id]
+        else:
+            people_to_add = await self._membership_service.list_active_user_ids_by_role(
+                task.organization_id, MembershipRole.HR_ADMINISTRATOR.value
+            )
+        for user_id in people_to_add:
+            if user_id not in user_ids:
+                user_ids.append(user_id)
+
+        return user_ids
 
     async def _notify_employee(
         self, task: Task, employee_id: uuid.UUID | None, caller: Membership, title: str, body: str
