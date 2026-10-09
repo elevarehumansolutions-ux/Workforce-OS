@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import false, not_, or_, select, text, update
+from sqlalchemy import false, func, not_, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import paginate
@@ -155,6 +155,35 @@ class TaskRepository:
             stmt = stmt.where(not_(overdue_clause(now)))
         stmt = stmt.order_by(Task.created_at.desc(), Task.id)
         return await paginate(stmt, page, limit, self._db)
+
+    async def count_completed_tasks_for_kpi(
+        self, kpi_id: uuid.UUID, period_start: datetime, period_end: datetime
+    ) -> int:
+        """Count the tasks linked to a KPI that were completed within a period.
+
+        Only ``completed`` tasks count: open, blocked and cancelled ones do
+        not. The period includes ``period_start`` and excludes ``period_end``.
+        Not limited to what a particular caller may see: it is a total for the
+        KPI (like the KPI itself, which every member can read), and RLS still
+        keeps it inside the caller's organization.
+
+        Args:
+            kpi_id: The KPI.
+            period_start: The first moment counted.
+            period_end: The first moment NOT counted.
+
+        Returns:
+            How many tasks.
+        """
+        stmt = select(func.count()).select_from(Task).where(
+            Task.kpi_id == kpi_id,
+            Task.deleted_at.is_(None),
+            Task.status == TaskStatus.COMPLETED.value,
+            Task.completed_at >= period_start,
+            Task.completed_at < period_end,
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one()
 
     async def update_task(self, task: Task, data: dict) -> Task:
         """Apply a partial update to a task. Caller (service layer) commits.

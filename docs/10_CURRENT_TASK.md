@@ -29,11 +29,13 @@ department-head decision). Must be idempotent (a retry or late run must not noti
 rule, complete/cancel/reassign end a block, the "was something holding up?" prompt; see
 `09_PROGRESS.md` "SLICE E BUILT" and `08_DECISIONS.md` 2026-10-09).
 
-**F. `task_count` KPI live-progress read** (08_DECISIONS.md 2026-09-30). **The only slice left.**
-Count completed tasks linked to a `task_count` KPI (`tasks.kpi_id`) within the current fiscal
-quarter (`core/fiscal.py`), computed on read, plus one read endpoint. Decide first where the
-endpoint lives: under `/kpis/...` but coded in the Task module (no change to the KPI module), or
-in the KPI module (needs the user's permission to touch it).
+**F. DONE 2026-10-09:** `GET /kpis/{kpi_id}/task-progress`, coded in the Task module. The gap that
+no API could set `tracking_mode = task_count` was closed with the user's permission (2 lines in
+`kpis/schemas.py`). Open KPI-module items, noted only: typed-in scores are not refused for a
+task-count KPI; `PATCH /kpis/{id}` with `null` on `name`/`weight`/`is_inverse` is a 500.
+
+**M10 is feature-complete.** Next: push `m10-tasks`, open the PR, merge, run the six migrations on
+the VPS, then rewrite this file for the next milestone (M11 Workflow).
 
 ## Open questions (settle before the slice that needs them)
 

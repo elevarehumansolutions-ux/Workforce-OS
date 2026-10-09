@@ -1,7 +1,8 @@
 """Pydantic request and response schemas for the Task module."""
 
+import decimal
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -154,6 +155,22 @@ class TaskBlockResponse(BaseModel):
     reviewed_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+
+class KPITaskProgressResponse(BaseModel):
+    """Live progress of a task-count KPI: completed linked tasks in the current fiscal quarter.
+
+    Nothing is stored: the count is made when asked. ``score_percentage`` is
+    ``None`` when it can't be worked out (no target set, or a zero divisor).
+    """
+
+    kpi_id: uuid.UUID
+    period_start: date
+    period_end: date  # the last day of the quarter, inclusive
+    completed_tasks: int
+    target_value: decimal.Decimal | None
+    unit: str | None
+    score_percentage: decimal.Decimal | None
 
 
 class TaskBlockReviewItem(TaskBlockResponse):

@@ -8,8 +8,9 @@ repository but never commit; the router commits after a successful call.
 The decisions behind these rules are in 08_DECISIONS.md 2026-10-07.
 """
 
+import decimal
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +34,9 @@ from app.core.schemas import PaginationResponse
 from app.modules.audit_and_notification.enums import NotificationCategory
 from app.modules.attendance.repository import AttendanceRepository
 from app.modules.audit_and_notification.service import AuditService, NotificationService
+from app.modules.kpis.enums import KPITrackingMode
 from app.modules.kpis.repository import KPIRepository
+from app.modules.kpis.service import KPIService
 from app.modules.organization.enums import EmployeeStatus
 from app.modules.organization.models import Employee
 from app.modules.organization.repository import (
@@ -43,12 +46,14 @@ from app.modules.organization.repository import (
 )
 from app.modules.tenancy_identity.enums import MembershipRole
 from app.modules.tenancy_identity.models import Membership
+from app.modules.tenancy_identity.repository import OrganizationRepository
 from app.modules.tenancy_identity.service import MembershipService
 
 from .enums import OPEN_STATUSES, BlockCategory, ReviewStatus, TaskStatus
 from .models import Task, TaskBlock
+from .periods import current_fiscal_quarter
 from .repository import TaskRepository, TaskScope
-from .schemas import TaskBlockResponse, TaskBlockReviewItem
+from .schemas import KPITaskProgressResponse, TaskBlockResponse, TaskBlockReviewItem
 
 # Roles that can see every task in the organization.
 _ORG_WIDE_ROLES = [MembershipRole.HR_ADMINISTRATOR.value, MembershipRole.BUSINESS_EXECUTIVE.value]
@@ -163,6 +168,7 @@ class TaskService:
         self._kpi_repo = KPIRepository(db)
         self._membership_service = MembershipService(db)
         self._attendance_repo = AttendanceRepository(db)
+        self._organization_repo = OrganizationRepository(db)
         self._audit = AuditService(db)
         self._notifications = NotificationService(db)
 
@@ -968,6 +974,58 @@ class TaskService:
         ctx = await self._context(caller)
         task = await self._load_visible(task_id, ctx)
         return await self._repo.list_blocks_for_task(task.id)
+
+    async def get_kpi_task_progress(
+        self, caller: Membership, kpi_id: uuid.UUID, now: datetime | None = None
+    ) -> KPITaskProgressResponse:
+        """Live progress of a task-count KPI: completed linked tasks this fiscal quarter.
+
+        Example: "Close 20 deals", seven linked tasks completed this quarter,
+        gives 7 completed and 35%. Nothing is stored; the count is made now.
+        The percentage uses the KPI module's own rule, so it matches a typed-in
+        value exactly (no target means no percentage; inverse KPIs are honoured).
+
+        Any member of the organization may read it, as with the KPI itself.
+
+        Args:
+            caller: The acting membership.
+            kpi_id: The KPI.
+            now: The current moment; tests pass a fixed one.
+
+        Returns:
+            The count for the current fiscal quarter, with the percentage.
+
+        Raises:
+            KPINotFoundException: If the KPI doesn't exist in the caller's organization.
+            ValidationException: If the KPI is tracked by typed-in values, not by task count.
+        """
+        kpi = await self._kpi_repo.get_kpi_by_id(kpi_id)
+        if kpi is None:
+            raise KPINotFoundException()
+        if kpi.tracking_mode != KPITrackingMode.TASK_COUNT.value:
+            raise ValidationException(
+                message="This KPI is tracked by typed-in values, not by counting tasks"
+            )
+
+        organization = await self._organization_repo.get_organization_by_id(caller.organization_id)
+        if now is None:
+            now = datetime.now(UTC)
+        period_start, period_end = current_fiscal_quarter(
+            organization.fiscal_year_start_month, organization.timezone, now
+        )
+        completed = await self._repo.count_completed_tasks_for_kpi(kpi.id, period_start, period_end)
+        score_percentage = KPIService.calculate_score_percentage(
+            decimal.Decimal(completed), kpi.target_value, kpi.is_inverse
+        )
+        return KPITaskProgressResponse(
+            kpi_id=kpi.id,
+            period_start=period_start.date(),
+            period_end=(period_end - timedelta(days=1)).date(),  # the last day, inclusive
+            completed_tasks=completed,
+            target_value=kpi.target_value,
+            unit=kpi.unit,
+            score_percentage=score_percentage,
+        )
 
     async def release_orphaned_tasks(self, organization_id: uuid.UUID) -> int:
         """Hand over the open tasks of employees who have been offboarded.

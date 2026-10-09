@@ -21,6 +21,7 @@ from .enums import ReviewStatus, TaskStatus
 from .models import Task
 from .overdue import is_overdue
 from .schemas import (
+    KPITaskProgressResponse,
     TaskBlockRequest,
     TaskBlockResponse,
     TaskCancelRequest,
@@ -398,6 +399,35 @@ async def list_blocks_for_review(
         A paginated response of blocks, newest first.
     """
     return await TaskService(db).list_blocks_for_review(caller, review_status, page, limit)
+
+
+@router.get("/kpis/{kpi_id}/task-progress", status_code=200)
+async def get_kpi_task_progress(
+    kpi_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> KPITaskProgressResponse:
+    """Live progress of a KPI that is tracked by task count.
+
+    Counts the tasks linked to the KPI that were completed in the
+    organization's current fiscal quarter, and works out the percentage
+    against the KPI's target. Nothing is stored; the count is made now. Any
+    member of the organization may read it, like the KPI itself.
+
+    Args:
+        kpi_id: Id of the KPI.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The completed-task count, the quarter it covers, and the percentage
+        (``null`` when no target is set).
+
+    Raises:
+        KPINotFoundException: If the KPI isn't in the caller's organization (404).
+        ValidationException: If the KPI is tracked by typed-in values (422).
+    """
+    return await TaskService(db).get_kpi_task_progress(caller, kpi_id)
 
 
 @router.post("/task-blocks/{block_id}/approve", status_code=200)
