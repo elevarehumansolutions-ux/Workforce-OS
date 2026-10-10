@@ -14,10 +14,48 @@ export interface Task {
   completed_at: string | null;
   cancel_reason: string | null;
   status: TaskStatus;
+  // Worked out by the server on every request (never stored). A blocked
+  // task is never overdue, and approved blocked time pushes the real
+  // deadline later without changing due_at itself.
+  overdue: boolean;
+  // null unless the task is blocked right now.
+  blocked_since: string | null;
+  approved_blocked_seconds: number;
   created_by_user_id: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export type BlockCategory = "awaiting_approval" | "awaiting_other_department" | "external_dependency" | "other";
+export type ReviewStatus = "pending" | "approved" | "rejected";
+
+export interface TaskBlock {
+  id: string;
+  task_id: string;
+  blocked_by_user_id: string;
+  category: BlockCategory;
+  reason: string;
+  blocked_at: string;
+  // null = still blocked
+  unblocked_at: string | null;
+  review_status: ReviewStatus;
+  reviewed_at: string | null;
+}
+
+// One row on the "Blocks to review" screen: the block plus the bits of its
+// task the reviewer needs (they may not be allowed to open the task itself).
+export interface ReviewBlock extends TaskBlock {
+  task_title: string;
+  task_department_id: string;
+  task_due_at: string | null;
+}
+
+export const BLOCK_CATEGORY_OPTIONS: { value: BlockCategory; label: string }[] = [
+  { value: "awaiting_approval", label: "Waiting for an approval" },
+  { value: "awaiting_other_department", label: "Waiting on another department" },
+  { value: "external_dependency", label: "Waiting on an outside party" },
+  { value: "other", label: "Something else" },
+];
 
 export interface Department {
   id: string;
@@ -32,6 +70,8 @@ export interface Employee {
   last_name: string;
   status: string;
   position_id: string;
+  // The "Reporting Manager" on the employee, if one is set.
+  manager_id: string | null;
 }
 
 export interface Position {
@@ -300,12 +340,6 @@ export function formatDateTime(iso: string | null): string {
   });
 }
 
-export function isPastDue(task: Task): boolean {
-  if (!task.due_at) return false;
-  if (task.status !== "open" && task.status !== "in_progress") return false;
-  return new Date(task.due_at).getTime() < Date.now();
-}
-
 // <input type="datetime-local"> works in the person's local time with no
 // offset. The server needs an offset, so the picked time is converted to a
 // full ISO instant (which carries one) before sending.
@@ -326,4 +360,66 @@ export function isoToLocalInput(iso: string | null): string {
   return (
     d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes())
   );
+}
+
+export function isActiveTask(task: Task): boolean {
+  return task.status === "open" || task.status === "in_progress";
+}
+
+export function blockCategoryLabel(category: string): string {
+  for (const o of BLOCK_CATEGORY_OPTIONS) {
+    if (o.value === category) return o.label;
+  }
+  return category;
+}
+
+export function reviewStatusLabel(status: string): string {
+  if (status === "approved") return "Approved";
+  if (status === "rejected") return "Rejected";
+  return "Waiting for review";
+}
+
+export function reviewStatusClasses(status: string): string {
+  if (status === "approved") return "bg-emerald-500/15 text-emerald-400";
+  if (status === "rejected") return "bg-red-500/15 text-red-400";
+  return "bg-amber-500/15 text-amber-300";
+}
+
+// 90000 -> "1 day 1 hour"; 600 -> "10 minutes"
+export function formatDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const parts: string[] = [];
+  if (days > 0) parts.push(days + (days === 1 ? " day" : " days"));
+  if (hours > 0) parts.push(hours + (hours === 1 ? " hour" : " hours"));
+  if (days === 0 && minutes > 0) parts.push(minutes + (minutes === 1 ? " minute" : " minutes"));
+  if (parts.length === 0) return "less than a minute";
+  return parts.join(" ");
+}
+
+// Only the person the task is assigned to can say it is blocked.
+export function canBlockTask(ctx: CallerContext, task: Task): boolean {
+  return isActiveTask(task) && task.blocked_since === null && isAssignee(ctx, task);
+}
+
+export function canUnblockTask(ctx: CallerContext, task: Task): boolean {
+  return (
+    isActiveTask(task) &&
+    task.blocked_since !== null &&
+    (isHr(ctx) || isHeadOf(ctx, task.department_id) || isAssignee(ctx, task))
+  );
+}
+
+// Who is likely to have blocks to review: HR, department heads, and anyone
+// whose employee record is set as another employee's reporting manager. The
+// server decides what each person actually sees.
+export function mayReviewBlocks(ctx: CallerContext): boolean {
+  if (isHr(ctx) || headsAnyDepartment(ctx)) return true;
+  if (!ctx.employee) return false;
+  const myId = ctx.employee.id;
+  return ctx.employees.some(function (e) {
+    return e.manager_id === myId;
+  });
 }
