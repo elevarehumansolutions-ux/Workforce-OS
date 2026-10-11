@@ -1,0 +1,486 @@
+"""FastAPI routes for the Task module.
+
+Create, list, read, edit, complete, cancel and reassign tasks. Any authenticated member can
+call these; what each caller may actually do or see is decided in
+``TaskService`` (HR, the ``manager`` role and department heads create; an
+assignee sees and completes their own; HR and executives see everything).
+"""
+
+import uuid
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.dependencies import get_current_membership, get_db
+from app.core.exceptions import ValidationException
+from app.core.schemas import PaginationResponse
+from app.modules.tenancy_identity.models import Membership
+
+from .enums import ReviewStatus, TaskStatus
+from .models import Task
+from .overdue import is_overdue
+from .schemas import (
+    KPITaskProgressResponse,
+    TaskBlockRequest,
+    TaskBlockResponse,
+    TaskCancelRequest,
+    TaskCreateRequest,
+    TaskReassignRequest,
+    TaskResponse,
+    TaskUpdateRequest,
+)
+from .service import TaskService
+
+router = APIRouter()
+
+
+def _task_response(task: Task, now: datetime) -> TaskResponse:
+    """Build the API response for a task, including whether it is overdue at ``now``."""
+    response = TaskResponse.model_validate(task)
+    response.overdue = is_overdue(task, now)
+    return response
+
+
+@router.post("/tasks", status_code=200)
+async def create_task(
+    data: TaskCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskResponse:
+    """Create a task.
+
+    Allowed to HR administrators, members with the ``manager`` role, and the
+    head of the task's department. A creator from another department cannot
+    choose the assignee: the task goes to the work department's head (or stays
+    unassigned, with HR told, if it has none).
+
+    Args:
+        data: The task to create.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The created task.
+
+    Raises:
+        PermissionDeniedException: If the caller may not create tasks (403).
+        DepartmentNotFoundException: If the department isn't in the org (404).
+        EmployeeNotFoundException: If the assignee isn't an employee here (404).
+        KPINotFoundException: If the KPI isn't in the org (404).
+        ValidationException: If an outsider names an assignee, or the assignee
+            is offboarded (422).
+    """
+    task = await TaskService(db).create_task(caller, data.model_dump())
+    await db.commit()
+    return _task_response(task, datetime.now(UTC))
+
+
+@router.get("/tasks", status_code=200)
+async def list_tasks(
+    department_id: uuid.UUID | None = Query(default=None),
+    assigned_to_employee_id: uuid.UUID | None = Query(default=None),
+    status: TaskStatus | None = Query(default=None),
+    kpi_id: uuid.UUID | None = Query(default=None),
+    overdue: bool | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> PaginationResponse:
+    """List the tasks the caller may see, newest first.
+
+    HR administrators and business executives see every task. Others see
+    tasks assigned to them, tasks they created, and tasks of the departments
+    they head (or, for the ``manager`` role, their own department).
+
+    Args:
+        department_id: Only tasks for this department.
+        assigned_to_employee_id: Only tasks assigned to this employee.
+        status: Only tasks in this status.
+        kpi_id: Only tasks linked to this KPI.
+        overdue: ``true`` for only overdue tasks, ``false`` for only tasks that
+            are not overdue, left out for both.
+        page: 1-indexed page number.
+        limit: Maximum number of rows per page (1-100).
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        A paginated response of tasks, each with an ``overdue`` flag.
+    """
+    # One moment for the whole request: the filter and every row's flag use it.
+    now = datetime.now(UTC)
+    result = await TaskService(db).list_tasks(
+        caller,
+        department_id,
+        assigned_to_employee_id,
+        status,
+        kpi_id,
+        page,
+        limit,
+        overdue=overdue,
+        now=now,
+    )
+    result.data = [_task_response(task, now) for task in result.data]
+    return result
+
+
+@router.get("/tasks/{task_id}", status_code=200)
+async def get_task(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskResponse:
+    """Get one task the caller is allowed to see.
+
+    Args:
+        task_id: Id of the task.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The task.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist, or exists but is outside
+            the caller's view (the same 404, so its existence isn't revealed).
+    """
+    task = await TaskService(db).get_task(caller, task_id)
+    return _task_response(task, datetime.now(UTC))
+
+
+@router.patch("/tasks/{task_id}", status_code=200)
+async def update_task(
+    task_id: uuid.UUID,
+    data: TaskUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskResponse:
+    """Edit a task's title, description, deadline or KPI link.
+
+    Allowed to HR, the department's head and the task's creator, not the
+    assignee. ``status``, the assignee and the department cannot be changed
+    here (unknown fields are rejected). Changing ``due_at`` is audit-logged.
+
+    Args:
+        task_id: Id of the task.
+        data: Fields to change; at least one is required.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The updated task.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+        PermissionDeniedException: If the caller may see but not edit it (403).
+        TaskNotOpenException: If it is already completed or cancelled (409).
+        KPINotFoundException: If the KPI isn't in the org (404).
+        ValidationException: If no field is provided (422).
+    """
+    if not data.has_updates():
+        raise ValidationException(message="Provide at least one field to update")
+    task = await TaskService(db).update_task(caller, task_id, data.model_dump(exclude_unset=True))
+    await db.commit()
+    return _task_response(task, datetime.now(UTC))
+
+
+@router.post("/tasks/{task_id}/complete", status_code=200)
+async def complete_task(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskResponse:
+    """Mark a task completed.
+
+    Allowed to the assignee, the department's head and HR. Not idempotent:
+    completing a task twice is a 409 and the first completion time stands.
+
+    Args:
+        task_id: Id of the task.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The completed task.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+        PermissionDeniedException: If the caller may see but not complete it (403).
+        TaskNotOpenException: If it is already completed or cancelled (409).
+    """
+    task = await TaskService(db).complete_task(caller, task_id)
+    await db.commit()
+    return _task_response(task, datetime.now(UTC))
+
+
+@router.post("/tasks/{task_id}/cancel", status_code=200)
+async def cancel_task(
+    task_id: uuid.UUID,
+    data: TaskCancelRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskResponse:
+    """Cancel a task that is no longer needed.
+
+    Allowed to HR, the department's head and the task's creator, not the
+    assignee. A reason is required. Final: a cancelled task counts as
+    neither completed nor late, and a completed task can't be cancelled.
+
+    Args:
+        task_id: Id of the task.
+        data: The reason (required, up to 500 characters).
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The cancelled task, with ``cancel_reason`` set.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+        PermissionDeniedException: If the caller may see but not cancel it (403).
+        TaskNotOpenException: If it is already completed or cancelled (409).
+    """
+    task = await TaskService(db).cancel_task(caller, task_id, data.reason)
+    await db.commit()
+    return _task_response(task, datetime.now(UTC))
+
+
+@router.post("/tasks/{task_id}/reassign", status_code=200)
+async def reassign_task(
+    task_id: uuid.UUID,
+    data: TaskReassignRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskResponse:
+    """Give a task to a (different) employee, with a new deadline.
+
+    Also how an unassigned task gets its first assignee. Both the new
+    assignee and a new future ``due_at`` are required, every time. The status
+    goes back to ``open``. Allowed to HR, the department's head, and the
+    creator when they work in the task's department.
+
+    Args:
+        task_id: Id of the task.
+        data: The new assignee and the new deadline.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The reassigned task.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+        PermissionDeniedException: If the caller may see but not reassign it (403).
+        EmployeeNotFoundException: If the new assignee isn't an employee here (404).
+        TaskNotOpenException: If it is already completed or cancelled (409).
+        TaskChangedException: If somebody else reassigned it at the same moment (409).
+        ValidationException: If ``due_at`` isn't in the future, the person already
+            has the task, or has been offboarded (422).
+    """
+    task = await TaskService(db).reassign_task(
+        caller, task_id, data.assigned_to_employee_id, data.due_at
+    )
+    await db.commit()
+    return _task_response(task, datetime.now(UTC))
+
+
+@router.post("/tasks/{task_id}/block", status_code=200)
+async def block_task(
+    task_id: uuid.UUID,
+    data: TaskBlockRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskBlockResponse:
+    """Mark a task blocked because something outside the assignee's hands is holding it up.
+
+    Only the assignee can do this. While blocked, the task is never overdue.
+    A reviewer later approves or rejects the block; only an approved block
+    gives the blocked time back. Recording a block after the deadline has
+    passed is allowed (the time starts counting from now, never backdated).
+
+    Args:
+        task_id: Id of the task.
+        data: The category and the reason.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The new block, with ``review_status: "pending"``.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+        PermissionDeniedException: If the caller is not the assignee (403).
+        TaskNotOpenException: If the task is completed or cancelled (409).
+        TaskAlreadyBlockedException: If it is already blocked (409).
+        TaskChangedException: If somebody changed it at the same moment (409).
+    """
+    block = await TaskService(db).block_task(caller, task_id, data.category, data.reason)
+    await db.commit()
+    return TaskBlockResponse.model_validate(block)
+
+
+@router.post("/tasks/{task_id}/unblock", status_code=200)
+async def unblock_task(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskBlockResponse:
+    """End a task's current block.
+
+    Allowed to the assignee, the department head and HR.
+
+    Args:
+        task_id: Id of the task.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The block, now with ``unblocked_at`` set.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+        PermissionDeniedException: If the caller may see but not unblock it (403).
+        TaskNotBlockedException: If the task is not blocked (409).
+        TaskChangedException: If somebody changed it at the same moment (409).
+    """
+    block = await TaskService(db).unblock_task(caller, task_id)
+    await db.commit()
+    return TaskBlockResponse.model_validate(block)
+
+
+@router.get("/tasks/{task_id}/blocks", status_code=200)
+async def list_task_blocks(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> list[TaskBlockResponse]:
+    """List every block a task has had, newest first.
+
+    Args:
+        task_id: Id of the task.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The task's blocks, with their review status.
+
+    Raises:
+        TaskNotFoundException: If it doesn't exist or is outside the caller's view (404).
+    """
+    blocks = await TaskService(db).list_task_blocks(caller, task_id)
+    return [TaskBlockResponse.model_validate(block) for block in blocks]
+
+
+@router.get("/task-blocks", status_code=200)
+async def list_blocks_for_review(
+    review_status: ReviewStatus = Query(default=ReviewStatus.PENDING),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> PaginationResponse:
+    """List the blocks the caller can approve or reject: a reviewer's to-do list.
+
+    Pending ones unless ``review_status`` says otherwise. The caller sees a
+    block if they are an HR administrator, the head of its task's
+    department, or the blocker's own reporting manager. Their own blocks are
+    never listed. Each row includes the task's title, department and deadline.
+
+    Args:
+        review_status: ``pending`` (default), ``approved`` or ``rejected``.
+        page: 1-indexed page number.
+        limit: Maximum number of rows per page (1-100).
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        A paginated response of blocks, newest first.
+    """
+    return await TaskService(db).list_blocks_for_review(caller, review_status, page, limit)
+
+
+@router.get("/kpis/{kpi_id}/task-progress", status_code=200)
+async def get_kpi_task_progress(
+    kpi_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> KPITaskProgressResponse:
+    """Live progress of a KPI that is tracked by task count.
+
+    Counts the tasks linked to the KPI that were completed in the
+    organization's current fiscal quarter, and works out the percentage
+    against the KPI's target. Nothing is stored; the count is made now. Any
+    member of the organization may read it, like the KPI itself.
+
+    Args:
+        kpi_id: Id of the KPI.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The completed-task count, the quarter it covers, and the percentage
+        (``null`` when no target is set).
+
+    Raises:
+        KPINotFoundException: If the KPI isn't in the caller's organization (404).
+        ValidationException: If the KPI is tracked by typed-in values (422).
+    """
+    return await TaskService(db).get_kpi_task_progress(caller, kpi_id)
+
+
+@router.post("/task-blocks/{block_id}/approve", status_code=200)
+async def approve_block(
+    block_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskBlockResponse:
+    """Approve a block: the blocked time is not held against the assignee.
+
+    Allowed to HR, the head of the task's department and the blocker's
+    reporting manager, never to the blocker. The approved time pushes the
+    task's deadline later (the task's ``approved_blocked_seconds``).
+
+    Args:
+        block_id: Id of the block.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The block, now ``approved``.
+
+    Raises:
+        TaskBlockNotFoundException: If it doesn't exist or the caller may not review it (404).
+        TaskBlockAlreadyReviewedException: If it was already decided (409).
+    """
+    block = await TaskService(db).approve_block(caller, block_id)
+    await db.commit()
+    return TaskBlockResponse.model_validate(block)
+
+
+@router.post("/task-blocks/{block_id}/reject", status_code=200)
+async def reject_block(
+    block_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> TaskBlockResponse:
+    """Reject a block: the task is judged as if it had never been blocked.
+
+    Same permissions and errors as approve.
+
+    Args:
+        block_id: Id of the block.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The block, now ``rejected``.
+
+    Raises:
+        TaskBlockNotFoundException: If it doesn't exist or the caller may not review it (404).
+        TaskBlockAlreadyReviewedException: If it was already decided (409).
+    """
+    block = await TaskService(db).reject_block(caller, block_id)
+    await db.commit()
+    return TaskBlockResponse.model_validate(block)

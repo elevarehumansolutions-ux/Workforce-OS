@@ -586,6 +586,23 @@ class KPIScorePeriodClosedException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class KPITrackedByTasksException(PlatformError):
+    """Raised when typing in a value for a KPI whose progress is counted from tasks."""
+
+    def __init__(
+        self,
+        message: str = (
+            "This KPI is counted from completed tasks, so its value can't be typed in. "
+            "Change its tracking mode first if you want to enter values by hand."
+        ),
+        code: str = "KPI_TRACKED_BY_TASKS",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class EmployeeUserAlreadyLinkedException(PlatformError):
     """Raised when a user is already linked to another employee in the org."""
 
@@ -638,6 +655,104 @@ class NotClockedInException(PlatformError):
         self,
         message: str = "You're not clocked in, so there is nothing to clock out of.",
         code: str = "NOT_CLOCKED_IN",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskNotFoundException(PlatformError):
+    """Raised when a task doesn't exist, or exists but the caller may not see it."""
+
+    def __init__(
+        self,
+        message: str = "Task not found",
+        code: str = "TASK_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskNotOpenException(PlatformError):
+    """Raised when changing a task that is already completed or cancelled."""
+
+    def __init__(
+        self,
+        message: str = "This task is already completed or cancelled and can't be changed",
+        code: str = "TASK_NOT_OPEN",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskChangedException(PlatformError):
+    """Raised when a task was reassigned by someone else between reading and writing it."""
+
+    def __init__(
+        self,
+        message: str = "This task was just changed by someone else. Refresh and try again",
+        code: str = "TASK_CHANGED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskAlreadyBlockedException(PlatformError):
+    """Raised when blocking a task that is already blocked."""
+
+    def __init__(
+        self,
+        message: str = "This task is already blocked. Unblock it first",
+        code: str = "TASK_ALREADY_BLOCKED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskNotBlockedException(PlatformError):
+    """Raised when unblocking a task that is not blocked."""
+
+    def __init__(
+        self,
+        message: str = "This task is not blocked",
+        code: str = "TASK_NOT_BLOCKED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskBlockNotFoundException(PlatformError):
+    """Raised when a block doesn't exist, or the caller isn't allowed to review it."""
+
+    def __init__(
+        self,
+        message: str = "Block not found",
+        code: str = "TASK_BLOCK_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class TaskBlockAlreadyReviewedException(PlatformError):
+    """Raised when approving or rejecting a block that has already been reviewed."""
+
+    def __init__(
+        self,
+        message: str = "This block has already been reviewed",
+        code: str = "TASK_BLOCK_ALREADY_REVIEWED",
         status_code: int = 409,
         details: list | None = None,
     ) -> None:

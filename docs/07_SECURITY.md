@@ -24,8 +24,9 @@ A scheduled job has no tenant to start from, so it can't ask "which organization
 |---|---|---|
 | `organization_fiscal_months_for_quarterly_review()` | Quarterly Objective Review Beat job | every organization's id and `fiscal_year_start_month` |
 | `organizations_with_open_attendance()` | Attendance auto-close Beat job | id and `timezone` of each organization with at least one open attendance record; no employee, time or count |
+| `organizations_needing_task_scan()` | Task scan Beat job (added 2026-10-08 as `organizations_with_unannounced_overdue_tasks()`, decision in `08_DECISIONS.md` 2026-10-08; made block-aware by migration `a3d9e61c7b25`; **replaced and renamed** by migration `b8e24f6a1c93` on 2026-10-09 when the scan also began handing over an offboarded employee's tasks; still the Task module's one function, not an extra one) | only the id of each organization that has an open task that is overdue and not yet announced, or that is assigned to an offboarded employee; no task, person or count |
 
-Adding a third one is a deliberate decision to log in `08_DECISIONS.md`, not a convenience.
+Adding another one is a deliberate decision to log in `08_DECISIONS.md`, not a convenience.
 
 ## Provisioning a new environment (added 2026-09-17, after the M2 RLS-enforcement gap)
 
