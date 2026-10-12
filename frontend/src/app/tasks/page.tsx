@@ -1,7 +1,8 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import {
@@ -11,8 +12,8 @@ import {
   errorMessage,
   formatDateTime,
   isNotClockedIn,
-  isPastDue,
   loadCaller,
+  mayReviewBlocks,
   roleLabel,
   statusClasses,
   statusLabel,
@@ -39,12 +40,15 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "All (including cancelled)" },
 ];
 
-export default function TasksPage() {
+function TasksContent() {
+  // Notification links open this list pre-filtered, e.g. ?department_id=...&status=open
+  const searchParams = useSearchParams();
   const [ctx, setCtx] = useState<CallerContext | null>(null);
   const [ctxError, setCtxError] = useState("");
   const [tabChoice, setTabChoice] = useState<Tab | null>(null);
-  const [status, setStatus] = useState("open");
-  const [departmentId, setDepartmentId] = useState("");
+  const [status, setStatus] = useState(searchParams.get("status") === null ? "open" : (searchParams.get("status") as string));
+  const [departmentId, setDepartmentId] = useState(searchParams.get("department_id") || "");
+  const [overdueFilter, setOverdueFilter] = useState("");
   const [page, setPage] = useState(1);
   const [reloadCounter, setReloadCounter] = useState(0);
   const [result, setResult] = useState<ListResult | null>(null);
@@ -57,7 +61,7 @@ export default function TasksPage() {
   const tab: Tab = tabChoice !== null ? tabChoice : hasEmployee ? "mine" : "all";
   const employeeId = ctx && ctx.employee ? ctx.employee.id : "";
 
-  const key = [tab, status, departmentId, page, reloadCounter, employeeId, ctx ? "ready" : "wait"].join("|");
+  const key = [tab, status, departmentId, overdueFilter, page, reloadCounter, employeeId, ctx ? "ready" : "wait"].join("|");
   const loading = ctx === null ? !ctxError : result === null || result.key !== key;
 
   useEffect(function () {
@@ -83,6 +87,7 @@ export default function TasksPage() {
       let path = "/tasks?page=" + page + "&limit=" + PAGE_SIZE;
       if (status) path = path + "&status=" + status;
       if (departmentId) path = path + "&department_id=" + departmentId;
+      if (overdueFilter) path = path + "&overdue=" + overdueFilter;
       if (tab === "mine" && employeeId) path = path + "&assigned_to_employee_id=" + employeeId;
 
       apiFetch<PaginatedResponse<Task>>(path, { method: "GET" })
@@ -112,7 +117,7 @@ export default function TasksPage() {
         cancelled = true;
       };
     },
-    [ctx, tab, status, departmentId, page, employeeId, reloadCounter, key]
+    [ctx, tab, status, departmentId, overdueFilter, page, employeeId, reloadCounter, key]
   );
 
   async function clockIn() {
@@ -131,15 +136,26 @@ export default function TasksPage() {
   const selectClass =
     "rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-sm text-gray-200 outline-none focus:border-indigo-500";
 
-  const actions =
-    ctx && canCreateTasks(ctx) ? (
-      <Link
-        href="/tasks/assign-task"
-        className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600"
-      >
-        + Assign task
-      </Link>
-    ) : null;
+  const actions = ctx ? (
+    <>
+      {mayReviewBlocks(ctx) ? (
+        <Link
+          href="/tasks/blocks"
+          className="rounded-lg border border-white/15 px-4 py-2 text-sm font-medium text-gray-200 transition hover:bg-white/5"
+        >
+          Blocks to review
+        </Link>
+      ) : null}
+      {canCreateTasks(ctx) ? (
+        <Link
+          href="/tasks/assign-task"
+          className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600"
+        >
+          + Assign task
+        </Link>
+      ) : null}
+    </>
+  ) : null;
 
   function tabButton(value: Tab, label: string, disabled: boolean) {
     const active = tab === value;
@@ -215,6 +231,18 @@ export default function TasksPage() {
                   );
                 })}
               </select>
+              <select
+                value={overdueFilter}
+                onChange={function (e) {
+                  setOverdueFilter(e.target.value);
+                  setPage(1);
+                }}
+                className={selectClass}
+              >
+                <option value="">Overdue or not</option>
+                <option value="true">Overdue only</option>
+                <option value="false">Not overdue</option>
+              </select>
             </div>
           </div>
 
@@ -278,9 +306,19 @@ export default function TasksPage() {
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          {isPastDue(task) ? (
+                          {task.overdue ? (
                             <span className="rounded bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400">
-                              Past due
+                              Overdue
+                            </span>
+                          ) : null}
+                          {task.blocked_since ? (
+                            <span className="rounded bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">
+                              Blocked
+                            </span>
+                          ) : null}
+                          {!task.assigned_to_employee_id && (task.status === "open" || task.status === "in_progress") ? (
+                            <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-medium text-gray-300">
+                              Needs an owner
                             </span>
                           ) : null}
                           <span className={"rounded px-2 py-0.5 text-xs font-medium " + statusClasses(task.status)}>
@@ -328,5 +366,14 @@ export default function TasksPage() {
 
       {!ctx && !ctxError ? <p className="text-sm text-gray-400">Loading…</p> : null}
     </AppShell>
+  );
+}
+
+export default function TasksPage() {
+  // useSearchParams() needs a Suspense boundary in the App Router.
+  return (
+    <Suspense fallback={null}>
+      <TasksContent />
+    </Suspense>
   );
 }

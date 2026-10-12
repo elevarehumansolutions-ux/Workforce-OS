@@ -3,6 +3,8 @@
 import React, { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
+import KpiTrackingControl from "@/components/KpiTrackingControl";
+import type { TrackingMode } from "@/components/KpiTrackingControl";
 
 interface Department {
   id: string;
@@ -18,6 +20,7 @@ interface KpiApiResponse {
   is_inverse: boolean;
   target_value: string | number | null;
   unit: string | null;
+  tracking_mode?: TrackingMode;
 }
 
 interface KpiGroupUpdateResponse {
@@ -37,6 +40,7 @@ interface KpiRow {
   targetValue: string;
   unit: string;
   isInverse: boolean;
+  trackingMode: TrackingMode;
 }
 
 interface DepartmentGroup {
@@ -69,6 +73,7 @@ function toKpiRow(kpi: KpiApiResponse): KpiRow {
     targetValue: kpi.target_value === null || kpi.target_value === undefined ? "" : String(kpi.target_value),
     unit: kpi.unit || "",
     isInverse: kpi.is_inverse,
+    trackingMode: kpi.tracking_mode === "task_count" ? "task_count" : "manual",
   };
 }
 
@@ -142,7 +147,7 @@ export default function KpisPage() {
         saved: false,
         kpis: [
           ...g.kpis,
-          { localId: makeLocalId(), id: null, name: "", weight: "0", targetValue: "", unit: "", isInverse: false },
+          { localId: makeLocalId(), id: null, name: "", weight: "0", targetValue: "", unit: "", isInverse: false, trackingMode: "manual" },
         ],
       };
     });
@@ -356,7 +361,8 @@ export default function KpisPage() {
                       <tbody>
                         {group.kpis.map(function (row) {
                           return (
-                            <tr key={row.localId} className="border-b border-white/5">
+                            <React.Fragment key={row.localId}>
+                            <tr className="border-b border-white/5">
                               <td className="py-2 pr-4">
                                 <input
                                   type="text"
@@ -425,6 +431,29 @@ export default function KpisPage() {
                                 </button>
                               </td>
                             </tr>
+                            <tr className="border-b border-white/5">
+                              <td colSpan={6} className="pb-3 pt-1">
+                                <KpiTrackingControl
+                                  kpiId={row.id}
+                                  mode={row.trackingMode}
+                                  targetValue={row.targetValue}
+                                  onChanged={function (mode: TrackingMode) {
+                                    setGroups(function (current) {
+                                      return current.map(function (g) {
+                                        if (g.department.id !== group.department.id) return g;
+                                        return {
+                                          ...g,
+                                          kpis: g.kpis.map(function (r) {
+                                            return r.localId === row.localId ? { ...r, trackingMode: mode } : r;
+                                          }),
+                                        };
+                                      });
+                                    });
+                                  }}
+                                />
+                              </td>
+                            </tr>
+                            </React.Fragment>
                           );
                         })}
                       </tbody>
@@ -484,4 +513,3 @@ export default function KpisPage() {
     </div>
   );
 }
-

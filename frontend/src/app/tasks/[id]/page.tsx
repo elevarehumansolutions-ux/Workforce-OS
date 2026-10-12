@@ -1,33 +1,39 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import {
+  BLOCK_CATEGORY_OPTIONS,
   activeEmployees,
+  blockCategoryLabel,
+  canBlockTask,
   canCancelTask,
   canCompleteTask,
   canEditTask,
   canReassignTask,
+  canUnblockTask,
   departmentName,
   employeeName,
   errorMessage,
   formatDateTime,
+  formatDuration,
   fullName,
   isNotClockedIn,
-  isPastDue,
   isoToLocalInput,
   loadCaller,
   localInputToIso,
+  reviewStatusClasses,
+  reviewStatusLabel,
   roleLabel,
   statusClasses,
   statusLabel,
 } from "@/lib/tasks";
-import type { CallerContext, Task } from "@/lib/tasks";
+import type { BlockCategory, CallerContext, Task, TaskBlock } from "@/lib/tasks";
 
-type Panel = "edit" | "cancel" | "reassign" | null;
+type Panel = "edit" | "cancel" | "reassign" | "block" | null;
 
 interface TaskResult {
   key: string;
@@ -36,11 +42,20 @@ interface TaskResult {
   notClockedIn: boolean;
 }
 
+interface BlocksResult {
+  key: string;
+  blocks: TaskBlock[];
+  error: string;
+}
+
 const inputClass =
   "w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500";
 
-export default function TaskDetailPage() {
+function TaskDetailContent() {
   const params = useParams<{ id: string }>();
+  // The "Was something holding up this task?" notification opens the task
+  // with ?action=block so the Mark blocked form is ready.
+  const searchParams = useSearchParams();
   const taskId = params.id;
 
   const [ctx, setCtx] = useState<CallerContext | null>(null);
@@ -48,7 +63,10 @@ export default function TaskDetailPage() {
   const [reloadCounter, setReloadCounter] = useState(0);
   const [result, setResult] = useState<TaskResult | null>(null);
 
-  const [panel, setPanel] = useState<Panel>(null);
+  const [panel, setPanel] = useState<Panel>(searchParams.get("action") === "block" ? "block" : null);
+  const [blocksResult, setBlocksResult] = useState<BlocksResult | null>(null);
+  const [blockCategory, setBlockCategory] = useState<BlockCategory>("awaiting_approval");
+  const [blockReason, setBlockReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
@@ -103,6 +121,26 @@ export default function TaskDetailPage() {
                 : errorMessage(err, "Couldn't load this task. Check your connection and try again."),
             notClockedIn: isNotClockedIn(err),
           });
+        });
+      return function () {
+        cancelled = true;
+      };
+    },
+    [taskId, key]
+  );
+
+  useEffect(
+    function () {
+      let cancelled = false;
+      apiFetch<TaskBlock[]>("/tasks/" + taskId + "/blocks", { method: "GET" })
+        .then(function (list) {
+          if (cancelled) return;
+          setBlocksResult({ key: key, blocks: list, error: "" });
+        })
+        .catch(function (err) {
+          if (cancelled) return;
+          // The history is a nice-to-have; the task itself still shows.
+          setBlocksResult({ key: key, blocks: [], error: isNotClockedIn(err) ? "" : errorMessage(err, "Couldn't load the block history.") });
         });
       return function () {
         cancelled = true;
@@ -284,6 +322,61 @@ export default function TaskDetailPage() {
     }
   }
 
+  function openBlock() {
+    setNotice("");
+    setActionError("");
+    setBlockCategory("awaiting_approval");
+    setBlockReason("");
+    setPanel("block");
+  }
+
+  async function confirmBlock() {
+    if (!task) return;
+    setActionError("");
+    const reason = blockReason.trim();
+    if (!reason) {
+      setActionError("Say what is holding the task up.");
+      return;
+    }
+    if (reason.length > 500) {
+      setActionError("The reason can be at most 500 characters.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await apiFetch("/tasks/" + task.id + "/block", {
+        method: "POST",
+        body: { category: blockCategory, reason: reason },
+      });
+      setPanel(null);
+      setNotice("Task marked as blocked. Someone will review it.");
+      reload();
+    } catch (err) {
+      handleFailure(err, "Couldn't mark the task as blocked. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unblock() {
+    if (!task) return;
+    setNotice("");
+    setActionError("");
+    setBusy(true);
+    try {
+      await apiFetch("/tasks/" + task.id + "/unblock", { method: "POST" });
+      setNotice("Task unblocked.");
+      reload();
+    } catch (err) {
+      handleFailure(err, "Couldn't unblock the task. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const blocks = blocksResult && blocksResult.key === key ? blocksResult.blocks : [];
+  const blocksError = blocksResult && blocksResult.key === key ? blocksResult.error : "";
+
   const isActive = task !== null && (task.status === "open" || task.status === "in_progress");
   const kpiName =
     ctx && task && task.kpi_id
@@ -350,8 +443,11 @@ export default function TaskDetailPage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <h2 className="text-xl font-bold">{task.title}</h2>
               <div className="flex items-center gap-2">
-                {isPastDue(task) ? (
-                  <span className="rounded bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400">Past due</span>
+                {task.overdue ? (
+                  <span className="rounded bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400">Overdue</span>
+                ) : null}
+                {task.blocked_since ? (
+                  <span className="rounded bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-300">Blocked</span>
                 ) : null}
                 <span className={"rounded px-2 py-0.5 text-xs font-medium " + statusClasses(task.status)}>
                   {statusLabel(task.status)}
@@ -368,11 +464,23 @@ export default function TaskDetailPage() {
               </div>
               <div>
                 <dt className="text-xs text-gray-500">Assigned to</dt>
-                <dd className="mt-0.5 text-gray-200">{employeeName(ctx, task.assigned_to_employee_id)}</dd>
+                <dd className="mt-0.5 text-gray-200">
+                  {employeeName(ctx, task.assigned_to_employee_id)}
+                  {!task.assigned_to_employee_id && isActive ? (
+                    <span className="block text-xs text-amber-300">This task needs an owner.</span>
+                  ) : null}
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-gray-500">Deadline</dt>
-                <dd className="mt-0.5 text-gray-200">{formatDateTime(task.due_at)}</dd>
+                <dd className="mt-0.5 text-gray-200">
+                  {formatDateTime(task.due_at)}
+                  {task.due_at && task.approved_blocked_seconds > 0 ? (
+                    <span className="block text-xs text-gray-500">
+                      Extended by {formatDuration(task.approved_blocked_seconds)} for approved blocks
+                    </span>
+                  ) : null}
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-gray-500">Linked KPI</dt>
@@ -390,6 +498,12 @@ export default function TaskDetailPage() {
               ) : null}
             </dl>
 
+            {task.blocked_since ? (
+              <div className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                Blocked since {formatDateTime(task.blocked_since)}. A blocked task is never counted as overdue.
+              </div>
+            ) : null}
+
             {task.status === "cancelled" ? (
               <div className="mt-6 rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm">
                 <p className="text-xs text-gray-500">Why it was cancelled</p>
@@ -399,6 +513,26 @@ export default function TaskDetailPage() {
 
             {isActive ? (
               <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-white/10 pt-5">
+                {canBlockTask(ctx, task) ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={openBlock}
+                    className={buttonClass + "border-amber-500/40 text-amber-300 hover:bg-amber-500/10"}
+                  >
+                    Mark blocked
+                  </button>
+                ) : null}
+                {canUnblockTask(ctx, task) ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={unblock}
+                    className={buttonClass + "border-amber-500/40 text-amber-300 hover:bg-amber-500/10"}
+                  >
+                    Unblock
+                  </button>
+                ) : null}
                 {canCompleteTask(ctx, task) ? (
                   <button
                     type="button"
@@ -442,6 +576,66 @@ export default function TaskDetailPage() {
               </div>
             ) : null}
           </div>
+
+          {panel === "block" && canBlockTask(ctx, task) ? (
+            <div className="space-y-4 rounded-2xl border border-amber-500/30 bg-[#0d1220]/80 p-6 shadow-xl">
+              <h3 className="text-base font-semibold">Mark this task as blocked</h3>
+              <p className="text-sm text-gray-400">
+                Use this when something outside your hands is stopping the work. While it is blocked the task isn&apos;t
+                counted as overdue. A reviewer then decides whether the time counts, and only an approved block gives the
+                time back.
+              </p>
+              {actionError ? <p className="text-sm text-red-300">{actionError}</p> : null}
+              <div>
+                <label className="mb-1 block text-xs text-gray-500">What is it waiting on?</label>
+                <select
+                  value={blockCategory}
+                  onChange={function (e) {
+                    setBlockCategory(e.target.value as BlockCategory);
+                  }}
+                  className={inputClass}
+                >
+                  {BLOCK_CATEGORY_OPTIONS.map(function (o) {
+                    return (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-gray-500">Explain (required)</label>
+                <textarea
+                  rows={3}
+                  maxLength={500}
+                  value={blockReason}
+                  onChange={function (e) {
+                    setBlockReason(e.target.value);
+                  }}
+                  className={inputClass}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={confirmBlock}
+                  className="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {busy ? "Saving…" : "Mark blocked"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={closePanel}
+                  className="rounded-lg border border-white/15 px-4 py-2.5 text-sm font-medium text-gray-300 hover:bg-white/5"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {panel === "edit" ? (
             <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-6 shadow-xl">
@@ -569,6 +763,9 @@ export default function TaskDetailPage() {
                 {task.assigned_to_employee_id ? "Reassign task" : "Assign task"}
               </h3>
               {actionError ? <p className="text-sm text-red-300">{actionError}</p> : null}
+              {task.blocked_since ? (
+                <p className="text-xs text-gray-500">Reassigning ends the current block, and the new person starts fresh.</p>
+              ) : null}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs text-gray-500">Assign to</label>
@@ -625,8 +822,42 @@ export default function TaskDetailPage() {
               </div>
             </div>
           ) : null}
+
+          {blocks.length > 0 || blocksError ? (
+            <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-6 shadow-xl">
+              <h3 className="text-base font-semibold">Block history</h3>
+              {blocksError ? <p className="mt-2 text-sm text-gray-500">{blocksError}</p> : null}
+              <div className="mt-3 space-y-3">
+                {blocks.map(function (b) {
+                  return (
+                    <div key={b.id} className="rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-medium text-gray-200">{blockCategoryLabel(b.category)}</span>
+                        <span className={"rounded px-2 py-0.5 text-xs font-medium " + reviewStatusClasses(b.review_status)}>
+                          {reviewStatusLabel(b.review_status)}
+                        </span>
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap text-gray-400">{b.reason}</p>
+                      <p className="mt-1 text-xs text-gray-500">
+                        {formatDateTime(b.blocked_at)} to {b.unblocked_at ? formatDateTime(b.unblocked_at) : "still blocked"}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </AppShell>
+  );
+}
+
+export default function TaskDetailPage() {
+  // useSearchParams() needs a Suspense boundary in the App Router.
+  return (
+    <Suspense fallback={null}>
+      <TaskDetailContent />
+    </Suspense>
   );
 }
