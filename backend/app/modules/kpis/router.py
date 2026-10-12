@@ -244,6 +244,9 @@ async def upsert_score(
     Raises:
         KPINotFoundException: If no non-deleted KPI with that id exists
             in the caller's org (translates to a 404 response).
+        KPITrackedByTasksException: If the KPI is counted from completed
+            tasks (``tracking_mode`` ``task_count``), so a value can't be
+            typed in (409 ``KPI_TRACKED_BY_TASKS``).
     """
     score = await KPIService(db).upsert_score(caller.organization_id, caller.user_id, kpi_id, data)
     await db.commit()

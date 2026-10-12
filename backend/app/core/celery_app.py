@@ -34,6 +34,7 @@ celery = Celery(
         "app.modules.auth.tasks",
         "app.modules.ai.tasks",
         "app.modules.attendance.tasks",
+        "app.modules.tasks.tasks",
         "app.modules.tenancy_identity.tasks",
     ],
 )
@@ -72,6 +73,12 @@ celery.conf.update(
         "attendance-auto-close": {
             "task": "app.modules.attendance.tasks.auto_close_attendance",
             "schedule": crontab(minute=5),
+        },
+        # Every 10 minutes, so people hear about an overdue task soon after its
+        # deadline passes. Each overdue task is announced once (tasks/tasks.py).
+        "task-overdue-scan": {
+            "task": "app.modules.tasks.tasks.overdue_scan",
+            "schedule": crontab(minute="*/10"),
         },
     },
 )

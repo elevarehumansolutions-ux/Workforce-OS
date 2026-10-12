@@ -13,9 +13,10 @@ class KPICreate(BaseModel):
 
     ``organization_id`` is deliberately absent — resolved server-side
     from the authenticated caller's membership, never supplied by the
-    client. ``tracking_mode`` is also absent: it defaults to ``'manual'``
-    at the database level, and nothing about creating a KPI through this
-    endpoint needs the caller to choose ``'task_count'`` yet.
+    client. ``tracking_mode`` is optional and defaults to ``'manual'``
+    (a person types in the actual value). ``'task_count'`` makes progress a
+    live count of completed linked tasks instead
+    (``GET /kpis/{id}/task-progress``).
     """
 
     department_id: uuid.UUID
@@ -27,6 +28,7 @@ class KPICreate(BaseModel):
     is_inverse: bool = False
     target_value: decimal.Decimal | None = None
     unit: str | None = None
+    tracking_mode: KPITrackingMode = KPITrackingMode.MANUAL
 
 class KPIResponse(BaseModel):
     """API representation of a KPI, returned by KPI endpoints."""
@@ -59,13 +61,17 @@ class KPIUpdate(BaseModel):
     group's total too, which nothing asked for).
     """
 
-    name: str | None = None
+    # name, weight, is_inverse and tracking_mode are required on every KPI. Leaving one out keeps
+    # its current value; sending null is refused (422) instead of crashing at the database.
+    # That is why their types are not "| None", unlike the fields that may really be empty.
+    name: str = None
     description: str | None = None
-    weight: decimal.Decimal | None = None
-    is_inverse: bool | None = None
+    weight: decimal.Decimal = None
+    is_inverse: bool = None
     target_value: decimal.Decimal | None = None
     unit: str | None = None
     key_result_id: uuid.UUID | None = None
+    tracking_mode: KPITrackingMode = None
 
 
 class KPIGroupItem(BaseModel):
