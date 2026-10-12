@@ -186,12 +186,36 @@ Nothing below this line exists as a real endpoint today — every path here 404s
 
 **Not built yet:** any way to set `in_progress` (deferred, a small later endpoint).
 
-### Workflow (M11+)
+### Workflow (M11)
 
-- `POST|GET /workflow-templates`, `GET|PATCH /workflow-templates/{id}`
-- `POST|GET /workflow-templates/{id}/steps`, `PATCH /workflow-steps/{id}`
+**Templates and steps: BUILT 2026-10-12 (slice B).** Instances (start, list, read, cancel) are not built yet (slices C to E). Design: `08_DECISIONS.md` 2026-10-12.
+
+**Who:** building (every create, edit, archive, delete, add/edit/delete step, reorder) is `hr_administrator` or `manager` (any manager may edit any template); anyone else gets 403 `PERMISSION_DENIED`. Reads are open to every member of the organization. Anything outside the caller's organization is a 404.
+
+`TemplateResponse`: `id, organization_id, department_id, name, created_by_user_id, archived_at, created_at, updated_at`.
+`StepResponse`: `id, organization_id, workflow_template_id, step_order, name, department_id, default_assignee_employee_id, default_turnaround_hours, created_at, updated_at`.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /workflow-templates` | body `{name (1-200 chars, trimmed), department_id}`; 404 `DEPARTMENT_NOT_FOUND` |
+| `GET /workflow-templates` | query `include_archived` (default false), `department_id`, `page`, `limit`; sorted by name; paginated envelope |
+| `GET /workflow-templates/{id}` | works for archived templates; 404 `WORKFLOW_TEMPLATE_NOT_FOUND` |
+| `PATCH /workflow-templates/{id}` | send only `name` and/or `department_id`; `null` on either is a 422 |
+| `POST /workflow-templates/{id}/archive` | retires it (cannot start new cases; running ones carry on); 409 `WORKFLOW_TEMPLATE_ALREADY_ARCHIVED` |
+| `POST /workflow-templates/{id}/unarchive` | 409 `WORKFLOW_TEMPLATE_NOT_ARCHIVED` if it is not archived |
+| `DELETE /workflow-templates/{id}` | soft delete; 409 `RESOURCE_IN_USE` ("N case(s) are still running on it. Archive it instead") while any case is `in_progress` |
+| `POST /workflow-templates/{id}/steps` | body `{name, department_id, default_assignee_employee_id?, default_turnaround_hours? (>0), step_order? (>=1)}`; no `step_order` = at the end, a number inserts there and moves later steps down; 422 if the position is beyond one past the last step, or the assignee is offboarded; 404 `EMPLOYEE_NOT_FOUND` / `DEPARTMENT_NOT_FOUND` |
+| `GET /workflow-templates/{id}/steps` | plain list (not paginated), in order; works for archived templates |
+| `PATCH /workflow-steps/{id}` | send only the fields to change; `null` on `default_assignee_employee_id` / `default_turnaround_hours` clears them; `null` on `name` / `department_id` is a 422; the position is not editable here; 404 `WORKFLOW_STEP_NOT_FOUND` |
+| `DELETE /workflow-steps/{id}` | soft delete, later steps move up; 409 `RESOURCE_IN_USE` ("N task(s) are still open on it") while a task made from it is open or in progress |
+| `PUT /workflow-templates/{id}/steps/order` | body `{step_ids: [...]}` = every step id of the template in the new order; 422 if the list is not exactly the template's steps; 409 `RESOURCE_IN_USE` ("N case(s) are still running on this template") while any case is in progress; returns the steps in the new order |
+
+**Not provided yet:** starting a case, listing or reading cases, cancelling a case, and the tasks a case creates (slices C to E). Archived templates are not yet refused when starting a case, because starting does not exist yet. A deadline in business hours (Mon-Fri 09:00-17:00, organization timezone) is applied when a task is created from a step, not stored on the step.
+
+**Still planned (sketch):**
 - `POST /workflow-instances` — starts a case (body: `template_id`, `subject`)
 - `GET /workflow-instances` (filter: `status`, `template_id`), `GET /workflow-instances/{id}`
+- `POST /workflow-instances/{id}/cancel` (body: `reason`)
 
 ### Attendance — now live
 

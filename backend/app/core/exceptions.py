@@ -787,3 +787,64 @@ class EmployeeAlreadyHasLoginException(PlatformError):
         """Initialise with platform error defaults."""
         super().__init__(message, code, status_code, details)
 
+
+# ---------------------------------------------------------------------------
+# Workflow  (HTTP 404 / 409)
+# ---------------------------------------------------------------------------
+
+
+class WorkflowTemplateNotFoundException(PlatformError):
+    """Raised when a workflow template doesn't exist, was deleted, or is in another organization."""
+
+    def __init__(
+        self,
+        message: str = "Workflow template not found",
+        code: str = "WORKFLOW_TEMPLATE_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class WorkflowStepNotFoundException(PlatformError):
+    """Raised when a workflow step doesn't exist, was deleted, or is in another organization."""
+
+    def __init__(
+        self,
+        message: str = "Workflow step not found",
+        code: str = "WORKFLOW_STEP_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class WorkflowTemplateAlreadyArchivedException(PlatformError):
+    """Raised when archiving a template that is already archived."""
+
+    def __init__(
+        self,
+        message: str = "This template is already archived",
+        code: str = "WORKFLOW_TEMPLATE_ALREADY_ARCHIVED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class WorkflowTemplateNotArchivedException(PlatformError):
+    """Raised when unarchiving a template that is not archived."""
+
+    def __init__(
+        self,
+        message: str = "This template is not archived",
+        code: str = "WORKFLOW_TEMPLATE_NOT_ARCHIVED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+

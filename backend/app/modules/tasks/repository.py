@@ -185,6 +185,28 @@ class TaskRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one()
 
+    async def count_open_tasks_for_step(self, workflow_step_id: uuid.UUID) -> int:
+        """Count the tasks made from a workflow step that are still open.
+
+        "Open" is ``open`` or ``in_progress`` (``OPEN_STATUSES``); completed and
+        cancelled tasks do not count. Not limited to what a particular caller
+        may see (the Workflow module asks it before deleting a step), and RLS
+        still keeps it inside the caller's organization.
+
+        Args:
+            workflow_step_id: The workflow step.
+
+        Returns:
+            How many tasks.
+        """
+        stmt = select(func.count()).select_from(Task).where(
+            Task.workflow_step_id == workflow_step_id,
+            Task.deleted_at.is_(None),
+            Task.status.in_(OPEN_STATUSES),
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one()
+
     async def update_task(self, task: Task, data: dict) -> Task:
         """Apply a partial update to a task. Caller (service layer) commits.
 

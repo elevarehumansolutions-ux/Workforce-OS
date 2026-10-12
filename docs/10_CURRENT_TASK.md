@@ -3,7 +3,9 @@
 **M11 — Workflow** (see `09_PROGRESS.md` M11, `01_REQUIREMENTS.md` section 6, `04_DATABASE.md` Cluster 6).
 
 Branch: `m11-workflow` (off `main` after M10's merge). **Slice A (tables, migration `fee24085f70f`, the two
-`tasks` foreign keys, 4 tests) was built 2026-10-12 and is uncommitted; next is slice B, template and step CRUD.**
+`tasks` foreign keys, 4 tests) is committed (`acff13a`). Slice B (template and step CRUD, 49 workflow tests in all) was
+built 2026-10-12 and is uncommitted; next is slice C: `core/events.py` event bus, `POST /workflow-instances` (plus the
+list and read endpoints), the business-hours deadline helper.**
 Build plan: A tables -> B template and step CRUD (HR or any `manager`; delete/reorder locks; archive) -> C
 `core/events.py` and `POST /workflow-instances` -> D the chain (complete and skip create the next task, business-hours
 `due_at`, instance completes) -> E cancel a case -> F Trello cards for Uche. Working mode for

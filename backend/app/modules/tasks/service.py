@@ -1027,6 +1027,22 @@ class TaskService:
             score_percentage=score_percentage,
         )
 
+    async def count_open_tasks_for_step(self, workflow_step_id: uuid.UUID) -> int:
+        """How many tasks made from a workflow step are still open.
+
+        For the Workflow module, which refuses to delete a step while one of
+        its tasks is still being worked on. It is an internal question, not a
+        user action, so there is no caller and no visibility check: the count
+        is the step's total (RLS keeps it inside the organization).
+
+        Args:
+            workflow_step_id: The workflow step.
+
+        Returns:
+            The number of tasks that are ``open`` or ``in_progress``.
+        """
+        return await self._repo.count_open_tasks_for_step(workflow_step_id)
+
     async def release_orphaned_tasks(self, organization_id: uuid.UUID) -> int:
         """Hand over the open tasks of employees who have been offboarded.
 
