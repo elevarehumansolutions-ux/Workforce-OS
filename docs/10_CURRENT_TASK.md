@@ -2,7 +2,11 @@
 
 **M11 — Workflow** (see `09_PROGRESS.md` M11, `01_REQUIREMENTS.md` section 6, `04_DATABASE.md` Cluster 6).
 
-Branch: `m11-workflow` (off `main` after M10's merge). **Nothing is built yet.** Working mode for
+Branch: `m11-workflow` (off `main` after M10's merge). **Slice A (tables, migration `fee24085f70f`, the two
+`tasks` foreign keys, 4 tests) was built 2026-10-12 and is uncommitted; next is slice B, template and step CRUD.**
+Build plan: A tables -> B template and step CRUD (HR or any `manager`; delete/reorder locks; archive) -> C
+`core/events.py` and `POST /workflow-instances` -> D the chain (complete and skip create the next task, business-hours
+`due_at`, instance completes) -> E cancel a case -> F Trello cards for Uche. Working mode for
 this milestone: settle the design questions below *with the user first* (propose and review), then
 build in small slices, block by block, as `CLAUDE.md` describes (beginner-to-mid code, never change
 code outside the Workflow module without asking, additive wiring only).
@@ -42,7 +46,23 @@ template and step CRUD (HR administrator or any `manager`), `POST /workflow-inst
   M11 will need a task-creation entry point on `TaskService` that is meant for internal callers
   (no "who may create" check, `created_by_user_id` null). It must not insert into `tasks` directly.
 
-## Design questions to settle before building (not decided yet)
+## Design questions to settle before building
+
+**ALL TEN questions SETTLED on 2026-10-12 — full text in `08_DECISIONS.md` 2026-10-12. Build slice by slice, block by
+block (slice A is done, see above).** Short version of 8 to 10:
+(8) a template cannot be deleted, and its steps cannot be reordered, while an instance is running on it, archive instead;
+adding steps and editing a step's fields stay allowed; (9) any employee may start an instance, HR/executive see all,
+others see an instance they or their department have a task in, else 404; (10) HR or any `manager` may build and edit any
+template, audit-logged. Short version of 5 to 7: (5) an offboarded or missing default assignee gives an unassigned task, head
+(or HR) told, chain continues; (6) no per-instance override, cover for leave is reassign or editing the step's default
+assignee; (7) a hand-cancelled workflow task SKIPS to the next step (last step completes the instance), the starter is
+told and the audit log records it, an instance-wide cancel does not skip. Short version of 1 to 4: (1) a `core/events.py` event bus, Task publishes `TaskCompleted`, Workflow listens, same
+transaction, a failure fails the user's "complete"; (2) cases follow template edits, existing tasks keep their `due_at`,
+a step with an open task cannot be deleted; (3) `POST /workflow-instances/{id}/cancel` by HR or the starter, the open task
+is cancelled through `TaskService`, the listener checks the instance is still `in_progress`; (4) `due_at` = creation
+time plus turnaround in business hours (Mon–Fri 09:00–17:00, org timezone; Option C configurable calendars and holidays
+left for later), no turnaround means no `due_at`, no per-instance override.
+The original wording of each question follows, for the reasoning.
 
 1. **How does completing a task advance the workflow, given Task must not call Workflow?**
    Options: (a) Task exposes a small hook list that Workflow registers into (dependency inversion);

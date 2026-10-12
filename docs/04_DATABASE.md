@@ -373,6 +373,7 @@ CREATE TABLE workflow_templates (
     department_id UUID NOT NULL REFERENCES departments(id),  -- the department that owns/authored this template
     name TEXT NOT NULL,
     created_by_user_id UUID REFERENCES users(id),
+    archived_at TIMESTAMPTZ,  -- retired: cannot start new cases, running ones carry on. Added M11 slice A, migration fee24085f70f
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ
@@ -400,7 +401,8 @@ CREATE TABLE workflow_instances (
     started_by_user_id UUID REFERENCES users(id),
     status TEXT NOT NULL DEFAULT 'in_progress' CHECK (status IN ('in_progress','completed','cancelled')),
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    completed_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,  -- set exactly when status = 'completed' (CHECK check_workflow_instance_completed_at_matches_status)
+    cancel_reason TEXT,        -- set exactly when status = 'cancelled' (CHECK check_workflow_instance_cancel_reason_matches_status). Added M11 slice A
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -446,6 +448,7 @@ CREATE TABLE task_blocks (
 ```
 
 **Design notes:**
+- **Built 2026-10-12 (M11 slice A, migration `fee24085f70f`, `08_DECISIONS.md` 2026-10-12).** The three workflow tables as above, each with RLS `tenant_isolation`, plus: `workflow_templates.archived_at` and `workflow_instances.cancel_reason` (not in the original design: archiving and cancel-with-reason were settled 2026-10-12); CHECKs on the instance `status`, on `completed_at`/`cancel_reason` matching the status, on a step's `default_turnaround_hours > 0` (or null) and `step_order >= 1`; indexes `idx_workflow_steps_template_order` and `idx_workflow_instances_template_status` (for "is a case running on this template?"). **`step_order` is deliberately NOT unique in the database**: inserting a step in the middle shifts the later ones and a uniqueness rule would reject that halfway, so the service keeps the numbers sensible. `workflow_instances` has no `deleted_at` and no "current step" column (what comes next is read from the template when a task finishes). The two `tasks` columns `workflow_instance_id` / `workflow_step_id` became real foreign keys, named `fk_tasks_workflow_instance_id` / `fk_tasks_workflow_step_id`; the Task model declares them too (edited with the user's permission) so `alembic check` stays clean.
 - **Built 2026-10-09 (M10 slice E, migration `f7b2c91d4a60`, `08_DECISIONS.md` 2026-10-09).** The table as above plus: CHECKs on `category`, `review_status`, `unblocked_at >= blocked_at`, and "reviewed_by/reviewed_at are set exactly when the status is not pending"; a **partial unique index** `uq_task_blocks_one_open_per_task` (one open block per task); RLS `tenant_isolation`. `tasks` gains `blocked_since` and `approved_blocked_seconds`: two stored facts kept in step with the blocks by block/unblock/approve (and reset on reassign), so the overdue rule needs only the task row. Migration `a3d9e61c7b25` updates the cross-tenant lookup function `organizations_with_unannounced_overdue_tasks()` to the same block-aware rule.
 - **`task_blocks`, added 2026-09-22 (Jennifer's escalation/accountability submission, see `01_REQUIREMENTS.md` §6a and `08_DECISIONS.md`).** One table serves both the proactive case (an assignee marks a task blocked *before* it goes overdue, `unblocked_at` null while ongoing) and the reactive case (a task went overdue with no block recorded, the Overdue Celery Beat scan prompts, creating this row after the fact). Same `review_status` shape as `ai_suggestions` and membership deactivation, not a new pattern. `due_at` on `tasks` is never touched by this, "currently overdue" and "was this actually late for scoring" both become derived calculations that exclude any *approved* blocked duration, consistent with `due_at` being written once and never rewritten. A `pending` block holds that task out of KPI scoring entirely until reviewed, it is not scored provisionally and corrected later, since a closed period's `kpi_scores` must stay permanent history.
 - **One `tasks` table for both workflow-generated and standalone tasks.** `workflow_instance_id`/`workflow_step_id` are nullable so an ad hoc task (a manager just typing "follow up with vendor" with no template behind it) uses the exact same table and the exact same dashboard, rather than needing a second parallel task system.

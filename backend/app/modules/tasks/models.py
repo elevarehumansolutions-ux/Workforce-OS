@@ -36,10 +36,9 @@ class Task(BaseModel):
     is set exactly when the status is ``completed``, and ``cancel_reason``
     exactly when it is ``cancelled``, each enforced by a CHECK.
 
-    ``workflow_instance_id`` and ``workflow_step_id`` are plain nullable
-    columns with **no foreign key** for now: the tables they point at are
-    M11's and do not exist yet, so M11's migration adds the constraints
-    (every existing value is null, nothing to backfill). There are no ORM
+    ``workflow_instance_id`` and ``workflow_step_id`` are nullable foreign
+    keys to M11's Workflow tables (added by M11's migration; every existing
+    value was null, so nothing needed backfilling). There are no ORM
     relationships on this model, deliberately: the service layer does its
     own lookups, which avoids lazy-load surprises under the async session.
     See 08_DECISIONS.md 2026-10-07.
@@ -80,14 +79,16 @@ class Task(BaseModel):
 
     workflow_instance_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
+        ForeignKey("workflow_instances.id", name="fk_tasks_workflow_instance_id"),
         nullable=True,
-        doc="Running workflow this task came from; null = standalone. No FK until M11 creates the table",
+        doc="Running workflow this task came from; null = standalone",
     )
 
     workflow_step_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
+        ForeignKey("workflow_steps.id", name="fk_tasks_workflow_step_id"),
         nullable=True,
-        doc="Workflow step this task came from; null = standalone. No FK until M11 creates the table",
+        doc="Workflow step this task came from; null = standalone",
     )
 
     department_id: Mapped[uuid.UUID] = mapped_column(
