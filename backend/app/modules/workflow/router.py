@@ -15,7 +15,12 @@ from app.core.schemas import PaginationResponse
 from app.modules.tenancy_identity.enums import MembershipRole
 from app.modules.tenancy_identity.models import Membership
 
+from .enums import InstanceStatus
 from .schemas import (
+    InstanceCreateRequest,
+    InstanceDetailResponse,
+    InstanceResponse,
+    InstanceTaskResponse,
     StepCreateRequest,
     StepOrderRequest,
     StepResponse,
@@ -24,7 +29,7 @@ from .schemas import (
     TemplateResponse,
     TemplateUpdateRequest,
 )
-from .service import StepService, TemplateService
+from .service import InstanceService, StepService, TemplateService
 
 router = APIRouter()
 
@@ -187,6 +192,103 @@ async def delete_template(
     response = TemplateResponse.model_validate(template)
     await db.commit()
     return response
+
+
+# ---------------------------------------------------------------------------
+# Instances (running cases)
+# ---------------------------------------------------------------------------
+
+@router.post("/workflow-instances", status_code=200)
+async def start_instance(
+    data: InstanceCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> InstanceResponse:
+    """Start a case from a template; the first step's task is created at once.
+
+    Any active employee may start a case, and so may an HR administrator.
+    The service checks that; anyone else gets 403.
+
+    Args:
+        data: The template to run and what the case is about.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The new case, in progress.
+
+    Raises:
+        PermissionDeniedException: If the caller is neither HR nor an active employee.
+        WorkflowTemplateNotFoundException: If the template isn't in the caller's org.
+        WorkflowTemplateArchivedException: If the template has been archived.
+        ValidationException: If the template has no steps.
+    """
+    service = InstanceService(db)
+    instance = await service.start_instance(caller, data.template_id, data.subject)
+    response = InstanceResponse.model_validate(instance)
+    await db.commit()
+    return response
+
+
+@router.get("/workflow-instances", status_code=200)
+async def list_instances(
+    status: InstanceStatus | None = Query(default=None),
+    template_id: uuid.UUID | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> PaginationResponse:
+    """List the cases the caller may see, newest first.
+
+    HR administrators and business executives see every case. Everyone else
+    sees the cases they started, have a task in, or head a department that has
+    a step in.
+
+    Args:
+        status: Only cases in this status (in_progress, completed, cancelled).
+        template_id: Only cases of this template.
+        page: 1-indexed page number.
+        limit: Maximum number of rows per page (1-100).
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        A paginated response of cases.
+    """
+    service = InstanceService(db)
+    result = await service.list_instances(caller, status, template_id, page, limit)
+    result.data = [InstanceResponse.model_validate(instance) for instance in result.data]
+    return result
+
+
+@router.get("/workflow-instances/{instance_id}", status_code=200)
+async def get_instance(
+    instance_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> InstanceDetailResponse:
+    """Get one case with its progress: the template's current steps and the tasks created so far.
+
+    Args:
+        instance_id: Id of the case.
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The case, its steps in order and its tasks, oldest first.
+
+    Raises:
+        WorkflowInstanceNotFoundException: If it doesn't exist or the caller may not see it.
+    """
+    service = InstanceService(db)
+    found = await service.get_instance(caller, instance_id)
+    base = InstanceResponse.model_validate(found["instance"]).model_dump()
+    return InstanceDetailResponse(
+        **base,
+        steps=[StepResponse.model_validate(step) for step in found["steps"]],
+        tasks=[InstanceTaskResponse.model_validate(task) for task in found["tasks"]],
+    )
 
 
 # ---------------------------------------------------------------------------

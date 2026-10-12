@@ -821,6 +821,20 @@ class WorkflowStepNotFoundException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class WorkflowInstanceNotFoundException(PlatformError):
+    """Raised when a workflow case doesn't exist, or exists but the caller may not see it."""
+
+    def __init__(
+        self,
+        message: str = "Workflow case not found",
+        code: str = "WORKFLOW_INSTANCE_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class WorkflowTemplateAlreadyArchivedException(PlatformError):
     """Raised when archiving a template that is already archived."""
 
@@ -828,6 +842,20 @@ class WorkflowTemplateAlreadyArchivedException(PlatformError):
         self,
         message: str = "This template is already archived",
         code: str = "WORKFLOW_TEMPLATE_ALREADY_ARCHIVED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class WorkflowTemplateArchivedException(PlatformError):
+    """Raised when starting a case from a template that has been archived."""
+
+    def __init__(
+        self,
+        message: str = "This template is archived and can't start new cases",
+        code: str = "WORKFLOW_TEMPLATE_ARCHIVED",
         status_code: int = 409,
         details: list | None = None,
     ) -> None:

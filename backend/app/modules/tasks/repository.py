@@ -207,6 +207,52 @@ class TaskRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one()
 
+    async def list_workflow_instance_ids_for_assignee(
+        self, employee_id: uuid.UUID
+    ) -> list[uuid.UUID]:
+        """The workflow cases in which an employee has (or had) a task.
+
+        Not limited to open tasks: someone who finished their step still sees
+        the case. Each case appears once.
+
+        Args:
+            employee_id: The assignee.
+
+        Returns:
+            The ids of the workflow instances those tasks belong to.
+        """
+        stmt = (
+            select(Task.workflow_instance_id)
+            .where(
+                Task.assigned_to_employee_id == employee_id,
+                Task.workflow_instance_id.is_not(None),
+                Task.deleted_at.is_(None),
+            )
+            .distinct()
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_tasks_for_workflow_instance(self, workflow_instance_id: uuid.UUID) -> list[Task]:
+        """Every task a workflow case has created, oldest first.
+
+        Args:
+            workflow_instance_id: The workflow case.
+
+        Returns:
+            Its tasks in the order they were created, whatever their status.
+        """
+        stmt = (
+            select(Task)
+            .where(
+                Task.workflow_instance_id == workflow_instance_id,
+                Task.deleted_at.is_(None),
+            )
+            .order_by(Task.created_at.asc(), Task.id.asc())
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
     async def update_task(self, task: Task, data: dict) -> Task:
         """Apply a partial update to a task. Caller (service layer) commits.
 

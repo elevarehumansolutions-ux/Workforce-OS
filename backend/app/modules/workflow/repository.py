@@ -7,7 +7,7 @@ convention as the other modules.
 
 import uuid
 
-from sqlalchemy import func, select, update
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import paginate
@@ -134,6 +134,116 @@ class TemplateRepository:
             )
         )
         return (await self._db.scalar(stmt)) or 0
+
+
+class InstanceScope:
+    """Which cases a caller may see.
+
+    HR administrators and business executives see every case. Everyone else
+    sees a case if they started it, if they have (or had) a task in it, or if
+    they head a department that has a step in its template. Anything else is
+    simply not found.
+    """
+
+    def __init__(
+        self,
+        sees_all: bool,
+        user_id: uuid.UUID,
+        instance_ids_with_my_tasks: list[uuid.UUID],
+        headed_department_ids: list[uuid.UUID],
+    ):
+        """Store who the caller is."""
+        self.sees_all = sees_all
+        self.user_id = user_id
+        self.instance_ids_with_my_tasks = instance_ids_with_my_tasks
+        self.headed_department_ids = headed_department_ids
+
+
+class InstanceRepository:
+    """Handles persistence for running cases (workflow instances)."""
+
+    def __init__(self, db: AsyncSession):
+        """Initialize the repository with an RLS-scoped async session."""
+        self._db = db
+
+    @staticmethod
+    def _only_visible(stmt, scope: InstanceScope):
+        """Narrow a query on cases to the ones ``scope`` may see."""
+        if scope.sees_all:
+            return stmt
+        has_a_step_i_head = exists().where(
+            WorkflowStep.workflow_template_id == WorkflowInstance.workflow_template_id,
+            WorkflowStep.deleted_at.is_(None),
+            WorkflowStep.department_id.in_(scope.headed_department_ids),
+        )
+        return stmt.where(
+            or_(
+                WorkflowInstance.started_by_user_id == scope.user_id,
+                WorkflowInstance.id.in_(scope.instance_ids_with_my_tasks),
+                has_a_step_i_head,
+            )
+        )
+
+    async def get_instance_by_id(
+        self, instance_id: uuid.UUID, scope: InstanceScope
+    ) -> WorkflowInstance | None:
+        """Get one case by id, if ``scope`` may see it.
+
+        Args:
+            instance_id: Id of the case to fetch.
+            scope: Which cases the caller may see.
+
+        Returns:
+            The case, or ``None`` if it doesn't exist or is outside the scope.
+        """
+        stmt = self._only_visible(
+            select(WorkflowInstance).where(WorkflowInstance.id == instance_id), scope
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_instances(
+        self,
+        scope: InstanceScope,
+        status: InstanceStatus | None = None,
+        template_id: uuid.UUID | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> PaginationResponse:
+        """List the cases ``scope`` may see, newest first.
+
+        Args:
+            scope: Which cases the caller may see.
+            status: Only cases in this status.
+            template_id: Only cases of this template.
+            page: 1-indexed page number.
+            limit: Maximum number of rows per page.
+
+        Returns:
+            A paginated response wrapping the matching cases.
+        """
+        stmt = self._only_visible(select(WorkflowInstance), scope)
+        if status is not None:
+            stmt = stmt.where(WorkflowInstance.status == status.value)
+        if template_id is not None:
+            stmt = stmt.where(WorkflowInstance.workflow_template_id == template_id)
+        stmt = stmt.order_by(WorkflowInstance.started_at.desc(), WorkflowInstance.id.desc())
+        return await paginate(stmt, page, limit, self._db)
+
+    async def create_instance(self, fields: dict) -> WorkflowInstance:
+        """Insert a new case, flush, and refresh it from the database.
+
+        Args:
+            fields: Field values for the new ``WorkflowInstance`` row.
+
+        Returns:
+            The newly created and refreshed case.
+        """
+        instance = WorkflowInstance(**fields)
+        self._db.add(instance)
+        await self._db.flush()
+        await self._db.refresh(instance)
+        return instance
 
 
 class StepRepository:

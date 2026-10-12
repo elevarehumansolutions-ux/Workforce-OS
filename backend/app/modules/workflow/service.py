@@ -14,10 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import (
     DepartmentNotFoundException,
     EmployeeNotFoundException,
+    PermissionDeniedException,
     ResourceInUseException,
     ValidationException,
+    WorkflowInstanceNotFoundException,
     WorkflowStepNotFoundException,
     WorkflowTemplateAlreadyArchivedException,
+    WorkflowTemplateArchivedException,
     WorkflowTemplateNotArchivedException,
     WorkflowTemplateNotFoundException,
 )
@@ -26,10 +29,14 @@ from app.modules.audit_and_notification.service import AuditService
 from app.modules.organization.enums import EmployeeStatus
 from app.modules.organization.repository import DepartmentRepository, EmployeeRepository
 from app.modules.tasks.service import TaskService
+from app.modules.tenancy_identity.enums import MembershipRole
 from app.modules.tenancy_identity.models import Membership
+from app.modules.tenancy_identity.repository import OrganizationRepository
 
-from .models import WorkflowStep, WorkflowTemplate
-from .repository import StepRepository, TemplateRepository
+from .deadlines import add_business_hours
+from .enums import InstanceStatus
+from .models import WorkflowInstance, WorkflowStep, WorkflowTemplate
+from .repository import InstanceRepository, InstanceScope, StepRepository, TemplateRepository
 
 
 class TemplateService:
@@ -491,3 +498,177 @@ class StepService:
             raise EmployeeNotFoundException()
         if employee.status == EmployeeStatus.INACTIVE.value:
             raise ValidationException(message="An offboarded employee can't be a step's default assignee")
+
+
+# Roles that see every case in the organization.
+_SEES_EVERY_CASE_ROLES = (
+    MembershipRole.HR_ADMINISTRATOR.value,
+    MembershipRole.BUSINESS_EXECUTIVE.value,
+)
+
+
+class InstanceService:
+    """Business logic for running cases: starting them and, later, moving them along."""
+
+    def __init__(self, db: AsyncSession):
+        """Initialize the service with a session and its collaborators."""
+        self._db = db
+        self._template_repo = TemplateRepository(db)
+        self._step_repo = StepRepository(db)
+        self._instance_repo = InstanceRepository(db)
+        self._department_repo = DepartmentRepository(db)
+        self._employee_repo = EmployeeRepository(db)
+        self._organization_repo = OrganizationRepository(db)
+        self._task_service = TaskService(db)
+        self._audit = AuditService(db)
+
+    async def start_instance(
+        self, caller: Membership, template_id: uuid.UUID, subject: str
+    ) -> WorkflowInstance:
+        """Start a case from a template and create the first step's task.
+
+        Who may start: any active employee, and HR administrators (who may not
+        have an employee record yet). The template is locked while this runs,
+        so an archive or delete at the same moment can't slip past the checks.
+
+        Args:
+            caller: The caller's membership (gives the organization and user).
+            template_id: The process to run.
+            subject: What the case is about, such as a client's name.
+
+        Returns:
+            The new case, in progress, with its first task already created.
+
+        Raises:
+            PermissionDeniedException: If the caller is neither HR nor an active employee.
+            WorkflowTemplateNotFoundException: If the template isn't in the caller's org.
+            WorkflowTemplateArchivedException: If the template has been archived.
+            ValidationException: If the template has no steps.
+        """
+        await self._check_may_start(caller)
+
+        template = await self._template_repo.get_template_by_id(template_id, lock=True)
+        if template is None:
+            raise WorkflowTemplateNotFoundException()
+        if template.archived_at is not None:
+            raise WorkflowTemplateArchivedException()
+        steps = await self._step_repo.list_steps(template.id)
+        if not steps:
+            raise ValidationException(
+                message="This template has no steps yet. Add at least one step before starting a case"
+            )
+
+        instance = await self._instance_repo.create_instance(
+            {
+                "organization_id": caller.organization_id,
+                "workflow_template_id": template.id,
+                "subject": subject,
+                "started_by_user_id": caller.user_id,
+            }
+        )
+        await self._create_task_for_step(instance, template, steps[0], len(steps), datetime.now(UTC))
+        await self._audit.log_action(
+            organization_id=caller.organization_id,
+            actor_user_id=caller.user_id,
+            action="start",
+            entity_type="workflow_instance",
+            entity_id=instance.id,
+            changes={
+                "old": None,
+                "new": jsonable_encoder(
+                    {"workflow_template_id": template.id, "subject": subject, "status": instance.status}
+                ),
+            },
+        )
+        return instance
+
+    async def list_instances(
+        self,
+        caller: Membership,
+        status: InstanceStatus | None = None,
+        template_id: uuid.UUID | None = None,
+        page: int = 1,
+        limit: int = 20,
+    ) -> PaginationResponse:
+        """List the cases the caller may see, newest first.
+
+        HR administrators and business executives see every case; everyone
+        else sees the cases they started, have a task in, or head a department
+        that has a step in.
+        """
+        scope = await self._scope_for(caller)
+        return await self._instance_repo.list_instances(scope, status, template_id, page, limit)
+
+    async def get_instance(self, caller: Membership, instance_id: uuid.UUID) -> dict:
+        """Fetch one case the caller may see, with its steps and its tasks so far.
+
+        Returns:
+            The case, the template's current steps (in order) and the tasks the
+            case has created (oldest first), as ``{"instance", "steps", "tasks"}``.
+
+        Raises:
+            WorkflowInstanceNotFoundException: If it doesn't exist or is outside
+                the caller's view.
+        """
+        scope = await self._scope_for(caller)
+        instance = await self._instance_repo.get_instance_by_id(instance_id, scope)
+        if instance is None:
+            raise WorkflowInstanceNotFoundException()
+        steps = await self._step_repo.list_steps(instance.workflow_template_id)
+        tasks = await self._task_service.list_tasks_for_workflow_instance(instance.id)
+        return {"instance": instance, "steps": steps, "tasks": tasks}
+
+    async def _scope_for(self, caller: Membership) -> InstanceScope:
+        """Work out which cases ``caller`` may see."""
+        employee = await self._employee_repo.get_employee_by_user_id(caller.user_id)
+        cases_with_my_tasks = []
+        headed_department_ids = []
+        if employee is not None:
+            cases_with_my_tasks = await self._task_service.workflow_instance_ids_for_assignee(employee.id)
+            headed = await self._department_repo.list_departments_headed_by(employee.id)
+            headed_department_ids = [department.id for department in headed]
+        return InstanceScope(
+            sees_all=caller.role in _SEES_EVERY_CASE_ROLES,
+            user_id=caller.user_id,
+            instance_ids_with_my_tasks=cases_with_my_tasks,
+            headed_department_ids=headed_department_ids,
+        )
+
+    async def _check_may_start(self, caller: Membership) -> None:
+        """Only HR administrators and active employees may start a case."""
+        if caller.role == MembershipRole.HR_ADMINISTRATOR.value:
+            return
+        employee = await self._employee_repo.get_employee_by_user_id(caller.user_id)
+        if employee is None or employee.status == EmployeeStatus.INACTIVE.value:
+            raise PermissionDeniedException("Only employees can start a workflow")
+
+    async def _create_task_for_step(
+        self,
+        instance: WorkflowInstance,
+        template: WorkflowTemplate,
+        step: WorkflowStep,
+        step_count: int,
+        now: datetime,
+    ) -> None:
+        """Ask the Task module for the task that represents ``step``.
+
+        The deadline is the business-hours deadline from ``now`` (none when
+        the step has no turnaround). The Task module deals with a missing or
+        departed default assignee.
+        """
+        due_at = None
+        if step.default_turnaround_hours is not None:
+            organization = await self._organization_repo.get_organization_by_id(instance.organization_id)
+            due_at = add_business_hours(now, step.default_turnaround_hours, organization.timezone)
+
+        await self._task_service.create_workflow_task(
+            organization_id=instance.organization_id,
+            department_id=step.department_id,
+            # A step name and a subject can each be 200 characters; keep the title readable.
+            title=f"{step.name}: {instance.subject}"[:255],
+            due_at=due_at,
+            workflow_instance_id=instance.id,
+            workflow_step_id=step.id,
+            assigned_to_employee_id=step.default_assignee_employee_id,
+            description=f"Step {step.step_order} of {step_count} in \"{template.name}\" for {instance.subject}.",
+        )

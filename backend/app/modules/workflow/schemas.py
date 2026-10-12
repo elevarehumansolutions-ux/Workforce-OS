@@ -56,6 +56,61 @@ class TemplateResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Instance (one running case)
+# ---------------------------------------------------------------------------
+
+class InstanceCreateRequest(BaseModel):
+    """Request body for starting a case from a template.
+
+    ``subject`` is what the case is about, such as a client's name.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    template_id: uuid.UUID
+    subject: str = Field(min_length=1, max_length=200)
+
+
+class InstanceResponse(BaseModel):
+    """API representation of a case, returned by the case endpoints."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    organization_id: uuid.UUID
+    workflow_template_id: uuid.UUID
+    subject: str
+    started_by_user_id: uuid.UUID | None
+    status: str
+    started_at: datetime
+    completed_at: datetime | None
+    cancel_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class InstanceTaskResponse(BaseModel):
+    """One task a case has created, as shown on the case's progress view.
+
+    A short summary only; ``GET /tasks/{id}`` gives the full task (with the
+    overdue flag and blocks).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    workflow_step_id: uuid.UUID | None
+    department_id: uuid.UUID
+    assigned_to_employee_id: uuid.UUID | None
+    title: str
+    status: str
+    due_at: datetime | None
+    completed_at: datetime | None
+    cancel_reason: str | None
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
 # Step
 # ---------------------------------------------------------------------------
 
@@ -122,3 +177,16 @@ class StepResponse(BaseModel):
     default_turnaround_hours: int | None
     created_at: datetime
     updated_at: datetime
+
+
+class InstanceDetailResponse(InstanceResponse):
+    """A case with its progress: the template's current steps and the tasks created so far.
+
+    ``steps`` are the template's steps as they are now, in order (a running
+    case follows template edits). ``tasks`` are the tasks the case has
+    created, oldest first; match a task to its step with ``workflow_step_id``
+    (a step deleted after its task was created has a task but no step here).
+    """
+
+    steps: list[StepResponse]
+    tasks: list[InstanceTaskResponse]

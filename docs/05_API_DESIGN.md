@@ -210,12 +210,22 @@ Nothing below this line exists as a real endpoint today — every path here 404s
 | `DELETE /workflow-steps/{id}` | soft delete, later steps move up; 409 `RESOURCE_IN_USE` ("N task(s) are still open on it") while a task made from it is open or in progress |
 | `PUT /workflow-templates/{id}/steps/order` | body `{step_ids: [...]}` = every step id of the template in the new order; 422 if the list is not exactly the template's steps; 409 `RESOURCE_IN_USE` ("N case(s) are still running on this template") while any case is in progress; returns the steps in the new order |
 
-**Not provided yet:** starting a case, listing or reading cases, cancelling a case, and the tasks a case creates (slices C to E). Archived templates are not yet refused when starting a case, because starting does not exist yet. A deadline in business hours (Mon-Fri 09:00-17:00, organization timezone) is applied when a task is created from a step, not stored on the step.
+**Cases (instances): start, list, read: BUILT 2026-10-12 (slice C).** Cancelling a case and the automatic next-step tasks are not built yet (slices D and E).
 
-**Still planned (sketch):**
-- `POST /workflow-instances` — starts a case (body: `template_id`, `subject`)
-- `GET /workflow-instances` (filter: `status`, `template_id`), `GET /workflow-instances/{id}`
-- `POST /workflow-instances/{id}/cancel` (body: `reason`)
+`InstanceResponse`: `id, organization_id, workflow_template_id, subject, started_by_user_id, status (in_progress | completed | cancelled), started_at, completed_at, cancel_reason, created_at, updated_at`.
+`InstanceDetailResponse` = `InstanceResponse` + `steps` (the template's CURRENT steps, as `StepResponse`, in order) + `tasks` (the tasks the case has created so far, oldest first: `id, workflow_step_id, department_id, assigned_to_employee_id, title, status, due_at, completed_at, cancel_reason, created_at`; match a task to its step by `workflow_step_id`; use `GET /tasks/{id}` for the full task with the overdue flag).
+
+| Endpoint | What it does |
+|---|---|
+| `POST /workflow-instances` | body `{template_id, subject (1-200 chars, trimmed)}`; starts a case and creates ONLY step 1's task at once. WHO: any active employee, or an HR administrator (who may have no employee record); anyone else 403 `PERMISSION_DENIED` "Only employees can start a workflow". 404 `WORKFLOW_TEMPLATE_NOT_FOUND` (also a deleted or other-company template), 409 `WORKFLOW_TEMPLATE_ARCHIVED`, 422 "This template has no steps yet..." |
+| `GET /workflow-instances` | query `status`, `template_id`, `page`, `limit` (1-100); newest first; paginated envelope; only the cases the caller may see (below) |
+| `GET /workflow-instances/{id}` | the detail above; 404 `WORKFLOW_INSTANCE_NOT_FOUND` also means "exists but you may not see it" |
+
+**Who sees a case:** HR administrators and business executives see every case. Everyone else sees a case if they STARTED it, have (or had) a TASK in it (assigned to their employee record, even a completed one), or are the named HEAD of a department that has a step in its template (so a head sees a case before their step's task exists). Not gated by clock-in. Anything else is a 404 and absent from the list. The `manager` role alone does not grant visibility.
+
+**The first task:** title `"<step name>: <subject>"` (cut to 255 characters), description `Step 1 of N in "<template name>" for <subject>.`, department = the step's, assignee = the step's default assignee, `created_by_user_id` null (no human creator), `workflow_instance_id` / `workflow_step_id` set. Deadline = now plus the step's turnaround in BUSINESS HOURS (Monday to Friday 09:00 to 17:00 in the organization's timezone; public holidays are not skipped); no turnaround means `due_at` null. If the default assignee is missing or offboarded, or the step has none, the task is created UNASSIGNED and the department head (the HR administrators if there is no head) is notified "A task for <department> needs an owner" (category task, link to the task); otherwise the assignee is notified "New task: <title>".
+
+**Still planned:** the next step's task when a task is completed or cancelled (slice D), `POST /workflow-instances/{id}/cancel` with a required `reason` (slice E).
 
 ### Attendance — now live
 

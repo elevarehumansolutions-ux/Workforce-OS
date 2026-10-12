@@ -4,8 +4,11 @@
 
 Branch: `m11-workflow` (off `main` after M10's merge). **Slice A (tables, migration `fee24085f70f`, the two
 `tasks` foreign keys, 4 tests) is committed (`acff13a`). Slice B (template and step CRUD, 49 workflow tests in all) was
-built 2026-10-12 and is uncommitted; next is slice C: `core/events.py` event bus, `POST /workflow-instances` (plus the
-list and read endpoints), the business-hours deadline helper.**
+built 2026-10-12 and is committed (`24816f3`). Slice C (event bus, business-hours deadlines, start/list/read cases,
+`TaskService.create_workflow_task` and three read helpers) was built the same day, 35 new tests. Next is slice D, the
+chain: `events.publish` calls in the Task module's `complete_task` and `cancel_task` (approved in principle by the
+user, show each change), a Workflow listener that creates the next step's task (or skips, or completes the case),
+registration of the listeners at startup (API and Celery worker), and the starter's "step skipped" notification.**
 Build plan: A tables -> B template and step CRUD (HR or any `manager`; delete/reorder locks; archive) -> C
 `core/events.py` and `POST /workflow-instances` -> D the chain (complete and skip create the next task, business-hours
 `due_at`, instance completes) -> E cancel a case -> F Trello cards for Uche. Working mode for
