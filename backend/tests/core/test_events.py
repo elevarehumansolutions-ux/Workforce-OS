@@ -12,8 +12,15 @@ SESSION = object()  # stands in for the publisher's database session
 
 @pytest.fixture
 def listeners_left_as_found():
-    """Put the bus back exactly as it was after each test."""
+    """Give each test an empty board, and put the real one back afterwards.
+
+    When the whole suite runs, other tests have already started the app, and
+    ``main.py`` has signed the real Workflow listeners up on the board. These
+    tests publish toy notes, so the real listeners must not be on the board
+    while they run.
+    """
     saved = {name: list(found) for name, found in events._listeners.items()}
+    events._listeners.clear()
     yield
     events._listeners.clear()
     events._listeners.update(saved)

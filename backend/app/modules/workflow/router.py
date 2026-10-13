@@ -17,6 +17,7 @@ from app.modules.tenancy_identity.models import Membership
 
 from .enums import InstanceStatus
 from .schemas import (
+    InstanceCancelRequest,
     InstanceCreateRequest,
     InstanceDetailResponse,
     InstanceResponse,
@@ -289,6 +290,38 @@ async def get_instance(
         steps=[StepResponse.model_validate(step) for step in found["steps"]],
         tasks=[InstanceTaskResponse.model_validate(task) for task in found["tasks"]],
     )
+
+
+@router.post("/workflow-instances/{instance_id}/cancel", status_code=200)
+async def cancel_instance(
+    instance_id: uuid.UUID,
+    data: InstanceCancelRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> InstanceResponse:
+    """Cancel a running case; its open task is closed and no later step is created.
+
+    Allowed to HR administrators and to the person who started the case.
+
+    Args:
+        instance_id: The case to cancel.
+        data: The reason (required).
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The cancelled case.
+
+    Raises:
+        WorkflowInstanceNotFoundException: If it doesn't exist or the caller may not see it.
+        PermissionDeniedException: If the caller may see the case but not cancel it.
+        WorkflowInstanceNotInProgressException: If it is already completed or cancelled.
+    """
+    service = InstanceService(db)
+    instance = await service.cancel_instance(caller, instance_id, data.reason)
+    response = InstanceResponse.model_validate(instance)
+    await db.commit()
+    return response
 
 
 # ---------------------------------------------------------------------------

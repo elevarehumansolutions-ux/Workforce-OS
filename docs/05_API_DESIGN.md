@@ -225,7 +225,19 @@ Nothing below this line exists as a real endpoint today — every path here 404s
 
 **The first task:** title `"<step name>: <subject>"` (cut to 255 characters), description `Step 1 of N in "<template name>" for <subject>.`, department = the step's, assignee = the step's default assignee, `created_by_user_id` null (no human creator), `workflow_instance_id` / `workflow_step_id` set. Deadline = now plus the step's turnaround in BUSINESS HOURS (Monday to Friday 09:00 to 17:00 in the organization's timezone; public holidays are not skipped); no turnaround means `due_at` null. If the default assignee is missing or offboarded, or the step has none, the task is created UNASSIGNED and the department head (the HR administrators if there is no head) is notified "A task for <department> needs an owner" (category task, link to the task); otherwise the assignee is notified "New task: <title>".
 
-**Still planned:** the next step's task when a task is completed or cancelled (slice D), `POST /workflow-instances/{id}/cancel` with a required `reason` (slice E).
+**The chain: BUILT 2026-10-13 (slice D).** Nothing to call: it happens when a task of a case is completed or cancelled (`POST /tasks/{id}/complete`, `POST /tasks/{id}/cancel`). The case reads "what comes next" from the template AS IT IS NOW (steps added, removed or edited since the case started are respected) and:
+- **after a completion:** creates the next step's task (deadline = the moment of completion plus the step's turnaround in business hours, none if the step has no turnaround; same assignee / unassigned rules as the first task). After the LAST step the case becomes `completed` (`completed_at` set).
+- **after a cancel by hand (a "skip"):** the same, as if the step had been done. The case's starter is told (not when they cancelled it themselves): notification category `task`, title `"A step was skipped on <subject>"`, body `"<step>" was skipped by <name>: <reason>. The case moved on to "<next step>".` (or `That was the last step, so the case is now complete.`), `link_type` **`"workflow_instance"`** and `link_id` = the case id (a new link type the Notifications screen must handle). The skip is audit-logged on the case (`skip_step`).
+- **a case that is no longer `in_progress`** (cancelled, or already completed) creates nothing.
+- **if the next task cannot be made** (for example the next step's department was deleted), the completion or cancel itself FAILS with that error (404 `DEPARTMENT_NOT_FOUND`) and nothing is saved: the user's task stays open. A step with an open task cannot be deleted, so a step vanishing under a running task is not expected; if it happens the call is a 422 asking HR to check the workflow.
+
+**Cancelling a case: BUILT 2026-10-13 (slice E).**
+
+| Endpoint | What it does |
+|---|---|
+| `POST /workflow-instances/{id}/cancel` | body `{reason (required, trimmed, 1-500 chars)}` -> the case with `status: "cancelled"` and `cancel_reason`. WHO: an HR administrator, or the person who STARTED the case; a department head or the task's assignee gets 403 `PERMISSION_DENIED` ("Only an HR administrator or the person who started the case can cancel it"). 404 `WORKFLOW_INSTANCE_NOT_FOUND` (not visible to the caller), 409 `WORKFLOW_INSTANCE_NOT_IN_PROGRESS` (already completed or cancelled), 422 (missing/blank/too-long reason). |
+
+Cancelling closes the case's open task automatically (cancelled with the same reason, any open block on it ended, the assignee gets the usual "Task cancelled: <title>" notification saying the workflow was cancelled and why) and no later step is ever created. The starter is NOT sent a "step skipped" notification for this. Tasks already completed stay completed. A closed task is final (completing it afterwards is 409 `TASK_NOT_OPEN`).
 
 ### Attendance — now live
 

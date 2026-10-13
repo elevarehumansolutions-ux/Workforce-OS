@@ -714,6 +714,86 @@ class TaskService:
         )
         return cancelled
 
+    async def cancel_open_tasks_for_workflow_instance(
+        self, workflow_instance_id: uuid.UUID, reason: str, actor_user_id: uuid.UUID | None
+    ) -> int:
+        """Cancel every task of a workflow case that is still open.
+
+        For the Workflow module, when a whole case is cancelled. An internal
+        step, not a user action: there is no permission check here because the
+        Workflow module has already checked that the caller may cancel the
+        case (the starter is usually not someone who could cancel the task
+        itself). Everything else is what a normal cancel does: any open block
+        is ended, the cancel is audited, the assignee is told and ``task.cancelled``
+        is announced. A task that finished at this very moment is left alone.
+
+        Args:
+            workflow_instance_id: The case being cancelled.
+            reason: Why the case was cancelled; stored on each task.
+            actor_user_id: Who cancelled the case.
+
+        Returns:
+            How many tasks were cancelled.
+        """
+        cancelled_count = 0
+        for task in await self._repo.list_tasks_for_workflow_instance(workflow_instance_id):
+            if task.status not in OPEN_STATUSES:
+                continue
+
+            # Read before the UPDATE: it refreshes this same object in place.
+            old_status = task.status
+            await self._end_open_block(task.id, datetime.now(UTC))
+            cancelled = await self._repo.cancel_task(task.id, reason)
+            if cancelled is None:
+                continue  # completed or cancelled at the same moment
+
+            await self._audit.log_action(
+                organization_id=cancelled.organization_id,
+                actor_user_id=actor_user_id,
+                action="cancel",
+                entity_type="task",
+                entity_id=cancelled.id,
+                changes={
+                    "old": {"status": old_status},
+                    "new": {"status": cancelled.status, "cancel_reason": reason},
+                },
+            )
+            await self._tell_assignee_workflow_task_cancelled(cancelled, actor_user_id, reason)
+            await events.publish(
+                events.TASK_CANCELLED,
+                self._db,
+                task_id=cancelled.id,
+                organization_id=cancelled.organization_id,
+                workflow_instance_id=cancelled.workflow_instance_id,
+                workflow_step_id=cancelled.workflow_step_id,
+                actor_user_id=actor_user_id,
+                reason=reason,
+            )
+            cancelled_count += 1
+        return cancelled_count
+
+    async def _tell_assignee_workflow_task_cancelled(
+        self, task: Task, actor_user_id: uuid.UUID | None, reason: str
+    ) -> None:
+        """Tell the assignee their task was closed because its workflow was cancelled.
+
+        Nobody is notified about their own action.
+        """
+        if task.assigned_to_employee_id is None:
+            return
+        assignee = await self._employee_repo.get_employee_by_id(task.assigned_to_employee_id)
+        if assignee is None or assignee.user_id in (None, actor_user_id):
+            return
+        await self._notifications.notify(
+            organization_id=task.organization_id,
+            recipient_user_ids=[assignee.user_id],
+            category=NotificationCategory.TASK,
+            title=f"Task cancelled: {task.title}",
+            body=f"This task was cancelled because its workflow was cancelled. Reason: {reason}",
+            link_type="task",
+            link_id=task.id,
+        )
+
     async def reassign_task(
         self,
         caller: Membership,

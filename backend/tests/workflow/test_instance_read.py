@@ -75,8 +75,14 @@ async def test_someone_who_finished_their_part_still_sees_the_case(client, monke
 
     seen = await client.get(f"{INSTANCES}/{case['id']}", headers=w.sam.h)
 
+    # Sam's own task is completed, and finishing it started the next step
+    # (the chain), which is not his: he still sees the whole case.
     assert seen.status_code == 200
-    assert [t["status"] for t in seen.json()["tasks"]] == ["completed"]
+    statuses = {t["title"]: t["status"] for t in seen.json()["tasks"]}
+    assert statuses == {
+        "Sales hand-off: Zenith Ltd": "completed",
+        "Dispatch check: Zenith Ltd": "open",
+    }
 
 
 @pytest.mark.asyncio

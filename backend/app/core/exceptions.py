@@ -835,6 +835,20 @@ class WorkflowInstanceNotFoundException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class WorkflowInstanceNotInProgressException(PlatformError):
+    """Raised when changing a case that has already finished or been cancelled."""
+
+    def __init__(
+        self,
+        message: str = "This case is already completed or cancelled and can't be changed",
+        code: str = "WORKFLOW_INSTANCE_NOT_IN_PROGRESS",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class WorkflowTemplateAlreadyArchivedException(PlatformError):
     """Raised when archiving a template that is already archived."""
 

@@ -18,6 +18,7 @@ from app.core.exceptions import (
     ResourceInUseException,
     ValidationException,
     WorkflowInstanceNotFoundException,
+    WorkflowInstanceNotInProgressException,
     WorkflowStepNotFoundException,
     WorkflowTemplateAlreadyArchivedException,
     WorkflowTemplateArchivedException,
@@ -636,6 +637,68 @@ class InstanceService:
             instance_ids_with_my_tasks=cases_with_my_tasks,
             headed_department_ids=headed_department_ids,
         )
+
+    async def cancel_instance(
+        self, caller: Membership, instance_id: uuid.UUID, reason: str
+    ) -> WorkflowInstance:
+        """Cancel a running case and close its open task.
+
+        Allowed to HR administrators and to the person who started the case
+        (not to department heads: a case spans several departments). Later
+        steps are simply never created. The case is marked cancelled BEFORE its
+        task is closed, so the "task cancelled" announcement does not make the
+        case move on to the next step.
+
+        Args:
+            caller: The caller's membership (gives the organization and user).
+            instance_id: The case to cancel.
+            reason: Why (required; stored on the case and on the closed task).
+
+        Returns:
+            The cancelled case.
+
+        Raises:
+            WorkflowInstanceNotFoundException: If it doesn't exist or is outside the caller's view.
+            PermissionDeniedException: If the caller can see the case but may not cancel it.
+            WorkflowInstanceNotInProgressException: If it is already completed or cancelled.
+        """
+        scope = await self._scope_for(caller)
+        if await self._instance_repo.get_instance_by_id(instance_id, scope) is None:
+            raise WorkflowInstanceNotFoundException()
+
+        # Lock the case and check its status again: a task may have finished
+        # (or someone else cancelled) while we were looking.
+        instance = await self._instance_repo.get_instance_for_update(instance_id)
+        is_hr = caller.role == MembershipRole.HR_ADMINISTRATOR.value
+        if not (is_hr or instance.started_by_user_id == caller.user_id):
+            raise PermissionDeniedException(
+                "Only an HR administrator or the person who started the case can cancel it"
+            )
+        if instance.status != InstanceStatus.IN_PROGRESS.value:
+            raise WorkflowInstanceNotInProgressException()
+
+        await self._instance_repo.update_instance(
+            instance, {"status": InstanceStatus.CANCELLED.value, "cancel_reason": reason}
+        )
+        closed_tasks = await self._task_service.cancel_open_tasks_for_workflow_instance(
+            instance.id, reason, caller.user_id
+        )
+        await self._audit.log_action(
+            organization_id=instance.organization_id,
+            actor_user_id=caller.user_id,
+            action="cancel",
+            entity_type="workflow_instance",
+            entity_id=instance.id,
+            changes={
+                "old": {"status": InstanceStatus.IN_PROGRESS.value, "cancel_reason": None},
+                "new": {
+                    "status": InstanceStatus.CANCELLED.value,
+                    "cancel_reason": reason,
+                    "tasks_cancelled": closed_tasks,
+                },
+            },
+        )
+        return instance
 
     async def move_on_after_task(
         self,

@@ -71,6 +71,18 @@ class InstanceCreateRequest(BaseModel):
     subject: str = Field(min_length=1, max_length=200)
 
 
+class InstanceCancelRequest(BaseModel):
+    """Request body for cancelling a case. The reason is required.
+
+    Example: "Client withdrew". It is stored on the case and on the task that
+    gets closed, and the task's assignee sees it.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class InstanceResponse(BaseModel):
     """API representation of a case, returned by the case endpoints."""
 

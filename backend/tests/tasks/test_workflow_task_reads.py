@@ -11,7 +11,7 @@ import pytest
 from app.modules.tasks.service import TaskService
 from tests.conftest import set_org_context
 from tests.tasks.test_create_workflow_task import _create, _workflow_rows
-from tests.tasks.test_tasks_router import TASKS, _task, _world
+from tests.tasks.test_tasks_router import _task, _world
 from tests.workflow.test_workflow_tables import _instance, _step
 
 
@@ -38,12 +38,12 @@ async def test_open_tasks_for_a_step_counts_open_and_in_progress_only(client, mo
     done = await _create(db_session, w, step, case, title="Done")
     cancelled = await _create(db_session, w, step, case, title="Cancelled")
     await _create(db_session, w, other_step, case, title="On another step")
+    # Set the statuses directly: completing or cancelling through the API would
+    # also start the workflow chain, which is not what this test is about.
     in_progress.status = "in_progress"
+    done.status, done.completed_at = "completed", datetime.now(UTC)
+    cancelled.status, cancelled.cancel_reason = "cancelled", "Not needed"
     await db_session.flush()
-    assert (await client.post(f"{TASKS}/{done.id}/complete", headers=w.hr)).status_code == 200
-    cancel = await client.post(f"{TASKS}/{cancelled.id}/cancel", json={"reason": "Not needed"}, headers=w.hr)
-    assert cancel.status_code == 200
-    await set_org_context(db_session, w.owner["organization"]["id"])
 
     service = TaskService(db_session)
 
@@ -62,7 +62,8 @@ async def test_cases_for_an_assignee_lists_each_case_once_whatever_the_task_stat
     chidi = uuid.UUID(w.chidi.employee_id)
     first = await _create(db_session, w, step, case, assigned_to_employee_id=chidi)
     await _create(db_session, w, other_step, case, assigned_to_employee_id=chidi)
-    assert (await client.post(f"{TASKS}/{first.id}/complete", headers=w.hr)).status_code == 200
+    first.status, first.completed_at = "completed", datetime.now(UTC)  # directly, not through the chain
+    await db_session.flush()
     assert (await _task(client, w.hr, w.dispatch, assigned_to_employee_id=w.bola.employee_id)).status_code == 200
     await set_org_context(db_session, w.owner["organization"]["id"])
 
@@ -90,10 +91,11 @@ async def test_the_tasks_of_a_case_come_oldest_first_with_every_status(client, m
     start = datetime.now(UTC) - timedelta(hours=3)
     for position, task in enumerate((first, second, third)):
         task.created_at = start + timedelta(hours=position)
+    # Statuses are set directly: completing or cancelling through the API would
+    # also start the workflow chain, which is not what this test is about.
+    first.status, first.completed_at = "completed", datetime.now(UTC)
+    second.status, second.cancel_reason = "cancelled", "Skipped"
     await db_session.flush()
-    assert (await client.post(f"{TASKS}/{first.id}/complete", headers=w.hr)).status_code == 200
-    cancel = await client.post(f"{TASKS}/{second.id}/cancel", json={"reason": "Skipped"}, headers=w.hr)
-    assert cancel.status_code == 200
     assert (await _task(client, w.hr, w.dispatch, title="Standalone")).status_code == 200
     await set_org_context(db_session, w.owner["organization"]["id"])
 
