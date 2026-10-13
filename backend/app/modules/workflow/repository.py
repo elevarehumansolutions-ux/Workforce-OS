@@ -184,6 +184,39 @@ class InstanceRepository:
             )
         )
 
+    async def get_instance_for_update(self, instance_id: uuid.UUID) -> WorkflowInstance | None:
+        """Get one case by id and lock its row until the transaction ends.
+
+        No visibility check: this is for the system moving a case along (a
+        task finished), not for a user reading it. The lock makes a task
+        completing and the case being cancelled at the same moment take turns.
+
+        Args:
+            instance_id: Id of the case.
+
+        Returns:
+            The locked case, or ``None`` if it doesn't exist.
+        """
+        stmt = select(WorkflowInstance).where(WorkflowInstance.id == instance_id).with_for_update()
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def update_instance(self, instance: WorkflowInstance, fields: dict) -> WorkflowInstance:
+        """Apply a partial update, flush and refresh. The caller commits.
+
+        Args:
+            instance: The case to change in place.
+            fields: Mapping of field names to their new values.
+
+        Returns:
+            The updated and refreshed case.
+        """
+        for field, value in fields.items():
+            setattr(instance, field, value)
+        await self._db.flush()
+        await self._db.refresh(instance)
+        return instance
+
     async def get_instance_by_id(
         self, instance_id: uuid.UUID, scope: InstanceScope
     ) -> WorkflowInstance | None:

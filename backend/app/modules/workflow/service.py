@@ -25,13 +25,14 @@ from app.core.exceptions import (
     WorkflowTemplateNotFoundException,
 )
 from app.core.schemas import PaginationResponse
-from app.modules.audit_and_notification.service import AuditService
+from app.modules.audit_and_notification.enums import NotificationCategory
+from app.modules.audit_and_notification.service import AuditService, NotificationService
 from app.modules.organization.enums import EmployeeStatus
 from app.modules.organization.repository import DepartmentRepository, EmployeeRepository
 from app.modules.tasks.service import TaskService
 from app.modules.tenancy_identity.enums import MembershipRole
 from app.modules.tenancy_identity.models import Membership
-from app.modules.tenancy_identity.repository import OrganizationRepository
+from app.modules.tenancy_identity.repository import OrganizationRepository, UserRepository
 
 from .deadlines import add_business_hours
 from .enums import InstanceStatus
@@ -519,8 +520,10 @@ class InstanceService:
         self._department_repo = DepartmentRepository(db)
         self._employee_repo = EmployeeRepository(db)
         self._organization_repo = OrganizationRepository(db)
+        self._user_repo = UserRepository(db)
         self._task_service = TaskService(db)
         self._audit = AuditService(db)
+        self._notifications = NotificationService(db)
 
     async def start_instance(
         self, caller: Membership, template_id: uuid.UUID, subject: str
@@ -632,6 +635,131 @@ class InstanceService:
             user_id=caller.user_id,
             instance_ids_with_my_tasks=cases_with_my_tasks,
             headed_department_ids=headed_department_ids,
+        )
+
+    async def move_on_after_task(
+        self,
+        *,
+        instance_id: uuid.UUID,
+        finished_step_id: uuid.UUID | None,
+        finished_task_id: uuid.UUID,
+        actor_user_id: uuid.UUID | None,
+        skipped_reason: str | None = None,
+    ) -> None:
+        """A task of a case has ended: create the next step's task, or finish the case.
+
+        Called by the listeners when a task is completed, or cancelled by
+        hand (a "skip", when ``skipped_reason`` is given). "What comes next" is
+        read from the template as it is now, so steps added or removed since
+        the case started are respected. The next deadline counts from this
+        moment, in business hours.
+
+        Does nothing if the case is no longer in progress: a case that was
+        cancelled at the same moment must not grow a new task.
+
+        Args:
+            instance_id: The case the task belongs to.
+            finished_step_id: The step the task was made from.
+            finished_task_id: The task that just ended.
+            actor_user_id: Who completed or cancelled it.
+            skipped_reason: The cancel reason when the task was cancelled by
+                hand; ``None`` when it was completed.
+
+        Raises:
+            ValidationException: If the finished task's step no longer exists
+                in the template (it should not happen: a step with an open
+                task cannot be deleted).
+        """
+        # Lock the case, then its template: another change to the same case or
+        # its steps waits until this one is done.
+        instance = await self._instance_repo.get_instance_for_update(instance_id)
+        if instance is None or instance.status != InstanceStatus.IN_PROGRESS.value:
+            return
+        template = await self._template_repo.get_template_by_id(instance.workflow_template_id, lock=True)
+        steps = await self._step_repo.list_steps(instance.workflow_template_id)
+
+        finished_step = next((step for step in steps if step.id == finished_step_id), None)
+        if finished_step is None:
+            raise ValidationException(
+                message="This task's workflow step no longer exists. Ask an HR administrator to check the workflow"
+            )
+        steps_after = [step for step in steps if step.step_order > finished_step.step_order]
+        next_step = steps_after[0] if steps_after else None
+
+        now = datetime.now(UTC)
+        if next_step is not None:
+            await self._create_task_for_step(instance, template, next_step, len(steps), now)
+        else:
+            await self._instance_repo.update_instance(
+                instance, {"status": InstanceStatus.COMPLETED.value, "completed_at": now}
+            )
+            await self._audit.log_action(
+                organization_id=instance.organization_id,
+                actor_user_id=actor_user_id,
+                action="complete",
+                entity_type="workflow_instance",
+                entity_id=instance.id,
+                changes={
+                    "old": {"status": InstanceStatus.IN_PROGRESS.value, "completed_at": None},
+                    "new": {"status": InstanceStatus.COMPLETED.value, "completed_at": jsonable_encoder(now)},
+                },
+            )
+
+        if skipped_reason is not None:
+            await self._record_and_announce_skip(
+                instance, finished_step, finished_task_id, next_step, actor_user_id, skipped_reason
+            )
+
+    async def _record_and_announce_skip(
+        self,
+        instance: WorkflowInstance,
+        skipped_step: WorkflowStep,
+        skipped_task_id: uuid.UUID,
+        next_step: WorkflowStep | None,
+        actor_user_id: uuid.UUID | None,
+        reason: str,
+    ) -> None:
+        """Write the skip to the audit log and tell the case's starter (not themselves)."""
+        await self._audit.log_action(
+            organization_id=instance.organization_id,
+            actor_user_id=actor_user_id,
+            action="skip_step",
+            entity_type="workflow_instance",
+            entity_id=instance.id,
+            changes={
+                "old": None,
+                "new": jsonable_encoder(
+                    {
+                        "step_id": skipped_step.id,
+                        "step_name": skipped_step.name,
+                        "task_id": skipped_task_id,
+                        "reason": reason,
+                        "moved_on_to_step_id": next_step.id if next_step is not None else None,
+                    }
+                ),
+            },
+        )
+
+        starter_id = instance.started_by_user_id
+        if starter_id is None or starter_id == actor_user_id:
+            return  # nobody to tell, or they skipped it themselves
+        actor_name = "Someone"
+        if actor_user_id is not None:
+            actor = await self._user_repo.get_user_by_id(actor_user_id)
+            if actor is not None:
+                actor_name = actor.full_name
+        if next_step is not None:
+            outcome = f"The case moved on to \"{next_step.name}\"."
+        else:
+            outcome = "That was the last step, so the case is now complete."
+        await self._notifications.notify(
+            organization_id=instance.organization_id,
+            recipient_user_ids=[starter_id],
+            category=NotificationCategory.TASK,
+            title=f"A step was skipped on {instance.subject}",
+            body=f"\"{skipped_step.name}\" was skipped by {actor_name}: {reason}. {outcome}",
+            link_type="workflow_instance",
+            link_id=instance.id,
         )
 
     async def _check_may_start(self, caller: Membership) -> None:

@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import events
 from app.core.exceptions import (
     DepartmentNotFoundException,
     EmployeeNotFoundException,
@@ -640,6 +641,18 @@ class TaskService:
                 },
             },
         )
+        # Tell anyone who cares (the Workflow module creates the next step's
+        # task). Same transaction: if a listener fails, this completion is
+        # rolled back with it (08_DECISIONS.md 2026-10-12).
+        await events.publish(
+            events.TASK_COMPLETED,
+            self._db,
+            task_id=completed.id,
+            organization_id=completed.organization_id,
+            workflow_instance_id=completed.workflow_instance_id,
+            workflow_step_id=completed.workflow_step_id,
+            actor_user_id=caller.user_id,
+        )
         return completed
 
     async def cancel_task(self, caller: Membership, task_id: uuid.UUID, reason: str) -> Task:
@@ -686,6 +699,18 @@ class TaskService:
             caller,
             title=f"Task cancelled: {cancelled.title}",
             body=f"This task was cancelled. Reason: {reason}",
+        )
+        # Tell anyone who cares (the Workflow module moves a case on past a
+        # cancelled step). Same transaction as the cancel.
+        await events.publish(
+            events.TASK_CANCELLED,
+            self._db,
+            task_id=cancelled.id,
+            organization_id=cancelled.organization_id,
+            workflow_instance_id=cancelled.workflow_instance_id,
+            workflow_step_id=cancelled.workflow_step_id,
+            actor_user_id=caller.user_id,
+            reason=reason,
         )
         return cancelled
 
