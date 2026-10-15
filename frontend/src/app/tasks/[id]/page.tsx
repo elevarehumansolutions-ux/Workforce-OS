@@ -457,6 +457,14 @@ function TaskDetailContent() {
 
             {task.description ? <p className="mt-4 whitespace-pre-wrap text-sm text-gray-300">{task.description}</p> : null}
 
+            {task.workflow_instance_id ? (
+              <p className="mt-3 text-sm">
+                <Link href={"/workflow/case-detail?id=" + task.workflow_instance_id} className="text-indigo-400 hover:text-indigo-300">
+                  This task is a step in a workflow case. View the case
+                </Link>
+              </p>
+            ) : null}
+
             <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-xs text-gray-500">Department</dt>
@@ -719,9 +727,11 @@ function TaskDetailContent() {
 
           {panel === "cancel" ? (
             <div className="space-y-4 rounded-2xl border border-red-500/30 bg-[#0d1220]/80 p-6 shadow-xl">
-              <h3 className="text-base font-semibold">Cancel this task?</h3>
+              <h3 className="text-base font-semibold">{task.workflow_instance_id ? "Skip this step?" : "Cancel this task?"}</h3>
               <p className="text-sm text-gray-400">
-                This can&apos;t be undone. The person it&apos;s assigned to will be told, along with your reason.
+                {task.workflow_instance_id
+                  ? "This task is a step in a workflow case. Cancelling it skips the step: the case moves on to the next step as if this one had been done, and whoever started the case is told. This can't be undone. The person it's assigned to will be told, along with your reason."
+                  : "This can't be undone. The person it's assigned to will be told, along with your reason."}
               </p>
               {actionError ? <p className="text-sm text-red-300">{actionError}</p> : null}
               <div>
