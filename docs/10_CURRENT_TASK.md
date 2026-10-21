@@ -1,61 +1,112 @@
 # Current Task
 
-**M10 — Task**, slice C onward (see `09_PROGRESS.md` M10 and `08_DECISIONS.md` 2026-10-07 and 2026-10-08).
+**M11 — Workflow** (see `09_PROGRESS.md` M11, `01_REQUIREMENTS.md` section 6, `04_DATABASE.md` Cluster 6).
 
-Slices A (create, list, read, edit, complete) and B (cancel, reassign) are built and
-tested on branch `m10-tasks`. See `09_PROGRESS.md` M10 ("SLICE A BUILT", "SLICE B BUILT")
-and `05_API_DESIGN.md` (### Task (M10)) for the exact contract, and
-`docs/SESSION_HANDOFF.md` for the state of the branch (commit/PR status).
+Branch: `m11-workflow` (off `main` after M10's merge). **Slice A (tables, migration `fee24085f70f`, the two
+`tasks` foreign keys, 4 tests) is committed (`acff13a`). Slice B (template and step CRUD, 49 workflow tests in all) was
+built 2026-10-12 and is committed (`24816f3`). Slice C (event bus, business-hours deadlines, start/list/read cases,
+`TaskService.create_workflow_task` and three read helpers) was built the same day, 35 new tests. Slice D (the chain,
+10 tests) and slice E (cancel a case, 9 tests) were built on 2026-10-13. **All of M11's backend is built; what is left:
+the full-suite result, the Trello updates for D and E (cards #47 and #48), the final docs and handoff, the study guide
+if the user wants one, and then the user's push and PR (nothing is pushed until they say so).**
+Build plan: A tables -> B template and step CRUD (HR or any `manager`; delete/reorder locks; archive) -> C
+`core/events.py` and `POST /workflow-instances` -> D the chain (complete and skip create the next task, business-hours
+`due_at`, instance completes) -> E cancel a case -> F Trello cards for Uche. Working mode for
+this milestone: settle the design questions below *with the user first* (propose and review), then
+build in small slices, block by block, as `CLAUDE.md` describes (beginner-to-mid code, never change
+code outside the Workflow module without asking, additive wiring only).
 
-**Codebase rule learned in slice B:** anything needed from *before* an atomic
-`UPDATE ... RETURNING` (old status, old assignee) must be read before it, because
-`populate_existing` refreshes the same ORM object in place.
+## What M11 is
 
-## Remaining slices, in order
+A **generic workflow engine**, not a hardcoded process. Customers (Elevare is just tenant #1) define
+their own processes as data:
 
-**C. DONE 2026-10-08:** the clock-in gate (uses Attendance's existing `get_open_record`), the
-overdue rule in `tasks/overdue.py`, `overdue` on every response and `?overdue=true|false` on the
-list, with an agreement test. Nothing left in C. An "is this employee clocked in?" method on
-`AttendanceService` (only the repository's `get_open_record` exists today; go through the
-service, not a direct `attendance_records` query). The gate applies to the employee's own
-task list. `overdue` is derived (`due_at < now` and status open/in progress), never stored;
-add `?overdue=true` and an `overdue` field on `TaskResponse`.
+- **Template:** a name plus an ordered list of **steps**. Started by hand (no other triggers in MVP).
+- **Step:** name, **department**, position in the order, optional **default assignee** (a person),
+  optional **default turnaround** in hours (used to compute the step task's `due_at`).
+- **Instance:** one running case of a template (`subject` = e.g. a client name), with a status
+  (`in_progress`, `completed`, `cancelled`).
+- **Completing a step's task automatically creates the next step's task.** The chain runs itself.
+  The same department may appear in several steps (just two rows).
+- **Assignment:** a step with a default assignee puts its task straight on that person; without one
+  the task lands with the department (see "what M10 gives you" below), and the head delegates.
 
-**D. DONE 2026-10-08** (see `09_PROGRESS.md` "SLICE D BUILT"). Original description: Overdue scan (Celery Beat). Notify the assignee and the department head when `due_at`
-passes; **no head set -> notify the HR administrators** (the fallback from the
-department-head decision). Must be idempotent (a retry or late run must not notify twice).
+Tables are already designed: `workflow_templates`, `workflow_steps`, `workflow_instances`
+(`04_DATABASE.md` Cluster 6). Endpoints sketched in `05_API_DESIGN.md` ("Workflow (M11+)"):
+template and step CRUD (HR administrator or any `manager`), `POST /workflow-instances`,
+`GET /workflow-instances` (filters `status`, `template_id`), `GET /workflow-instances/{id}`.
 
-**E. DONE 2026-10-09** (`task_blocks`, block/unblock, the review, blocked time in the overdue
-rule, complete/cancel/reassign end a block, the "was something holding up?" prompt; see
-`09_PROGRESS.md` "SLICE E BUILT" and `08_DECISIONS.md` 2026-10-09).
+## What M10 already gives you (don't rebuild)
 
-**F. DONE 2026-10-09:** `GET /kpis/{kpi_id}/task-progress`, coded in the Task module. The gap that
-no API could set `tracking_mode = task_count` was closed with the user's permission (2 lines in
-`kpis/schemas.py`). Two follow-ups were fixed the same day with the user's permission: typed-in
-scores are refused for a task-count KPI (409 `KPI_TRACKED_BY_TASKS`); `PATCH /kpis/{id}` with `null`
-on `name`/`weight`/`is_inverse` is a 422, not a 500.
+- `tasks.workflow_instance_id` and `tasks.workflow_step_id` exist as **plain nullable columns with no
+  foreign key**. **M11's migration adds the named constraints** (`fk_tasks_workflow_instance_id`,
+  `fk_tasks_workflow_step_id`); every existing value is null, so there is nothing to backfill.
+- A task with no assignee already works end to end: it sits in the department queue, the head (or HR
+  when there is no head) is told, and `POST /tasks/{id}/reassign` (which demands a new `due_at`)
+  assigns it. `created_by_user_id` is nullable for exactly this case (a workflow-made task has no
+  human creator).
+- Overdue, blocks and their review, the overdue scan, the offboarding handover and the clock-in gate
+  all apply to a task regardless of how it was created.
+- **The rule from the docs: Workflow only ever calls Task's service; Task never calls Workflow.**
+  M11 will need a task-creation entry point on `TaskService` that is meant for internal callers
+  (no "who may create" check, `created_by_user_id` null). It must not insert into `tasks` directly.
 
-**M10 is feature-complete.** Next: push `m10-tasks`, open the PR, merge, run the six migrations on
-the VPS, then rewrite this file for the next milestone (M11 Workflow).
+## Design questions to settle before building
 
-## Open questions (settle before the slice that needs them)
+**ALL TEN questions SETTLED on 2026-10-12 — full text in `08_DECISIONS.md` 2026-10-12. Build slice by slice, block by
+block (slice A is done, see above).** Short version of 8 to 10:
+(8) a template cannot be deleted, and its steps cannot be reordered, while an instance is running on it, archive instead;
+adding steps and editing a step's fields stay allowed; (9) any employee may start an instance, HR/executive see all,
+others see an instance they or their department have a task in, else 404; (10) HR or any `manager` may build and edit any
+template, audit-logged. Short version of 5 to 7: (5) an offboarded or missing default assignee gives an unassigned task, head
+(or HR) told, chain continues; (6) no per-instance override, cover for leave is reassign or editing the step's default
+assignee; (7) a hand-cancelled workflow task SKIPS to the next step (last step completes the instance), the starter is
+told and the audit log records it, an instance-wide cancel does not skip. Short version of 1 to 4: (1) a `core/events.py` event bus, Task publishes `TaskCompleted`, Workflow listens, same
+transaction, a failure fails the user's "complete"; (2) cases follow template edits, existing tasks keep their `due_at`,
+a step with an open task cannot be deleted; (3) `POST /workflow-instances/{id}/cancel` by HR or the starter, the open task
+is cancelled through `TaskService`, the listener checks the instance is still `in_progress`; (4) `due_at` = creation
+time plus turnaround in business hours (Mon–Fri 09:00–17:00, org timezone; Option C configurable calendars and holidays
+left for later), no turnaround means no `due_at`, no per-instance override.
+The original wording of each question follows, for the reasoning.
 
-All settled on 2026-10-09 (`08_DECISIONS.md`, entry "M10's open questions and the offboarding gap"):
-
-1. **`in_progress`:** deferred. Unused for now; a `POST /tasks/{id}/start` is a small later addition.
-2. **Open block on cancel/reassign/complete:** ends it (reassign also resets the approved time). Built.
-3. **Assignee must belong to the department:** no, kept as is. Revisit at M12 (noted as an improvement).
-4. **Read scope:** kept as is (manager role: own department plus created; executive: read-only,
-   sees all). Later refinement: scope managers by reporting line.
-
-**Offboarding handover: BUILT 2026-10-09** as a sweep inside the Task module's scan (no change to
-the Organization module, the user's choice): an offboarded employee's open tasks are unassigned,
-their open blocks end, and the department head (or HR) is told. Details in the same decision entry.
-**The only slice left in M10 is F (the `task_count` live read).**
+1. **How does completing a task advance the workflow, given Task must not call Workflow?**
+   Options: (a) Task exposes a small hook list that Workflow registers into (dependency inversion);
+   (b) the complete endpoint calls a thin function that lives in neither module; (c) a Celery sweep
+   (like M10's scan) finds completed workflow tasks whose next step hasn't been created, with up to
+   10 minutes of delay on every handoff. This is the central architectural decision of the milestone.
+2. **Template edits while instances are running** (`09_PROGRESS.md` M11 gap): does an instance keep
+   the template as it was when it started (a snapshot / version), or follow later edits? Common
+   practice is to snapshot. It decides whether editing a template can shift running deadlines.
+3. **Cancelling a running instance** (`workflow_instances.status` has `cancelled`, no endpoint is
+   described): who may; what happens to its open task (cancel it through `TaskService`, with a
+   reason?); are the later steps simply never created?
+4. **Step deadlines:** `due_at` = the moment the task is created plus `default_turnaround_hours`
+   (calendar hours, MVP), or no `due_at` when the turnaround is empty? Can whoever delegates
+   override it for one instance?
+5. **Assignee edge cases at task-creation time:** the default assignee has been offboarded; the
+   step's department has no head and no default assignee. (M10's existing behavior: unassigned, head
+   or HR notified. Probably reuse.)
+6. **Overriding a default assignee for one instance** without changing the saved default
+   (`01_REQUIREMENTS.md`: "covering for someone on leave"): at start time, or per step later?
+7. **What completes an instance:** completing the last step's task. And a cancelled or abandoned
+   mid-chain task (a task cancelled by hand) — does the chain stop, skip, or stay stuck?
+8. **Deleting or archiving a template** that has running instances; reordering or removing steps.
+9. **Who may start an instance** (anyone? the same people who build templates?) and **who sees
+   which instances** (the read scope).
+10. **Permissions on template building across departments** (a manager building steps in other
+    departments: the docs say no enforced cross-department approval in MVP).
 
 ## Not this milestone's job
 
-Frontend: the daily task list, Assign Task screen, block/unblock UI. That is Uche's track.
-When M10's endpoints change what a screen needs, update the Trello board in the same session
-(see `CLAUDE.md`, "Frontend impact"). The card for slice A is "[Frontend - Uche] Tasks:
-create, list, edit and complete (backend slice A)" (To Do).
+- Scoring (M12), including how task lateness and blocks feed scores.
+- Parallel or conditional steps, other trigger types, a proactive SLA-pause (Phase 2,
+  `01_REQUIREMENTS.md` 6 and 6a).
+- Frontend (Uche's track): the template builder, "start workflow" and instance progress screens. When
+  an endpoint changes what a screen needs, update the Trello board in the same session (`CLAUDE.md`,
+  "Frontend impact").
+
+## Deploy items for M10 (the user's, alongside)
+
+Run the six M10 migrations on the VPS in order (`14b29721b95f`, `c8e41d7a5b92`, `e5a07b3c9d14`,
+`f7b2c91d4a60`, `a3d9e61c7b25`, `b8e24f6a1c93`), restart the **worker and Beat** containers (a new
+task file and schedule), and tell Uche about the three Trello cards. Details in `SESSION_HANDOFF.md`.

@@ -51,6 +51,11 @@ from app.modules.kpis.models import (
 )
 from app.modules.attendance.models import AttendanceRecord
 from app.modules.tasks.models import Task, TaskBlock
+from app.modules.workflow.models import (
+    WorkflowTemplate,
+    WorkflowStep,
+    WorkflowInstance,
+)
 
 __all__ = [
     "Organization",
@@ -77,4 +82,7 @@ __all__ = [
     "AttendanceRecord",
     "Task",
     "TaskBlock",
+    "WorkflowTemplate",
+    "WorkflowStep",
+    "WorkflowInstance",
 ]

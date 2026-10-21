@@ -186,12 +186,58 @@ Nothing below this line exists as a real endpoint today — every path here 404s
 
 **Not built yet:** any way to set `in_progress` (deferred, a small later endpoint).
 
-### Workflow (M11+)
+### Workflow (M11)
 
-- `POST|GET /workflow-templates`, `GET|PATCH /workflow-templates/{id}`
-- `POST|GET /workflow-templates/{id}/steps`, `PATCH /workflow-steps/{id}`
-- `POST /workflow-instances` — starts a case (body: `template_id`, `subject`)
-- `GET /workflow-instances` (filter: `status`, `template_id`), `GET /workflow-instances/{id}`
+**Templates and steps: BUILT 2026-10-12 (slice B).** Instances (start, list, read, cancel) are not built yet (slices C to E). Design: `08_DECISIONS.md` 2026-10-12.
+
+**Who:** building (every create, edit, archive, delete, add/edit/delete step, reorder) is `hr_administrator` or `manager` (any manager may edit any template); anyone else gets 403 `PERMISSION_DENIED`. Reads are open to every member of the organization. Anything outside the caller's organization is a 404.
+
+`TemplateResponse`: `id, organization_id, department_id, name, created_by_user_id, archived_at, created_at, updated_at`.
+`StepResponse`: `id, organization_id, workflow_template_id, step_order, name, department_id, default_assignee_employee_id, default_turnaround_hours, created_at, updated_at`.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /workflow-templates` | body `{name (1-200 chars, trimmed), department_id}`; 404 `DEPARTMENT_NOT_FOUND` |
+| `GET /workflow-templates` | query `include_archived` (default false), `department_id`, `page`, `limit`; sorted by name; paginated envelope |
+| `GET /workflow-templates/{id}` | works for archived templates; 404 `WORKFLOW_TEMPLATE_NOT_FOUND` |
+| `PATCH /workflow-templates/{id}` | send only `name` and/or `department_id`; `null` on either is a 422 |
+| `POST /workflow-templates/{id}/archive` | retires it (cannot start new cases; running ones carry on); 409 `WORKFLOW_TEMPLATE_ALREADY_ARCHIVED` |
+| `POST /workflow-templates/{id}/unarchive` | 409 `WORKFLOW_TEMPLATE_NOT_ARCHIVED` if it is not archived |
+| `DELETE /workflow-templates/{id}` | soft delete; 409 `RESOURCE_IN_USE` ("N case(s) are still running on it. Archive it instead") while any case is `in_progress` |
+| `POST /workflow-templates/{id}/steps` | body `{name, department_id, default_assignee_employee_id?, default_turnaround_hours? (>0), step_order? (>=1)}`; no `step_order` = at the end, a number inserts there and moves later steps down; 422 if the position is beyond one past the last step, or the assignee is offboarded; 404 `EMPLOYEE_NOT_FOUND` / `DEPARTMENT_NOT_FOUND` |
+| `GET /workflow-templates/{id}/steps` | plain list (not paginated), in order; works for archived templates |
+| `PATCH /workflow-steps/{id}` | send only the fields to change; `null` on `default_assignee_employee_id` / `default_turnaround_hours` clears them; `null` on `name` / `department_id` is a 422; the position is not editable here; 404 `WORKFLOW_STEP_NOT_FOUND` |
+| `DELETE /workflow-steps/{id}` | soft delete, later steps move up; 409 `RESOURCE_IN_USE` ("N task(s) are still open on it") while a task made from it is open or in progress |
+| `PUT /workflow-templates/{id}/steps/order` | body `{step_ids: [...]}` = every step id of the template in the new order; 422 if the list is not exactly the template's steps; 409 `RESOURCE_IN_USE` ("N case(s) are still running on this template") while any case is in progress; returns the steps in the new order |
+
+**Cases (instances): start, list, read: BUILT 2026-10-12 (slice C).** Cancelling a case and the automatic next-step tasks are not built yet (slices D and E).
+
+`InstanceResponse`: `id, organization_id, workflow_template_id, subject, started_by_user_id, status (in_progress | completed | cancelled), started_at, completed_at, cancel_reason, created_at, updated_at`.
+`InstanceDetailResponse` = `InstanceResponse` + `steps` (the template's CURRENT steps, as `StepResponse`, in order) + `tasks` (the tasks the case has created so far, oldest first: `id, workflow_step_id, department_id, assigned_to_employee_id, title, status, due_at, completed_at, cancel_reason, created_at`; match a task to its step by `workflow_step_id`; use `GET /tasks/{id}` for the full task with the overdue flag).
+
+| Endpoint | What it does |
+|---|---|
+| `POST /workflow-instances` | body `{template_id, subject (1-200 chars, trimmed)}`; starts a case and creates ONLY step 1's task at once. WHO: any active employee, or an HR administrator (who may have no employee record); anyone else 403 `PERMISSION_DENIED` "Only employees can start a workflow". 404 `WORKFLOW_TEMPLATE_NOT_FOUND` (also a deleted or other-company template), 409 `WORKFLOW_TEMPLATE_ARCHIVED`, 422 "This template has no steps yet..." |
+| `GET /workflow-instances` | query `status`, `template_id`, `page`, `limit` (1-100); newest first; paginated envelope; only the cases the caller may see (below) |
+| `GET /workflow-instances/{id}` | the detail above; 404 `WORKFLOW_INSTANCE_NOT_FOUND` also means "exists but you may not see it" |
+
+**Who sees a case:** HR administrators and business executives see every case. Everyone else sees a case if they STARTED it, have (or had) a TASK in it (assigned to their employee record, even a completed one), or are the named HEAD of a department that has a step in its template (so a head sees a case before their step's task exists). Not gated by clock-in. Anything else is a 404 and absent from the list. The `manager` role alone does not grant visibility.
+
+**The first task:** title `"<step name>: <subject>"` (cut to 255 characters), description `Step 1 of N in "<template name>" for <subject>.`, department = the step's, assignee = the step's default assignee, `created_by_user_id` null (no human creator), `workflow_instance_id` / `workflow_step_id` set. Deadline = now plus the step's turnaround in BUSINESS HOURS (Monday to Friday 09:00 to 17:00 in the organization's timezone; public holidays are not skipped); no turnaround means `due_at` null. If the default assignee is missing or offboarded, or the step has none, the task is created UNASSIGNED and the department head (the HR administrators if there is no head) is notified "A task for <department> needs an owner" (category task, link to the task); otherwise the assignee is notified "New task: <title>".
+
+**The chain: BUILT 2026-10-13 (slice D).** Nothing to call: it happens when a task of a case is completed or cancelled (`POST /tasks/{id}/complete`, `POST /tasks/{id}/cancel`). The case reads "what comes next" from the template AS IT IS NOW (steps added, removed or edited since the case started are respected) and:
+- **after a completion:** creates the next step's task (deadline = the moment of completion plus the step's turnaround in business hours, none if the step has no turnaround; same assignee / unassigned rules as the first task). After the LAST step the case becomes `completed` (`completed_at` set).
+- **after a cancel by hand (a "skip"):** the same, as if the step had been done. The case's starter is told (not when they cancelled it themselves): notification category `task`, title `"A step was skipped on <subject>"`, body `"<step>" was skipped by <name>: <reason>. The case moved on to "<next step>".` (or `That was the last step, so the case is now complete.`), `link_type` **`"workflow_instance"`** and `link_id` = the case id (a new link type the Notifications screen must handle). The skip is audit-logged on the case (`skip_step`).
+- **a case that is no longer `in_progress`** (cancelled, or already completed) creates nothing.
+- **if the next task cannot be made** (for example the next step's department was deleted), the completion or cancel itself FAILS with that error (404 `DEPARTMENT_NOT_FOUND`) and nothing is saved: the user's task stays open. A step with an open task cannot be deleted, so a step vanishing under a running task is not expected; if it happens the call is a 422 asking HR to check the workflow.
+
+**Cancelling a case: BUILT 2026-10-13 (slice E).**
+
+| Endpoint | What it does |
+|---|---|
+| `POST /workflow-instances/{id}/cancel` | body `{reason (required, trimmed, 1-500 chars)}` -> the case with `status: "cancelled"` and `cancel_reason`. WHO: an HR administrator, or the person who STARTED the case; a department head or the task's assignee gets 403 `PERMISSION_DENIED` ("Only an HR administrator or the person who started the case can cancel it"). 404 `WORKFLOW_INSTANCE_NOT_FOUND` (not visible to the caller), 409 `WORKFLOW_INSTANCE_NOT_IN_PROGRESS` (already completed or cancelled), 422 (missing/blank/too-long reason). |
+
+Cancelling closes the case's open task automatically (cancelled with the same reason, any open block on it ended, the assignee gets the usual "Task cancelled: <title>" notification saying the workflow was cancelled and why) and no later step is ever created. The starter is NOT sent a "step skipped" notification for this. Tasks already completed stay completed. A closed task is final (completing it afterwards is 409 `TASK_NOT_OPEN`).
 
 ### Attendance — now live
 
