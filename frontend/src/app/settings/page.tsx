@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useState } from "react";
+import Link from "next/link";
 
 const SIDEBAR_ITEMS: { label: string; href: string }[] = [
   { label: "Dashboard", href: "/dashboard" },
@@ -134,6 +135,12 @@ export default function SystemSettingsPage() {
                   </button>
                 );
               })}
+              <Link
+                href="/settings/billing-ai-usage"
+                className="rounded-lg px-3 py-2.5 text-left text-sm text-gray-400 transition hover:bg-white/5 hover:text-gray-200"
+              >
+                Billing &amp; AI Usage
+              </Link>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-6 shadow-xl">
