@@ -131,7 +131,7 @@ Reviewed against `03_ARCHITECTURE.md`/`07_SECURITY.md`, no gaps found. See `08_D
 - No cancel action. `tasks.status` includes `'cancelled'` in the schema, but `05_API_DESIGN.md` only lists `POST /tasks/{id}/complete`, no equivalent for closing a task that's no longer relevant (the underlying lead went cold, the request was withdrawn) without marking it `completed`, which would incorrectly count toward positive KPI scoring it never actually earned.
 - No reassignment endpoint described. A task's `assigned_to_employee_id` can't be changed after creation via anything in `05_API_DESIGN.md` — worth confirming this is meant to go through the generic task update, or needs its own explicit action.
 
-### M11 — Workflow
+### M11 — Workflow — Backend ✅ DONE & MERGED to `main` (2026-10-21, PR #43, merge commit `4ccd943`) and DEPLOYED (VPS `alembic current` = `fee24085f70f (head)`, which also confirms the six M10 migrations ran); `m11-workflow` deleted (local + remote). Frontend: Uche's track (Trello cards #47 and #48). 739 tests passing at merge.
 **Backend:** `workflow_templates`, `workflow_steps`, `workflow_instances` (Cluster 6). Template/step CRUD (HR Administrator or any Manager), `POST /workflow-instances` (start a case), completing a step's task auto-creates the next step's task via Task's service (never a direct `tasks` insert), default-assignee-or-manager-delegation routing, same department allowed to repeat across steps.
 **Frontend:** Workflow Template builder (ordered steps, department, turnaround, optional default assignee), Start Workflow Instance screen, instance status/progress view.
 **Depends on:** M10 (Workflow only ever calls Task's service, never the other way).
