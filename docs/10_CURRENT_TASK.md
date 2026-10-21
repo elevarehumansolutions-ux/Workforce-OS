@@ -64,9 +64,60 @@ states as first-class.
 - **Rule from the docs to restate in code:** a KPI's weight can change after scores for past periods exist;
   those historical scores must stay exactly as computed, never silently recalculated.
 
-## Design questions to settle before building (none decided yet)
+## Design questions to settle before building
 
-1. **How is one employee's score for one KPI worked out from their tasks?** This is the central question.
+**Question 1 SETTLED 2026-10-21 (user chose "Marking B", full text in `08_DECISIONS.md` 2026-10-21): each valid
+task earns 100 if done on time, 50 if done late, 0 if never done; the score is the average. Question 2, first part,
+SETTLED the same day (question 2 is complete, all four parts): a task belongs to the period of its REAL deadline
+(`due_at` plus approved blocked time), a task with no deadline is left off the score, a reassigned task goes to whoever
+holds it at the end against the deadline they were given. Question 3 SETTLED too: a block still pending when a period
+closes is held back and the task is marked on the NEXT period's card once reviewed (closed periods never change).
+Question 4 SETTLED: a nightly job refreshes the "so far" rows of open periods and a final frozen write happens at
+period close; dashboards read saved rows, never live. Question 5 SETTLED (both parts): a person's overall score is
+the weighted average of the KPIs they have tasks on (a KPI with no tasks is left out, "based on N of M KPIs", "no data"
+if nothing at all); a department shows TWO numbers side by side and never blended: KPI results against target
+(headline) and team punctuality (beneath, with the people; unassigned tasks count against the department).
+Question 6 SETTLED: the Company Performance Score weights each department's headline by its revenue allocation; a
+department with no allocation is left out and the response says "N of M counted"; if none has one, plain average.
+Whether only critical departments count was not asked (default: every department with an allocation counts).
+Question 7 SETTLED: Most Improved is a top-three recognition list (people and departments separately) with the context
+shown (from, to, task counts), at least 10 valid tasks in both periods, change measured in points.
+Question 8 SETTLED: an employee sees their own score; a head or `manager` sees their own department's people; HR and
+executives see everyone; the named leaderboard is for HR, executives and managers only; unseen = 404, never 403.
+Question 9 SETTLED: the default trend reads saved quarterly rows; a custom date range is worked out live (maximum 12
+months, labelled "live, may differ from the closed quarterly scores").
+Question 10 SETTLED (the executive summary): written from a fact sheet with every number checked by our code (one
+retry, then a plain fact summary with no AI wording); weekly "so far" (skipped when nothing changed) plus a final
+frozen one at close; never names individuals (the AI is given no names); readable by HR and executives only; strong
+model tier, metered in `ai_usage_log` (my defaults, recorded in `08_DECISIONS.md`).
+Question 11 SETTLED: no data shows "No data yet" with a reason, never zeros (`null` in the API plus counts); no AI summary
+below 10 valid tasks company-wide. ALL ELEVEN QUESTIONS ARE SETTLED (2026-10-21), the full text is in
+`08_DECISIONS.md` 2026-10-21; the next step is to agree the build slices with the user (proposal below) and build one
+endpoint at a time, block by block. The original wording of each question follows, for the reasoning.**
+
+### Proposed build slices (not yet agreed with the user)
+
+Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (checked 2026-10-21); `kpi_scores` does.
+
+- **A. Tables and migration:** `employee_kpi_scores` (one row per employee per KPI per period, the three counts, the
+  score, a frozen flag), `executive_summaries` (one row per organization per period, text, a frozen flag, a fingerprint
+  of the facts so an unchanged week is skipped), indexes, RLS, table tests.
+- **B. The marking rule as one plain function, tested on its own:** which task belongs to which period (real deadline),
+  100 / 50 / 0, the exclusions (cancelled, no deadline, pending block held back and carried to the next period), with
+  Chidi's examples as tests. Written once, like `tasks/overdue.py`.
+- **C. Employee scores:** work out and save a person's per-KPI rows and overall score for a period ("so far" and final),
+  with "based on N of M" and `null` for no data.
+- **D. The jobs:** the nightly refresh of open periods, the frozen write at period close, and the deferred `task_count`
+  KPI close job (cross-tenant lookup through a narrow `SECURITY DEFINER` function, logged in `07_SECURITY.md`).
+- **E. The reads for people and departments:** a person's own score, `GET /departments/{id}/performance-summary` (two
+  numbers side by side plus the people), `GET /employees/leaderboard`, behind one scope object (settled question 8).
+- **F. The company view:** `GET /company-performance-summary` (revenue-weighted headline with "N of M counted", saved
+  quarterly trend, live custom range up to 12 months, Most Improved top three with context).
+- **G. The executive summary:** fact sheet with no names, the AI call, the number check with one retry and the plain-fact
+  fallback, the weekly job that skips an unchanged week, the read endpoint for HR and executives.
+- **H. Close-out:** Trello cards for Uche, docs, the full suite, the study guide if wanted.
+
+1. **(SETTLED, see above) How is one employee's score for one KPI worked out from their tasks?** This was the central question.
    Options to put to the user with a real example: completion only; on time against late with partial credit;
    Jennifer's example (closing a lead in 5 to 7 days scores well, faster scores higher, slower scores lower).
    What is the denominator (tasks due in the period, or a target number)? Does it differ for `task_count` and
