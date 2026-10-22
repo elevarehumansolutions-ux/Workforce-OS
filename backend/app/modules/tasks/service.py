@@ -1319,6 +1319,27 @@ class TaskService:
         """
         return await self._repo.list_tasks_for_scoring(period_start, period_end)
 
+    async def count_completed_tasks_for_kpi(
+        self, kpi_id: uuid.UUID, period_start: datetime, period_end: datetime
+    ) -> int:
+        """How many tasks linked to a KPI were completed within a period.
+
+        For the Scoring module's nightly job, which turns a task-count KPI into
+        a number. An internal question: no caller and no visibility check (it is
+        the KPI's total, like ``get_kpi_task_progress``), and RLS keeps it inside
+        the organization. Only ``completed`` tasks count; the period includes
+        ``period_start`` and excludes ``period_end``.
+
+        Args:
+            kpi_id: The KPI.
+            period_start: The first moment counted.
+            period_end: The first moment NOT counted.
+
+        Returns:
+            How many tasks.
+        """
+        return await self._repo.count_completed_tasks_for_kpi(kpi_id, period_start, period_end)
+
     async def release_orphaned_tasks(self, organization_id: uuid.UUID) -> int:
         """Hand over the open tasks of employees who have been offboarded.
 

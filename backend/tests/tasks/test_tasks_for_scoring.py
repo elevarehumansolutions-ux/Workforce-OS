@@ -174,3 +174,40 @@ async def test_each_row_carries_the_tasks_own_facts_and_other_organizations_are_
     assert (row.department_id, row.kpi_id) == (uuid.UUID(w.dispatch), None)
     assert row.assigned_to_employee_id == uuid.UUID(w.chidi.employee_id)
     assert (row.due_at, row.completed_at, row.approved_blocked_seconds) == (at(8, 1), at(7, 30), DAY)
+
+
+@pytest.mark.asyncio
+async def test_completed_tasks_of_a_kpi_are_counted_inside_the_period_only(client, monkeypatch, db_session):
+    """Start included, end excluded; open, cancelled and other-KPI tasks do not count."""
+    w = await _world(client, monkeypatch, "ts7")
+    mine = (await client.post(
+        "/api/v1/kpis", json={"department_id": w.dispatch, "name": "Deals closed", "weight": 60}, headers=w.hr
+    )).json()["id"]
+    other = (await client.post(
+        "/api/v1/kpis", json={"department_id": w.dispatch, "name": "Calls made", "weight": 40}, headers=w.hr
+    )).json()["id"]
+    await set_org_context(db_session, w.owner["organization"]["id"])
+
+    def done(title, when, kpi=mine, **changes):
+        return _task(w, title, kpi_id=uuid.UUID(kpi), status="completed", completed_at=when, **changes)
+
+    db_session.add_all(
+        [
+            done("inside", at(8, 15)),
+            done("first moment", Q3_START),
+            done("last second", Q4_START - timedelta(seconds=1)),
+            done("exactly at the end", Q4_START),
+            done("before", Q3_START - timedelta(seconds=1)),
+            done("other KPI", at(8, 15), kpi=other),
+            _task(w, "still open", kpi_id=uuid.UUID(mine)),
+            _task(w, "cancelled", kpi_id=uuid.UUID(mine), status="cancelled", cancel_reason="x"),
+        ]
+    )
+    await db_session.flush()
+    service = TaskService(db_session)
+
+    q3 = await service.count_completed_tasks_for_kpi(uuid.UUID(mine), Q3_START, Q4_START)
+    q4 = await service.count_completed_tasks_for_kpi(uuid.UUID(mine), Q4_START, Q4_END)
+    nobody = await service.count_completed_tasks_for_kpi(uuid.uuid4(), Q3_START, Q4_START)
+
+    assert (q3, q4, nobody) == (3, 1, 0)
