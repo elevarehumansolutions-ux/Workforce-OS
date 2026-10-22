@@ -24,3 +24,88 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Organization chart (onboarding "AI Structure" step).
+   Markup: <div class="org-tree"><ul><li><box/><ul><li>...</li></ul></li></ul></div>.
+   Each li draws its own half of the horizontal bar (::before left, ::after right)
+   plus a stem down to its box; the ul above it draws the stem coming down. */
+.org-tree ul {
+  display: flex;
+  justify-content: center;
+  padding-top: 24px;
+  position: relative;
+  margin: 0;
+}
+
+.org-tree li {
+  list-style: none;
+  text-align: center;
+  position: relative;
+  padding: 24px 8px 0 8px;
+}
+
+.org-tree li::before,
+.org-tree li::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 50%;
+  width: 50%;
+  height: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.org-tree li::after {
+  right: auto;
+  left: 50%;
+  border-left: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+/* The first and last child only draw their inner half of the bar. */
+.org-tree li:first-child::before,
+.org-tree li:last-child::after {
+  border: 0 none;
+}
+
+.org-tree li:last-child::before {
+  border-right: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0 6px 0 0;
+}
+
+.org-tree li:first-child::after {
+  border-radius: 6px 0 0 0;
+}
+
+/* An only child needs just the straight stem, no bar. */
+.org-tree li:only-child {
+  padding-top: 0;
+}
+
+.org-tree li:only-child::before,
+.org-tree li:only-child::after {
+  display: none;
+}
+
+/* The stem from a box down to the bar above its children. */
+.org-tree ul ul::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 24px;
+  border-left: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+/* The top of the chart has nothing above it. */
+.org-tree > ul {
+  padding-top: 0;
+}
+
+.org-tree > ul > li {
+  padding-top: 0;
+}
+
+.org-tree > ul > li::before,
+.org-tree > ul > li::after {
+  display: none;
+}

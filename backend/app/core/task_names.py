@@ -14,3 +14,4 @@ constant exactly (see ``tests/ai/test_generation_task_retry.py``).
 """
 
 AI_GENERATE_SUGGESTIONS_TASK = "app.modules.ai.tasks.generate_suggestions"
+BLUEPRINT_GENERATE_TASK = "app.modules.blueprint.tasks.generate_blueprint"

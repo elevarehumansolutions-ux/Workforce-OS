@@ -17,6 +17,7 @@ interface BusinessDnaFormData {
 
 const ONBOARDING_STEPS = [
   "Business DNA",
+  "AI Structure",
   "Organization",
   "OKRs",
   "AI Suggestions",
@@ -210,7 +211,9 @@ export default function BusinessDnaPage() {
         await apiFetch("/business-dna/core-values", { method: "POST", body: { value } });
       }
 
-      router.push("/onboarding/org-setup");
+      // The first save makes the backend start drafting the company's departments,
+      // positions and objectives; the next step is where HR reviews them.
+      router.push("/onboarding/blueprint");
     } catch (err) {
       setSubmitError(
         err instanceof ApiError

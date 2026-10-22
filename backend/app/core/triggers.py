@@ -16,7 +16,7 @@ import redis.asyncio as aioredis
 
 from app.core.celery_app import celery
 from app.core.config import settings
-from app.core.task_names import AI_GENERATE_SUGGESTIONS_TASK
+from app.core.task_names import AI_GENERATE_SUGGESTIONS_TASK, BLUEPRINT_GENERATE_TASK
 
 logger = logging.getLogger(__name__)
 
@@ -58,4 +58,38 @@ async def trigger_ai_suggestion_generation(
         return False
 
     celery.send_task(AI_GENERATE_SUGGESTIONS_TASK, args=[str(organization_id)])
+    return True
+
+
+async def trigger_blueprint_generation(
+    organization_id: uuid.UUID,
+    *,
+    first_time_only: bool,
+    ttl_seconds: int = _DEBOUNCE_TTL_SECONDS,
+) -> bool:
+    """Ask the Blueprint module to propose departments, positions and OKRs for one organization.
+
+    Called after the caller's transaction has committed (same rule as above).
+    ``first_time_only`` is True when Business DNA was just saved: the job then
+    does nothing if the organization already had a blueprint, so editing the DNA
+    later never re-runs the AI by surprise. It is False when HR asks for a new
+    blueprint explicitly.
+
+    Returns:
+        True if this call claimed the debounce key and enqueued a run.
+    """
+    debounce_key = f"blueprint:debounce:{organization_id}"
+    client = aioredis.from_url(settings.redis_url)
+    try:
+        acquired = await client.set(debounce_key, "1", nx=True, ex=ttl_seconds)
+    finally:
+        await client.aclose()
+
+    if not acquired:
+        logger.info("Blueprint generation for org %s already queued; skipping", organization_id)
+        return False
+
+    celery.send_task(
+        BLUEPRINT_GENERATE_TASK, args=[str(organization_id), first_time_only]
+    )
     return True
