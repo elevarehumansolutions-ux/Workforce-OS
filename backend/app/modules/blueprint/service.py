@@ -18,6 +18,8 @@ from app.core.exceptions import (
 )
 from app.core.schemas import PaginationResponse
 from app.modules.audit_and_notification.service import AuditService
+from app.modules.kpis.schemas import KPICreate
+from app.modules.kpis.service import KPIService
 from app.modules.okrs.service import KeyResultService, OKRService
 from app.modules.organization.service import DepartmentService, PositionService
 
@@ -39,6 +41,7 @@ class BlueprintService:
         self._positions = PositionService(db)
         self._okrs = OKRService(db)
         self._key_results = KeyResultService(db)
+        self._kpis = KPIService(db)
 
     async def list_items(
         self,
@@ -99,6 +102,18 @@ class BlueprintService:
             # Losing a boss only leaves a gap in the chart; HR can fix it later.
             return None
 
+    async def _key_result_for(
+        self, item: BlueprintItem, actor_user_id: uuid.UUID
+    ) -> uuid.UUID | None:
+        """The real key result a KPI measures, or None when it has none or it was rejected."""
+        if item.key_result_ref is None:
+            return None
+        try:
+            return await self._entity_id_of_parent(item.batch_id, item.key_result_ref, actor_user_id)
+        except BlueprintParentRejectedException:
+            # The link is optional: a KPI is still useful without its key result.
+            return None
+
     async def _apply(self, item: BlueprintItem, actor_user_id: uuid.UUID) -> None:
         """Create or change the real row this item stands for."""
         org_id = item.organization_id
@@ -123,6 +138,24 @@ class BlueprintService:
             okr_id = await self._entity_id_of_parent(item.batch_id, item.objective_ref, actor_user_id)
             created = await self._key_results.create_key_result(
                 okr_id, actor_user_id, {"description": text}
+            )
+        elif item.kind == BlueprintKind.KPI.value:
+            department_id = await self._department_for(item, actor_user_id)
+            key_result_id = await self._key_result_for(item, actor_user_id)
+            # create_kpi refuses (409) a weight that would push the department over 100%.
+            created = await self._kpis.create_kpi(
+                org_id,
+                actor_user_id,
+                KPICreate(
+                    department_id=department_id,
+                    key_result_id=key_result_id,
+                    name=text,
+                    description=item.rationale,
+                    weight=item.kpi_weight,
+                    is_inverse=bool(item.kpi_is_inverse),
+                    target_value=item.kpi_target_value,
+                    unit=item.kpi_unit,
+                ),
             )
         elif item.kind == BlueprintKind.RENAME_DEPARTMENT.value:
             created = await self._departments.update_department(

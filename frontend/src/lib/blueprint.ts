@@ -10,6 +10,7 @@ export type BlueprintKind =
   | "position"
   | "objective"
   | "key_result"
+  | "kpi"
   | "rename_department"
   | "rename_position"
   | "review_note";
@@ -36,6 +37,14 @@ export interface BlueprintItem {
   department_ref: string | null;
   reports_to_ref: string | null;
   objective_ref: string | null;
+  // Only for a KPI: the key result it measures (a ref, or null for none), its share of
+  // the department's KPIs in percent, its target and unit, and whether a LOWER figure
+  // is better (for example days to deliver). The API sends decimals as strings.
+  key_result_ref: string | null;
+  kpi_weight: string | number | null;
+  kpi_target_value: string | number | null;
+  kpi_unit: string | null;
+  kpi_is_inverse: boolean | null;
   status: BlueprintStatus;
   reviewed_title: string | null;
   created_entity_id: string | null;
@@ -147,11 +156,34 @@ export interface ObjectiveSection {
   objectives: ObjectiveGroup[];
 }
 
+export interface KpiSection {
+  title: string;
+  color: string;
+  kpis: BlueprintItem[];
+}
+
 export interface BlueprintView {
   departments: DepartmentCard[];
   chart: ChartNode | null;
   objectiveSections: ObjectiveSection[];
+  kpiSections: KpiSection[];
   cleanups: BlueprintItem[];
+}
+
+function trimNumber(value: string | number): string {
+  // "95.00" -> "95", "2.50" -> "2.5"
+  return String(Number(value));
+}
+
+// One line describing a KPI: "Weight 60% · Target 95 % · Higher is better".
+export function kpiSummary(item: BlueprintItem): string {
+  const parts: string[] = [];
+  if (item.kpi_weight !== null) parts.push("Weight " + trimNumber(item.kpi_weight) + "%");
+  if (item.kpi_target_value !== null) {
+    parts.push("Target " + trimNumber(item.kpi_target_value) + (item.kpi_unit ? " " + item.kpi_unit : ""));
+  }
+  parts.push(item.kpi_is_inverse ? "Lower is better" : "Higher is better");
+  return parts.join(" · ");
 }
 
 // Colours that tell departments apart in the chart. Used in order.
@@ -173,6 +205,7 @@ export function buildBlueprintView(
   const positionItems = items.filter(function (i) { return i.kind === "position" && i.status !== "rejected"; });
   const objectiveItems = items.filter(function (i) { return i.kind === "objective"; });
   const keyResultItems = items.filter(function (i) { return i.kind === "key_result"; });
+  const kpiItems = items.filter(function (i) { return i.kind === "kpi"; });
   const cleanups = items.filter(function (i) {
     return i.kind === "rename_department" || i.kind === "rename_position" || i.kind === "review_note";
   });
@@ -200,7 +233,7 @@ export function buildBlueprintView(
   function addExistingDepartmentOf(id: string | null) {
     if (id && existingDepartmentName[id]) addDepartment("id:" + id, existingDepartmentName[id], null);
   }
-  positionItems.concat(objectiveItems).forEach(function (i) { addExistingDepartmentOf(i.department_id); });
+  positionItems.concat(objectiveItems, kpiItems).forEach(function (i) { addExistingDepartmentOf(i.department_id); });
 
   // --- the chart ------------------------------------------------------------
   // A real position that a proposed item became (after approval) is drawn once,
@@ -318,5 +351,18 @@ export function buildBlueprintView(
     }
   });
 
-  return { departments: departments, chart: chart, objectiveSections: objectiveSections, cleanups: cleanups };
+  // --- KPIs, grouped by department ------------------------------------------------
+  const kpiSections: KpiSection[] = [];
+  departments.forEach(function (d) {
+    const mine = kpiItems.filter(function (k) { return departmentKeyOf(k) === d.key; });
+    if (mine.length > 0) kpiSections.push({ title: d.name, color: d.color, kpis: mine });
+  });
+
+  return {
+    departments: departments,
+    chart: chart,
+    objectiveSections: objectiveSections,
+    kpiSections: kpiSections,
+    cleanups: cleanups,
+  };
 }

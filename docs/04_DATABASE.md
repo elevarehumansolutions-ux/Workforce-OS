@@ -299,7 +299,8 @@ The AI-proposed starting structure, held until HR reviews it. One row per propos
 | Column | Meaning |
 |---|---|
 | `organization_id`, `batch_id` | owner; one generation run |
-| `kind` | `department`, `position`, `objective`, `key_result`, `rename_department`, `rename_position`, `review_note` (CHECK) |
+| `kind` | `department`, `position`, `objective`, `key_result`, `kpi`, `rename_department`, `rename_position`, `review_note` (CHECK) |
+| `key_result_ref`, `kpi_weight`, `kpi_target_value`, `kpi_unit`, `kpi_is_inverse` | only for `kpi` (migration `e3de7830b474`): the key result it measures (a ref, optional), its share of the department's KPIs in percent (required for a KPI, CHECK), target, unit, and whether lower is better. A KPI's department is `department_ref` or `department_id`. |
 | `ref` | short key other items of the batch use to point here (`D1`, `P3`, `O2`); unique per batch (partial unique index, `WHERE ref IS NOT NULL`) |
 | `title`, `rationale`, `sort_order` | what is proposed (a rename's NEW name), why, and the AI's order |
 | `department_id`, `position_id`, `reports_to_position_id` | parents/targets that ALREADY exist as real rows (FKs) |
