@@ -34,6 +34,7 @@ celery = Celery(
         "app.modules.auth.tasks",
         "app.modules.ai.tasks",
         "app.modules.attendance.tasks",
+        "app.modules.scoring.tasks",
         "app.modules.tasks.tasks",
         "app.modules.tenancy_identity.tasks",
     ],
@@ -79,6 +80,13 @@ celery.conf.update(
         "task-overdue-scan": {
             "task": "app.modules.tasks.tasks.overdue_scan",
             "schedule": crontab(minute="*/10"),
+        },
+        # Once a night at 02:00 UTC: closes the previous fiscal quarter if it is not
+        # closed yet and refreshes the current one, per organization. A late or
+        # repeated run is safe (scoring/tasks.py).
+        "scoring-nightly": {
+            "task": "app.modules.scoring.tasks.scoring_nightly",
+            "schedule": crontab(hour=2, minute=0),
         },
     },
 )

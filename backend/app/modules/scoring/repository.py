@@ -13,7 +13,7 @@ second layer; see 04_DATABASE.md.)
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,49 @@ class ScoringRepository:
     def __init__(self, db: AsyncSession):
         """Initialize the repository with an RLS-scoped async session."""
         self._db = db
+
+    async def list_organizations_needing_scoring(self) -> list[uuid.UUID]:
+        """The ids of the organizations the nightly scoring job should work on.
+
+        The one cross-tenant read of this module, and the job's only way to find
+        which organizations to look at: with no tenant context set, RLS returns
+        nothing. It calls the ``SECURITY DEFINER`` function
+        ``organizations_needing_scoring()`` (see its migration), which reveals
+        only organization ids, and only for organizations that have a KPI or a
+        task with a deadline.
+
+        Returns:
+            The ids of the organizations to score.
+        """
+        result = await self._db.execute(text("SELECT organization_id FROM organizations_needing_scoring()"))
+        return [row.organization_id for row in result]
+
+    async def period_is_frozen(
+        self, organization_id: uuid.UUID, period_start: date, period_end: date
+    ) -> bool:
+        """Whether a period has already been closed for an organization.
+
+        Every department gets a row on every run, so a period counts as closed
+        once any of its department rows is frozen. The nightly job uses this to
+        close a period exactly once: a second run finds it frozen and skips it.
+
+        Args:
+            organization_id: The organization.
+            period_start: First day of the period.
+            period_end: Last day of the period.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(DepartmentScore)
+            .where(
+                DepartmentScore.organization_id == organization_id,
+                DepartmentScore.period_start == period_start,
+                DepartmentScore.period_end == period_end,
+                DepartmentScore.finalized_at.is_not(None),
+            )
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one() > 0
 
     async def save_employee_score(self, fields: dict) -> EmployeeKPIScore | None:
         """Insert a person's score row, or refresh the running one for the same period.

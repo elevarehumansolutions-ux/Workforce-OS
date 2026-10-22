@@ -7,16 +7,25 @@ rules implemented here.
 
 import uuid
 from datetime import date, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.kpis.enums import KPITrackingMode
 from app.modules.kpis.repository import KPIRepository, KPIScoreRepository
+from app.modules.kpis.service import KPIService
 from app.modules.organization.repository import DepartmentRepository
+from app.modules.tasks.periods import current_fiscal_quarter
 from app.modules.tasks.service import TaskService
+from app.modules.tenancy_identity.repository import OrganizationRepository
 
 from .marking import TaskFacts, count_marks, mark_task, score_from_counts
 from .repository import ScoringRepository
 from .rollup import weighted_average
+
+
+# The most ``kpi_scores.score_percentage`` can hold (a DECIMAL(5,2) column).
+KPI_SCORE_MAX = Decimal("999.99")
 
 
 def period_dates(period_start: datetime, period_end: datetime) -> tuple[date, date]:
@@ -40,6 +49,123 @@ class ScoringService:
         self._kpi_repo = KPIRepository(db)
         self._kpi_score_repo = KPIScoreRepository(db)
         self._department_repo = DepartmentRepository(db)
+        self._organization_repo = OrganizationRepository(db)
+
+    async def run_nightly(self, organization_id: uuid.UUID, now: datetime) -> dict:
+        """One organization's nightly scoring: close last quarter once, refresh this one.
+
+        1. If the PREVIOUS fiscal quarter is not closed yet, and the organization
+           already existed when it ended, close it: write the final task-count KPI
+           results, the final person and department scores, and freeze them. A
+           second run finds it frozen and skips it, and a late run gives the same
+           numbers (everything is judged at the quarter's end).
+        2. Refresh the CURRENT quarter's "so far" rows.
+
+        The caller sets the tenant context and owns the transaction, so an
+        organization's whole night is saved together or not at all.
+
+        Args:
+            organization_id: The organization.
+            now: The current moment (any timezone).
+
+        Returns:
+            ``{"closed_previous_period": bool}``, for logging.
+        """
+        organization = await self._organization_repo.get_organization_by_id(organization_id)
+        if organization is None:
+            return {"closed_previous_period": False}
+
+        month, timezone_name = organization.fiscal_year_start_month, organization.timezone
+        current_start, current_end = current_fiscal_quarter(month, timezone_name, now)
+        previous_start, previous_end = current_fiscal_quarter(
+            month, timezone_name, current_start - timedelta(seconds=1)
+        )
+
+        closed_previous_period = False
+        first_day, last_day = period_dates(previous_start, previous_end)
+        existed_then = organization.created_at < previous_end  # no empty frozen quarters before it began
+        if existed_then and not await self._repo.period_is_frozen(organization_id, first_day, last_day):
+            await self.close_period(organization_id, previous_start, previous_end, now)
+            closed_previous_period = True
+
+        await self.refresh_open_period(organization_id, current_start, current_end, now)
+        return {"closed_previous_period": closed_previous_period}
+
+    async def refresh_open_period(
+        self,
+        organization_id: uuid.UUID,
+        period_start: datetime,
+        period_end: datetime,
+        now: datetime,
+    ) -> None:
+        """Refresh the "so far" rows of a period that is still open (nothing is frozen)."""
+        await self.save_task_count_results(organization_id, period_start, period_end)
+        await self.compute_employee_scores(organization_id, period_start, period_end, now)
+        await self.compute_department_scores(organization_id, period_start, period_end, now)
+
+    async def close_period(
+        self,
+        organization_id: uuid.UUID,
+        period_start: datetime,
+        period_end: datetime,
+        now: datetime,
+    ) -> None:
+        """Write the final numbers of a period that has ended, then freeze them.
+
+        The task-count KPI results come first because the department headline
+        reads them. ``now`` must be at or after ``period_end``.
+        """
+        await self.save_task_count_results(organization_id, period_start, period_end)
+        await self.finalize_employee_scores(organization_id, period_start, period_end, now)
+        await self.finalize_department_scores(organization_id, period_start, period_end, now)
+
+    async def save_task_count_results(
+        self, organization_id: uuid.UUID, period_start: datetime, period_end: datetime
+    ) -> int:
+        """Save the result of every task-count KPI for a period, in ``kpi_scores``.
+
+        A task-count KPI's number is the count of tasks linked to it that were
+        completed in the period, turned into a percentage of its target by the
+        KPI module's own rule. Typed-in KPIs are not touched (HR enters those).
+        The percentage is capped at 999.99, the most ``kpi_scores`` can hold, so
+        a KPI far above its target cannot make a whole night fail. These rows go
+        through the KPI score repository because the typed-in path refuses
+        task-count KPIs (``KPI_TRACKED_BY_TASKS``).
+
+        Returns:
+            How many task-count KPI results were written.
+        """
+        first_day, last_day = period_dates(period_start, period_end)
+        kpis = await self._every_item(
+            lambda page, limit: self._kpi_repo.list_kpis(organization_id, None, None, page, limit)
+        )
+
+        written = 0
+        for kpi in kpis:
+            if kpi.tracking_mode != KPITrackingMode.TASK_COUNT.value:
+                continue
+            completed = await self._task_service.count_completed_tasks_for_kpi(kpi.id, period_start, period_end)
+            actual = Decimal(completed)
+            percentage = KPIService.calculate_score_percentage(actual, kpi.target_value, kpi.is_inverse)
+            if percentage is not None:
+                percentage = min(percentage.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), KPI_SCORE_MAX)
+
+            values = {"actual_value": actual, "score_percentage": percentage}
+            saved = await self._kpi_score_repo.get_score_for_period(kpi.id, first_day, last_day)
+            if saved is None:
+                await self._kpi_score_repo.create_kpi_score(
+                    {
+                        "organization_id": organization_id,
+                        "kpi_id": kpi.id,
+                        "period_start": first_day,
+                        "period_end": last_day,
+                        **values,
+                    }
+                )
+            else:
+                await self._kpi_score_repo.update_score(saved, values)
+            written += 1
+        return written
 
     async def compute_employee_scores(
         self,

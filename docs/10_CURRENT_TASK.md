@@ -117,8 +117,11 @@ Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (
   including unassigned ones, the revenue share snapshot, `kpis_counted` / `kpis_expected`; details in `08_DECISIONS.md`
   2026-10-22, fourth entry). A person's OVERALL score and "N of M" are worked out when read, from the saved per-KPI rows
   and their `weight_used` (slice E). **Task-count KPIs have no `kpi_scores` rows until slice D writes them.**
-- **D. The jobs:** the nightly refresh of open periods, the frozen write at period close, and the deferred `task_count`
-  KPI close job (cross-tenant lookup through a narrow `SECURITY DEFINER` function, logged in `07_SECURITY.md`).
+- **D. The jobs: BUILT 2026-10-22** (`scoring/tasks.py`, `ScoringService.run_nightly` / `refresh_open_period` /
+  `close_period` / `save_task_count_results`, migration `fc24c1890470` for the cross-tenant lookup, two additive entries in
+  `core/celery_app.py`, a seventh Task-module helper `count_completed_tasks_for_kpi`; 11 new tests; every item approved by
+  the user). One job per organization at 02:00 UTC: close the previous quarter once (people, departments, task-count KPI
+  results, then freeze), refresh the current one. Details in `08_DECISIONS.md` 2026-10-22, fifth entry.
 - **E. The reads for people and departments:** a person's own score, `GET /departments/{id}/performance-summary` (two
   numbers side by side plus the people), `GET /employees/leaderboard`, behind one scope object (settled question 8).
 - **F. The company view:** `GET /company-performance-summary` (revenue-weighted headline with "N of M counted", saved
