@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import events
 from app.core.exceptions import (
     DepartmentNotFoundException,
     EmployeeNotFoundException,
@@ -373,6 +374,128 @@ class TaskService:
                     link_id=task.id,
                 )
 
+    async def _notify_about_workflow_task(self, task: Task, department_name: str) -> None:
+        """Tell the assignee, or the head (else HR) when the task has no owner.
+
+        Unlike a task a person creates, nobody here is "the creator" to skip,
+        so the assignee is always told (when they have a login).
+        """
+        if task.assigned_to_employee_id is not None:
+            assignee = await self._employee_repo.get_employee_by_id(task.assigned_to_employee_id)
+            if assignee is not None and assignee.user_id is not None:
+                await self._notifications.notify(
+                    organization_id=task.organization_id,
+                    recipient_user_ids=[assignee.user_id],
+                    category=NotificationCategory.TASK,
+                    title=f"New task: {task.title}",
+                    body=f"A task for {department_name} has been assigned to you.",
+                    link_type="task",
+                    link_id=task.id,
+                )
+            return
+
+        recipients = await self._head_or_hr_user_ids(task.department_id, task.organization_id)
+        if recipients:
+            await self._notifications.notify(
+                organization_id=task.organization_id,
+                recipient_user_ids=recipients,
+                category=NotificationCategory.TASK,
+                title=f"A task for {department_name} needs an owner",
+                body=(
+                    f"\"{task.title}\" was created by a workflow for {department_name} and "
+                    "has nobody assigned. Assign it to someone."
+                ),
+                link_type="task",
+                link_id=task.id,
+            )
+
+    async def create_workflow_task(
+        self,
+        *,
+        organization_id: uuid.UUID,
+        department_id: uuid.UUID,
+        title: str,
+        due_at: datetime | None,
+        workflow_instance_id: uuid.UUID,
+        workflow_step_id: uuid.UUID,
+        assigned_to_employee_id: uuid.UUID | None = None,
+        description: str | None = None,
+    ) -> Task:
+        """Create the task for one step of a running workflow.
+
+        Called by the Workflow module, not by a user, so there is no caller:
+        no "who may create" check, and ``created_by_user_id`` stays empty (no
+        human created it). The Workflow module works out the deadline itself.
+
+        The chain must keep moving, so a bad default assignee is not an error.
+        If that person has been offboarded or is not an employee here, the
+        task is created unassigned, in the department's queue, and the
+        department head (or the HR administrators when there is no head) is
+        told. Example: the Finance step names Tunde, Tunde left last month,
+        so the task has no owner and the head of Finance is asked to assign it.
+
+        Args:
+            organization_id: The organization the workflow runs in.
+            department_id: The department that does the step.
+            title: Task title (the Workflow module builds it from the step).
+            due_at: Deadline, or None when the step has no turnaround.
+            workflow_instance_id: The running case this task belongs to.
+            workflow_step_id: The step it was made from.
+            assigned_to_employee_id: The step's default assignee, if any.
+            description: Optional longer description.
+
+        Returns:
+            The newly created ``Task``.
+
+        Raises:
+            DepartmentNotFoundException: If the department isn't in the organization.
+        """
+        department = await self._department_repo.get_department_by_id(department_id)
+        if department is None:
+            raise DepartmentNotFoundException()
+
+        assignee_id = assigned_to_employee_id
+        if assignee_id is not None:
+            assignee = await self._employee_repo.get_employee_by_id(assignee_id)
+            if assignee is None or assignee.status == EmployeeStatus.INACTIVE.value:
+                assignee_id = None
+
+        task = await self._repo.create_task(
+            {
+                "organization_id": organization_id,
+                "department_id": department_id,
+                "title": title,
+                "description": description,
+                "due_at": due_at,
+                "assigned_to_employee_id": assignee_id,
+                "workflow_instance_id": workflow_instance_id,
+                "workflow_step_id": workflow_step_id,
+                "created_by_user_id": None,
+            }
+        )
+        await self._audit.log_action(
+            organization_id=organization_id,
+            actor_user_id=None,
+            action="create",
+            entity_type="task",
+            entity_id=task.id,
+            changes={
+                "old": None,
+                "new": jsonable_encoder(
+                    {
+                        "department_id": task.department_id,
+                        "title": task.title,
+                        "due_at": task.due_at,
+                        "assigned_to_employee_id": task.assigned_to_employee_id,
+                        "workflow_instance_id": task.workflow_instance_id,
+                        "workflow_step_id": task.workflow_step_id,
+                    }
+                ),
+            },
+        )
+        await self._notify_about_workflow_task(task, department.name)
+        return task
+
     async def get_task(self, caller: Membership, task_id: uuid.UUID) -> Task:
         """Fetch one task the caller is allowed to see.
 
@@ -518,6 +641,18 @@ class TaskService:
                 },
             },
         )
+        # Tell anyone who cares (the Workflow module creates the next step's
+        # task). Same transaction: if a listener fails, this completion is
+        # rolled back with it (08_DECISIONS.md 2026-10-12).
+        await events.publish(
+            events.TASK_COMPLETED,
+            self._db,
+            task_id=completed.id,
+            organization_id=completed.organization_id,
+            workflow_instance_id=completed.workflow_instance_id,
+            workflow_step_id=completed.workflow_step_id,
+            actor_user_id=caller.user_id,
+        )
         return completed
 
     async def cancel_task(self, caller: Membership, task_id: uuid.UUID, reason: str) -> Task:
@@ -565,7 +700,99 @@ class TaskService:
             title=f"Task cancelled: {cancelled.title}",
             body=f"This task was cancelled. Reason: {reason}",
         )
+        # Tell anyone who cares (the Workflow module moves a case on past a
+        # cancelled step). Same transaction as the cancel.
+        await events.publish(
+            events.TASK_CANCELLED,
+            self._db,
+            task_id=cancelled.id,
+            organization_id=cancelled.organization_id,
+            workflow_instance_id=cancelled.workflow_instance_id,
+            workflow_step_id=cancelled.workflow_step_id,
+            actor_user_id=caller.user_id,
+            reason=reason,
+        )
         return cancelled
+
+    async def cancel_open_tasks_for_workflow_instance(
+        self, workflow_instance_id: uuid.UUID, reason: str, actor_user_id: uuid.UUID | None
+    ) -> int:
+        """Cancel every task of a workflow case that is still open.
+
+        For the Workflow module, when a whole case is cancelled. An internal
+        step, not a user action: there is no permission check here because the
+        Workflow module has already checked that the caller may cancel the
+        case (the starter is usually not someone who could cancel the task
+        itself). Everything else is what a normal cancel does: any open block
+        is ended, the cancel is audited, the assignee is told and ``task.cancelled``
+        is announced. A task that finished at this very moment is left alone.
+
+        Args:
+            workflow_instance_id: The case being cancelled.
+            reason: Why the case was cancelled; stored on each task.
+            actor_user_id: Who cancelled the case.
+
+        Returns:
+            How many tasks were cancelled.
+        """
+        cancelled_count = 0
+        for task in await self._repo.list_tasks_for_workflow_instance(workflow_instance_id):
+            if task.status not in OPEN_STATUSES:
+                continue
+
+            # Read before the UPDATE: it refreshes this same object in place.
+            old_status = task.status
+            await self._end_open_block(task.id, datetime.now(UTC))
+            cancelled = await self._repo.cancel_task(task.id, reason)
+            if cancelled is None:
+                continue  # completed or cancelled at the same moment
+
+            await self._audit.log_action(
+                organization_id=cancelled.organization_id,
+                actor_user_id=actor_user_id,
+                action="cancel",
+                entity_type="task",
+                entity_id=cancelled.id,
+                changes={
+                    "old": {"status": old_status},
+                    "new": {"status": cancelled.status, "cancel_reason": reason},
+                },
+            )
+            await self._tell_assignee_workflow_task_cancelled(cancelled, actor_user_id, reason)
+            await events.publish(
+                events.TASK_CANCELLED,
+                self._db,
+                task_id=cancelled.id,
+                organization_id=cancelled.organization_id,
+                workflow_instance_id=cancelled.workflow_instance_id,
+                workflow_step_id=cancelled.workflow_step_id,
+                actor_user_id=actor_user_id,
+                reason=reason,
+            )
+            cancelled_count += 1
+        return cancelled_count
+
+    async def _tell_assignee_workflow_task_cancelled(
+        self, task: Task, actor_user_id: uuid.UUID | None, reason: str
+    ) -> None:
+        """Tell the assignee their task was closed because its workflow was cancelled.
+
+        Nobody is notified about their own action.
+        """
+        if task.assigned_to_employee_id is None:
+            return
+        assignee = await self._employee_repo.get_employee_by_id(task.assigned_to_employee_id)
+        if assignee is None or assignee.user_id in (None, actor_user_id):
+            return
+        await self._notifications.notify(
+            organization_id=task.organization_id,
+            recipient_user_ids=[assignee.user_id],
+            category=NotificationCategory.TASK,
+            title=f"Task cancelled: {task.title}",
+            body=f"This task was cancelled because its workflow was cancelled. Reason: {reason}",
+            link_type="task",
+            link_id=task.id,
+        )
 
     async def reassign_task(
         self,
@@ -1026,6 +1253,51 @@ class TaskService:
             unit=kpi.unit,
             score_percentage=score_percentage,
         )
+
+    async def count_open_tasks_for_step(self, workflow_step_id: uuid.UUID) -> int:
+        """How many tasks made from a workflow step are still open.
+
+        For the Workflow module, which refuses to delete a step while one of
+        its tasks is still being worked on. It is an internal question, not a
+        user action, so there is no caller and no visibility check: the count
+        is the step's total (RLS keeps it inside the organization).
+
+        Args:
+            workflow_step_id: The workflow step.
+
+        Returns:
+            The number of tasks that are ``open`` or ``in_progress``.
+        """
+        return await self._repo.count_open_tasks_for_step(workflow_step_id)
+
+    async def workflow_instance_ids_for_assignee(self, employee_id: uuid.UUID) -> list[uuid.UUID]:
+        """The workflow cases in which an employee has (or had) a task.
+
+        For the Workflow module's "who may see this case" rule. An internal
+        question, so no caller and no visibility check.
+
+        Args:
+            employee_id: The assignee.
+
+        Returns:
+            The workflow instance ids, each once.
+        """
+        return await self._repo.list_workflow_instance_ids_for_assignee(employee_id)
+
+    async def list_tasks_for_workflow_instance(self, workflow_instance_id: uuid.UUID) -> list[Task]:
+        """Every task a workflow case has created, oldest first.
+
+        For the Workflow module's case detail (its progress). An internal
+        question: the Workflow module has already checked the caller may see
+        the case, so there is no per-task visibility check here.
+
+        Args:
+            workflow_instance_id: The workflow case.
+
+        Returns:
+            Its tasks in creation order, whatever their status.
+        """
+        return await self._repo.list_tasks_for_workflow_instance(workflow_instance_id)
 
     async def release_orphaned_tasks(self, organization_id: uuid.UUID) -> int:
         """Hand over the open tasks of employees who have been offboarded.

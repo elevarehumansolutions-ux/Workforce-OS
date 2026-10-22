@@ -32,6 +32,8 @@ from app.modules.kpis.router import router as kpis_router
 from app.modules.ai.router import router as ai_router
 from app.modules.attendance.router import router as attendance_router
 from app.modules.tasks.router import router as tasks_router
+from app.modules.workflow.listeners import register_listeners as register_workflow_listeners
+from app.modules.workflow.router import router as workflow_router
 
 # Initialise Sentry before anything else
 # if settings.sentry_dsn:
@@ -183,3 +185,9 @@ app.include_router(kpis_router, prefix="/api/v1", tags=["kpis"])
 app.include_router(ai_router, prefix="/api/v1", tags=["ai-suggestions"])
 app.include_router(attendance_router, prefix="/api/v1", tags=["attendance"])
 app.include_router(tasks_router, prefix="/api/v1", tags=["tasks"])
+app.include_router(workflow_router, prefix="/api/v1", tags=["workflow"])
+
+# Let the Workflow module hear about completed and cancelled tasks (it creates
+# the next step's task). Tasks are only completed or cancelled through the API
+# today; if a background job ever does it, it must call this too.
+register_workflow_listeners()
