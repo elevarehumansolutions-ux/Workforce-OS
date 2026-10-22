@@ -56,6 +56,11 @@ from app.modules.workflow.models import (
     WorkflowStep,
     WorkflowInstance,
 )
+from app.modules.scoring.models import (
+    EmployeeKPIScore,
+    DepartmentScore,
+    ExecutiveSummary,
+)
 
 __all__ = [
     "Organization",
@@ -85,4 +90,7 @@ __all__ = [
     "WorkflowTemplate",
     "WorkflowStep",
     "WorkflowInstance",
+    "EmployeeKPIScore",
+    "DepartmentScore",
+    "ExecutiveSummary",
 ]

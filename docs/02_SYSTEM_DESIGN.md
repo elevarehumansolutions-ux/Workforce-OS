@@ -60,7 +60,7 @@ module_name/
 **Why its own module:** no foreign key ties `ai_suggestions` to `business_dna` or `okrs` at all — it reaches into Org Structure and Performance for its subject matter, but its actual job, running the suggest/review lifecycle, is a distinct, generic concern that will keep growing (it's explicitly the mechanism `01_REQUIREMENTS.md` §8 relies on to eventually produce training data for a real model).
 
 ### Performance
-**Owns:** `kpis`, `kpi_scores`, `employee_kpi_scores`, `executive_summaries` (added 2026-09-07)
+**Owns:** `kpis`, `kpi_scores`, `employee_kpi_scores`, `executive_summaries` (added 2026-09-07). **Split into two folders, decided 2026-10-22 (M12, `08_DECISIONS.md`):** the existing `kpis/` module keeps KPI definitions, weighting and `kpi_scores` (built in M8, already studied, left untouched); the new `scoring/` module owns `employee_kpi_scores`, `department_scores` (new) and `executive_summaries` and everything M12 builds (scoring, dashboards, the executive summary). `scoring/` reads KPIs, Tasks and Organization through their own services and repositories, like Task and Workflow do.
 **Responsibility:** KPI definitions, weighting, and period-by-period scoring; the quarterly revenue-target math (`departments.revenue_allocation_percentage` × `business_dna.capital_investment_amount`, divided by quarter).
 **Depends on:** Identity (permission), Org Structure (`department_id`, `location_id`), OKR (`key_result_id`, nullable), Business DNA (`capital_investment_amount`).
 **Called by:** Task (a task linked to a KPI inherits that KPI's weight — Task's service calls Performance's service to fetch it), AI Suggestions (`kpi_weight` suggestions read/write through here).
