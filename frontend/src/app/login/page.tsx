@@ -4,6 +4,7 @@ import { useState, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, setAccessToken, ApiError } from "@/lib/api";
+import { resumePath } from "@/lib/onboarding";
 
 interface LoginFormData {
   email: string;
@@ -92,7 +93,8 @@ function LoginContent() {
       });
 
       setAccessToken(data.access_token);
-      router.push("/dashboard");
+      // Someone who left the onboarding wizard unfinished goes back to the step they stopped at.
+      router.push(resumePath(data.user.id) || "/dashboard");
     } catch (err) {
       if (err instanceof ApiError) {
         if (Object.keys(err.fieldErrors).length > 0) {

@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
+import { resumePath } from "@/lib/onboarding";
 
 interface MeResponse {
-  user: { account_status: string };
+  user: { id: string; account_status: string };
 }
 
 const SIDEBAR_ITEMS: { label: string; href: string }[] = [
@@ -138,6 +139,12 @@ export default function ManagerDashboardPage() {
         if (cancelled) return;
         if (me.user.account_status !== "verified") {
           router.replace("/verify-email");
+          return;
+        }
+        // Unfinished onboarding: back to the step they stopped at.
+        const resume = resumePath(me.user.id);
+        if (resume) {
+          router.replace(resume);
           return;
         }
       } catch {
@@ -331,4 +338,3 @@ export default function ManagerDashboardPage() {
     </div>
   );
 }
-
