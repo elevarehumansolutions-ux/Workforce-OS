@@ -123,6 +123,31 @@ class ScoringRepository:
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_scores_for_employee(
+        self, employee_id: uuid.UUID, period_start: date, period_end: date
+    ) -> list[EmployeeKPIScore]:
+        """One person's saved KPI rows for one period, running or frozen.
+
+        Read as they are in the database (``populate_existing``) so a row the
+        nightly job just refreshed in this same session is not served stale.
+
+        Args:
+            employee_id: The person.
+            period_start: First day of the period.
+            period_end: Last day of the period.
+        """
+        stmt = (
+            select(EmployeeKPIScore)
+            .where(
+                EmployeeKPIScore.employee_id == employee_id,
+                EmployeeKPIScore.period_start == period_start,
+                EmployeeKPIScore.period_end == period_end,
+            )
+            .execution_options(populate_existing=True)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
     async def clear_running_employee_score(self, score_id: uuid.UUID) -> None:
         """Reset a running row to "no tasks": zero counts and an empty score.
 

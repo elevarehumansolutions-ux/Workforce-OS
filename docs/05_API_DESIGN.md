@@ -137,6 +137,12 @@ Nothing below this line exists as a real endpoint today — every path here 404s
 
 ### Performance (M12, dashboards)
 
+**Built (slice E part 1, 2026-10-22): a person's performance card.**
+`GET /employees/me/performance` (the caller's own; 404 `EMPLOYEE_NOT_FOUND` if the caller has no employee record, for example an HR administrator) and `GET /employees/{employee_id}/performance`. Both take the optional query parameters `period_start` and `period_end` (dates, `2026-07-01` and `2026-09-30`): give both or neither (neither = the organization's current fiscal quarter; one, or an end before the start, is **422 `VALIDATION_FAILED`**). Dates are matched exactly against saved periods, so a pair that matches none returns the card with no data, not an error.
+Who may open whose card (`08_DECISIONS.md` 2026-10-21, question 8): HR administrators and business executives, anyone; a department head or `manager`, the people of their own department; everyone else, only their own. **Anything the caller may not see is 404 `EMPLOYEE_NOT_FOUND`, identical to a person who does not exist** (never 403).
+Response: `employee_id`, `employee_name`, `department_id`, `period_start`, `period_end`, `is_final` (true once the quarter has closed and its numbers are frozen), `overall_score` (weighted average of the KPIs that have a score; **`null` = no data, never 0**), `kpis_counted` and `kpis_expected` (the "N of M counted"), `no_data_reason` (a sentence when `overall_score` is `null`, else `null`) and `kpis`: one line per KPI of the person's department, heaviest first, each with `kpi_id`, `kpi_name`, `weight` (the weight it was scored with), `score_percentage` (`null` = no tasks on this KPI), `tasks_on_time`, `tasks_late`, `tasks_not_done`. The individual tasks and why they were late are NOT in this card; they stay on `GET /tasks` (overdue flag, block reasons). Not provided: a previous-quarter comparison, and a dropdown of available periods (the screen sends the dates).
+
+**Not built yet:**
 - `GET /departments/{id}/performance-summary` — the quarterly rollup that feeds dashboards.
 - `GET /employees/leaderboard` (filter: `department_id`, `period`) — ranked employee scores.
 - `GET /company-performance-summary` (filter: `period`) — the headline dashboard section in one call.
