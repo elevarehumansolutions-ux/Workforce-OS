@@ -59,7 +59,7 @@ interface EditValues {
   weight: string;
 }
 
-const ONBOARDING_STEPS = ["Business DNA", "Organization", "OKRs", "AI Suggestions", "KPIs", "Invite Team"];
+const ONBOARDING_STEPS = ["Business DNA", "AI Structure", "Organization", "OKRs", "AI Suggestions", "KPIs", "Invite Team"];
 
 // The exact values the backend accepts (CriticalityType / RiskLevel enums).
 const CRITICALITY_OPTIONS: { value: string; label: string }[] = [
@@ -443,11 +443,11 @@ export default function AiSuggestionsPage() {
             let labelClass = "text-sm ";
             let isCheck = false;
 
-            if (i < 3) {
+            if (i < 4) {
               circleClass += "border border-indigo-500 text-indigo-400";
               labelClass += "text-gray-500";
               isCheck = true;
-            } else if (i === 3) {
+            } else if (i === 4) {
               circleClass += "bg-indigo-500 text-white";
               labelClass += "font-medium text-indigo-400";
             } else {
