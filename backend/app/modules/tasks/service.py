@@ -54,6 +54,7 @@ from .enums import OPEN_STATUSES, BlockCategory, ReviewStatus, TaskStatus
 from .models import Task, TaskBlock
 from .periods import current_fiscal_quarter
 from .repository import TaskRepository, TaskScope
+from .scoring_rows import TaskForScoring
 from .schemas import KPITaskProgressResponse, TaskBlockResponse, TaskBlockReviewItem
 
 # Roles that can see every task in the organization.
@@ -1298,6 +1299,25 @@ class TaskService:
             Its tasks in creation order, whatever their status.
         """
         return await self._repo.list_tasks_for_workflow_instance(workflow_instance_id)
+
+    async def list_tasks_for_scoring(
+        self, period_start: datetime, period_end: datetime
+    ) -> list[TaskForScoring]:
+        """The tasks that could be marked in a scoring period, with their block facts.
+
+        For the Scoring module (M12), which marks each task on time, late or not
+        done. An internal question: no caller and no visibility check, because the
+        Scoring module applies its own access rules to what it shows. RLS keeps the
+        result inside the organization.
+
+        Args:
+            period_start: The first moment of the period.
+            period_end: The first moment AFTER the period.
+
+        Returns:
+            One row per candidate task (see ``TaskRepository.list_tasks_for_scoring``).
+        """
+        return await self._repo.list_tasks_for_scoring(period_start, period_end)
 
     async def release_orphaned_tasks(self, organization_id: uuid.UUID) -> int:
         """Hand over the open tasks of employees who have been offboarded.
