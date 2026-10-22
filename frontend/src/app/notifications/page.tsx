@@ -84,6 +84,10 @@ function destinationOf(n: NotificationItem): string | null {
   if (n.link_type === "task_block" && n.link_id) {
     return "/tasks/blocks?block=" + n.link_id;
   }
+  // A step was skipped on a case; link_id is the CASE id.
+  if (n.link_type === "workflow_instance" && n.link_id) {
+    return "/workflow/case-detail?id=" + n.link_id;
+  }
   if (n.link_type === "department" && n.link_id) {
     return "/tasks?department_id=" + n.link_id + "&status=open";
   }
