@@ -1,16 +1,15 @@
 ﻿"use client";
 
-import { useState, useEffect, FormEvent, KeyboardEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
+import { INDUSTRY_OPTIONS, OTHER_INDUSTRY, resolveIndustry, splitIndustry } from "@/lib/industry";
 
 interface BusinessDnaFormData {
   companyName: string;
   industry: string;
+  customIndustry: string;
   productsDescription: string;
-  vision: string;
-  mission: string;
-  coreValues: string[];
   capitalInvestment: string;
   timezone: string;
 }
@@ -23,17 +22,6 @@ const ONBOARDING_STEPS = [
   "AI Suggestions",
   "KPIs",
   "Invite Team",
-];
-
-const INDUSTRY_OPTIONS = [
-  "Information Technology",
-  "Financial Services",
-  "Manufacturing",
-  "Healthcare",
-  "Retail & E-commerce",
-  "Agriculture",
-  "Logistics & Transportation",
-  "Other",
 ];
 
 const DEFAULT_TIMEZONE = "Africa/Lagos";
@@ -58,20 +46,12 @@ interface MeResponse {
   user: { account_status: string };
 }
 
-interface CoreValueResponse {
-  id: string;
-  value: string;
-}
-
 interface BusinessDnaResponse {
   organization_name: string | null;
   timezone: string;
   industry: string | null;
   products_services_description: string | null;
-  vision: string | null;
-  mission: string | null;
   capital_investment_amount: string | number | null;
-  core_values: CoreValueResponse[];
 }
 
 export default function BusinessDnaPage() {
@@ -85,7 +65,6 @@ export default function BusinessDnaPage() {
   const [loadingExisting, setLoadingExisting] = useState<boolean>(true);
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [existingCoreValueIds, setExistingCoreValueIds] = useState<Record<string, string>>({});
   const timezoneOptions = useState(getTimezoneOptions)[0];
 
   useEffect(function () {
@@ -105,10 +84,8 @@ export default function BusinessDnaPage() {
   const [formData, setFormData] = useState<BusinessDnaFormData>({
     companyName: "",
     industry: INDUSTRY_OPTIONS[0],
+    customIndustry: "",
     productsDescription: "",
-    vision: "",
-    mission: "",
-    coreValues: [],
     capitalInvestment: "",
     timezone: DEFAULT_TIMEZONE,
   });
@@ -124,20 +101,11 @@ export default function BusinessDnaPage() {
       : Promise.reject(new Error("not signed in"));
     request
       .then(function (data) {
-        const idByValue: Record<string, string> = {};
-        data.core_values.forEach(function (cv) {
-          idByValue[cv.value] = cv.id;
-        });
-        setExistingCoreValueIds(idByValue);
         setFormData({
           companyName: data.organization_name || "",
-          industry: data.industry || INDUSTRY_OPTIONS[0],
+          industry: splitIndustry(data.industry).choice,
+          customIndustry: splitIndustry(data.industry).custom,
           productsDescription: data.products_services_description || "",
-          vision: data.vision || "",
-          mission: data.mission || "",
-          coreValues: data.core_values.map(function (cv) {
-            return cv.value;
-          }),
           capitalInvestment:
             data.capital_investment_amount === null || data.capital_investment_amount === undefined
               ? ""
@@ -154,62 +122,25 @@ export default function BusinessDnaPage() {
       });
   }, []);
 
-  const [newValueInput, setNewValueInput] = useState("");
-  const [showAddValue, setShowAddValue] = useState(false);
-
-  function addCoreValue() {
-    const trimmed = newValueInput.trim();
-    if (trimmed && !formData.coreValues.includes(trimmed)) {
-      setFormData({ ...formData, coreValues: [...formData.coreValues, trimmed] });
-    }
-    setNewValueInput("");
-    setShowAddValue(false);
-  }
-
-  function removeCoreValue(value: string) {
-    setFormData({
-      ...formData,
-      coreValues: formData.coreValues.filter((v) => v !== value),
-    });
-  }
-
-  function handleValueKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      addCoreValue();
-    } else if (e.key === "Escape") {
-      setNewValueInput("");
-      setShowAddValue(false);
-    }
-  }
-
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitError("");
+    if (formData.industry === OTHER_INDUSTRY && !formData.customIndustry.trim()) {
+      setSubmitError("Please type your industry, or choose one from the list.");
+      return;
+    }
     setSubmitting(true);
     try {
       const payload: Record<string, unknown> = {
         organization_name: formData.companyName || null,
         timezone: formData.timezone || null,
-        industry: formData.industry || null,
+        industry: resolveIndustry(formData.industry, formData.customIndustry) || null,
         products_services_description: formData.productsDescription || null,
-        vision: formData.vision || null,
-        mission: formData.mission || null,
         capital_investment_amount: formData.capitalInvestment
           ? Number(formData.capitalInvestment)
           : null,
       };
       await apiFetch("/business-dna", { method: "PUT", body: payload });
-
-      // Core values have their own CRUD endpoints — POST /business-dna/core-values
-      // {value} one at a time, there's no batch write on the upsert body. Only
-      // send the ones that aren't already saved from a previous visit.
-      const newValues = formData.coreValues.filter(function (v) {
-        return !existingCoreValueIds[v];
-      });
-      for (const value of newValues) {
-        await apiFetch("/business-dna/core-values", { method: "POST", body: { value } });
-      }
 
       // The first save makes the backend start drafting the company's departments,
       // positions and objectives; the next step is where HR reviews them.
@@ -313,81 +244,40 @@ export default function BusinessDnaPage() {
                   </option>
                 ))}
               </select>
+              {formData.industry === OTHER_INDUSTRY ? (
+                <div className="mt-3">
+                  <input
+                    type="text"
+                    autoFocus
+                    maxLength={100}
+                    value={formData.customIndustry}
+                    onChange={(e) => setFormData({ ...formData, customIndustry: e.target.value })}
+                    placeholder="Type your industry, e.g. Real Estate"
+                    aria-label="Your industry"
+                    className="w-full rounded-lg border border-indigo-500/40 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                  />
+                  <p className="mt-1.5 text-xs text-gray-500">Not in the list? Tell us what your company does.</p>
+                </div>
+              ) : null}
             </div>
           </div>
 
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-200">
-              Products / Services Description
+              Business DNA{" "}
+              <span className="text-xs font-normal text-gray-500">(e.g. vision, mission and core values)</span>
             </label>
+            <p className="mb-2 text-xs text-gray-500">
+              Describe what the company does and stands for: your vision, mission, core values, and the products or services you offer.
+              The AI uses this to suggest critical roles and KPIs.
+            </p>
             <textarea
-              rows={3}
+              rows={9}
               value={formData.productsDescription}
               onChange={(e) => setFormData({ ...formData, productsDescription: e.target.value })}
-              placeholder="e.g. Enterprise software solutions, cloud infrastructure, and managed IT services..."
-              className="w-full resize-none rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+              placeholder={"e.g. Vision: To be Africa's leading technology solutions provider.\nMission: Empowering modern businesses through secure, innovative technology.\nCore values: Collaboration, Excellence, Integrity.\nWhat we do: Enterprise software, cloud infrastructure and managed IT services."}
+              className="w-full resize-y rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
             />
-          </div>
-
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-200">Vision</label>
-              <textarea
-                rows={3}
-                value={formData.vision}
-                onChange={(e) => setFormData({ ...formData, vision: e.target.value })}
-                placeholder="e.g. To be Africa's leading technology solutions provider..."
-                className="w-full resize-none rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-              />
-            </div>
-            <div>
-              <label className="mb-2 block text-sm font-medium text-gray-200">Mission</label>
-              <textarea
-                rows={3}
-                value={formData.mission}
-                onChange={(e) => setFormData({ ...formData, mission: e.target.value })}
-                placeholder="e.g. Empowering modern businesses through secure, innovative technology..."
-                className="w-full resize-none rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium text-gray-200">Core Values</label>
-            <div className="flex flex-wrap items-center gap-2">
-              {formData.coreValues.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => removeCoreValue(value)}
-                  className="rounded-full border border-indigo-500/50 bg-indigo-500/10 px-4 py-1.5 text-sm font-medium text-indigo-300 hover:border-red-400/50 hover:bg-red-400/10 hover:text-red-300"
-                  title="Click to remove"
-                >
-                  {value}
-                </button>
-              ))}
-
-              {showAddValue ? (
-                <input
-                  autoFocus
-                  type="text"
-                  value={newValueInput}
-                  onChange={(e) => setNewValueInput(e.target.value)}
-                  onKeyDown={handleValueKeyDown}
-                  onBlur={addCoreValue}
-                  placeholder="Type and press Enter"
-                  className="rounded-full border border-white/20 bg-[#0a0e1a] px-4 py-1.5 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowAddValue(true)}
-                  className="rounded-full border border-white/20 px-4 py-1.5 text-sm font-medium text-gray-300 hover:border-white/40"
-                >
-                  + Add Value
-                </button>
-              )}
-            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -455,4 +345,3 @@ export default function BusinessDnaPage() {
     </div>
   );
 }
-
