@@ -107,6 +107,20 @@ Single-KPI `POST`/`PATCH` and the group reconcile are `hr_administrator`-only; `
 
 **Decision rule for the frontend, worth building into the UI directly:** if nothing on the form changed from the AI's proposal, call `/approve`. If anything changed, call `/edit` with only the changed fields. Don't always call `/edit` "to be safe" — an edit with nothing changed 422s by design.
 
+## Blueprint (AI-proposed set-up; added 2026-10-22)
+
+After a company FIRST saves its Business DNA, the AI proposes its departments, positions (with who each reports to: the organogram), objectives with key results, and renames of anything it already has. Nothing is real until HR approves. All endpoints: **HR Administrator or Business Executive** (`generate`: HR Administrator only). Why and how: `08_DECISIONS.md` 2026-10-22.
+
+- `GET /blueprint` (filters `status` = pending/approved/edited/rejected, `kind`; `page`/`limit`, default limit 100, max 100) — the items, newest batch first, in the AI's own order. Item fields: `id`, `kind` (`department`, `position`, `objective`, `key_result`, `rename_department`, `rename_position`, `review_note`), `ref`, `title` (the name/title/text; for a rename, the NEW name; for a note, its heading), `rationale`, `status`, `reviewed_title`, `created_entity_id` (the real row once approved), and how it hangs together: a position has `department_ref` (the `ref` of a proposed department) OR `department_id` (an existing one), and `reports_to_ref` OR `reports_to_position_id` (blank = top of the chart); an objective has `department_ref`/`department_id` (both blank = company-wide); a key result has `objective_ref`. Rename and note items carry `department_id` or `position_id` of the existing row. Build the tree on screen from `ref`s.
+- `POST /blueprint/generate` — no body. Always **202**: `{"status": "queued"}` (runs in the background; poll `GET /blueprint?status=pending`, and there is a notification, `link_type` `"blueprint"`), or `{"status": "already_pending"}` when items still wait for review (nothing queued).
+- `POST /blueprint/accept-all` — no body. Approves every pending item, parents first. `{"accepted": N, "skipped": [{"id", "title", "reason"}]}`; a skipped item stays pending (for example a rename that clashes with an existing department name).
+- `POST /blueprint/{id}/approve` — no body. Creates the real department/position/OKR/key result (or applies the rename). **Its pending parents are approved first** (approving a position also creates its department and boss). Returns the item.
+- `POST /blueprint/{id}/edit` — body `{"title": "..."}` (1 to 300 characters; 422 otherwise). Same as approve with HR's own wording (`status` `edited`). Only the wording can be edited.
+- `POST /blueprint/{id}/reject` — no body.
+- **Errors:** `404 BLUEPRINT_ITEM_NOT_FOUND` (also another organization's item); `409 BLUEPRINT_ITEM_ALREADY_REVIEWED`; `409 BLUEPRINT_PARENT_REJECTED` (the item depends on a rejected department or objective; message names it); plus whatever the real create can say, for example `409` "A department named 'X' already exists" on a rename that clashes.
+- **Not provided:** merging duplicates (the AI flags them with a `review_note`; approving a note only marks it seen), deleting anything the company already has, proposing changes to existing reporting lines. A rejected BOSS is not an error: the position is simply created at the top of the chart.
+- **Trigger:** `PUT /business-dna` enqueues generation only the first time. Later DNA edits do nothing; use `POST /blueprint/generate`.
+
 ## Audit Log
 
 - `GET /audit-log` (filter: `entity_type`, `entity_id`, `actor_user_id`, `date_from`, `date_to`; `cursor`/`limit`, cursor-paginated) — **HR Administrator or Business Executive only**, not open to every member. No dedicated viewer screen required for MVP, but reachable via API for support/debugging use.
