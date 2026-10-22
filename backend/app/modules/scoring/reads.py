@@ -6,15 +6,17 @@ can probe whether a colleague exists or what they scored
 (08_DECISIONS.md 2026-10-21, question 8).
 """
 
+import math
 import uuid
 from datetime import UTC, date, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import EmployeeNotFoundException, ValidationException
+from app.core.exceptions import DepartmentNotFoundException, EmployeeNotFoundException, ValidationException
+from app.core.schemas import PaginationMeta
 from app.modules.kpis.repository import KPIRepository
 from app.modules.organization.models import Employee
-from app.modules.organization.repository import EmployeeRepository, PositionRepository
+from app.modules.organization.repository import DepartmentRepository, EmployeeRepository, PositionRepository
 from app.modules.tasks.periods import current_fiscal_quarter
 from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.repository import OrganizationRepository
@@ -22,7 +24,7 @@ from app.modules.tenancy_identity.repository import OrganizationRepository
 from .access import load_performance_scope
 from .repository import ScoringRepository
 from .rollup import weighted_average
-from .schemas import KPIScoreLine, PersonPerformanceResponse
+from .schemas import DepartmentPerformanceResponse, KPIScoreLine, PersonPerformanceResponse, PersonScoreLine
 from .service import ScoringService, period_dates
 
 
@@ -66,6 +68,29 @@ def _heaviest_first(line: KPIScoreLine) -> tuple:
     return (-line.weight, line.kpi_name)
 
 
+def _best_first(person: PersonScoreLine) -> tuple:
+    """Sort key: highest overall score first, people with no data last, ties by name."""
+    has_no_score = person.overall_score is None
+    score = person.overall_score if person.overall_score is not None else 0
+    return (has_no_score, -score, person.employee_name)
+
+
+def _cut_page(items: list, page: int, limit: int) -> tuple[list, PaginationMeta]:
+    """One page of an already sorted list, with the same page numbers the other lists use."""
+    total = len(items)
+    total_pages = math.ceil(total / limit) if total > 0 else 1
+    start = (page - 1) * limit
+    meta = PaginationMeta(
+        page=page,
+        limit=limit,
+        total=total,
+        total_pages=total_pages,
+        has_next=page < total_pages,
+        has_previous=page > 1,
+    )
+    return items[start : start + limit], meta
+
+
 class PerformanceReadService:
     """Reads saved scores for the people the caller is allowed to see."""
 
@@ -75,6 +100,7 @@ class PerformanceReadService:
         self._repo = ScoringRepository(db)
         self._employee_repo = EmployeeRepository(db)
         self._position_repo = PositionRepository(db)
+        self._department_repo = DepartmentRepository(db)
         self._kpi_repo = KPIRepository(db)
         self._organization_repo = OrganizationRepository(db)
 
@@ -227,4 +253,112 @@ class PerformanceReadService:
             kpis_expected=len(lines),
             no_data_reason=no_data_reason,
             kpis=lines,
+        )
+
+    async def _department_kpi_ids(
+        self, organization_id: uuid.UUID, department_id: uuid.UUID, last_day: date
+    ) -> set[uuid.UUID]:
+        """The department's KPIs that count for a period: not deleted, and created by its last day."""
+        kpis = await ScoringService._every_item(
+            lambda page, limit: self._kpi_repo.list_kpis(organization_id, department_id, None, page, limit)
+        )
+        return {kpi.id for kpi in kpis if kpi.created_at.date() <= last_day}
+
+    async def _people_lines(
+        self,
+        department_id: uuid.UUID,
+        first_day: date,
+        last_day: date,
+        kpi_ids: set[uuid.UUID],
+    ) -> list[PersonScoreLine]:
+        """Every person of the department with their overall score, best first.
+
+        Each person's overall score is worked out here from their saved KPI rows,
+        exactly as on their own card. Only rows on the department's KPIs count.
+        """
+        people = await self._repo.list_people_of_department(department_id, first_day, last_day)
+        all_rows = await self._repo.list_scores_for_employees([person.id for person in people], first_day, last_day)
+
+        rows_by_person = {}
+        for row in all_rows:
+            if row.kpi_id not in kpi_ids:
+                continue
+            if row.employee_id not in rows_by_person:
+                rows_by_person[row.employee_id] = []
+            rows_by_person[row.employee_id].append(row)
+
+        lines = []
+        for person in people:
+            rows = rows_by_person.get(person.id, [])
+            pairs = [(row.weight_used, row.score_percentage) for row in rows]
+            lines.append(
+                PersonScoreLine(
+                    employee_id=person.id,
+                    employee_name=f"{person.first_name} {person.last_name}",
+                    overall_score=weighted_average(pairs),
+                    kpis_counted=len([row for row in rows if row.score_percentage is not None]),
+                    kpis_expected=len(kpi_ids),
+                )
+            )
+        return sorted(lines, key=_best_first)
+
+    async def get_department_performance(
+        self,
+        caller: Membership,
+        department_id: uuid.UUID,
+        period_start: date | None,
+        period_end: date | None,
+        page: int,
+        limit: int,
+    ) -> DepartmentPerformanceResponse:
+        """A department's two numbers for a period, and one page of its people.
+
+        Raises:
+            DepartmentNotFoundException: No such department, or the caller may not see it.
+            ValidationException: The dates are half given or back to front.
+        """
+        first_day, last_day = await self._period_for(caller, period_start, period_end)
+
+        scope = await load_performance_scope(self._db, caller)
+        department = await self._department_repo.get_department_by_id(department_id)
+        if department is None or not scope.can_see_department(department.id):
+            raise DepartmentNotFoundException()
+
+        saved = await self._repo.get_department_score(department.id, first_day, last_day)
+        kpi_ids = await self._department_kpi_ids(caller.organization_id, department.id, last_day)
+        people = await self._people_lines(department.id, first_day, last_day, kpi_ids)
+        one_page, pagination = _cut_page(people, page, limit)
+
+        # Say why a number is empty, so the screen can show "no data yet" with a reason, never a 0.
+        kpi_reason = None
+        punctuality_reason = None
+        if saved is None:
+            kpi_reason = "No scores have been worked out for this period yet."
+            punctuality_reason = kpi_reason
+        else:
+            if saved.kpi_results_score is None:
+                if saved.kpis_expected == 0:
+                    kpi_reason = "This department has no KPIs in this period."
+                else:
+                    kpi_reason = "No KPI of this department has a result yet."
+            if saved.punctuality_score is None:
+                punctuality_reason = "No task of this department had a deadline in this period."
+
+        return DepartmentPerformanceResponse(
+            department_id=department.id,
+            department_name=department.name,
+            period_start=first_day,
+            period_end=last_day,
+            is_final=saved is not None and saved.finalized_at is not None,
+            kpi_results_score=saved.kpi_results_score if saved else None,
+            kpis_counted=saved.kpis_counted if saved else 0,
+            kpis_expected=saved.kpis_expected if saved else len(kpi_ids),
+            kpi_results_no_data_reason=kpi_reason,
+            punctuality_score=saved.punctuality_score if saved else None,
+            punctuality_on_time=saved.punctuality_on_time if saved else 0,
+            punctuality_late=saved.punctuality_late if saved else 0,
+            punctuality_not_done=saved.punctuality_not_done if saved else 0,
+            punctuality_no_data_reason=punctuality_reason,
+            people=one_page,
+            people_pagination=pagination,
         )

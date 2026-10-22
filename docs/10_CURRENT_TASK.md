@@ -125,9 +125,9 @@ Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (
 - **E. The reads for people and departments:** a person's own score, `GET /departments/{id}/performance-summary` (two
   numbers side by side plus the people), `GET /employees/leaderboard`, behind one scope object (settled question 8).
   **Part 1 BUILT 2026-10-22:** `scoring/access.py` (the one scope object), `reads.py`, `schemas.py`, `router.py`, and
-  `GET /employees/me/performance` plus `GET /employees/{id}/performance` (15 tests). **Remaining in E:** the
-  department summary and the leaderboard (both through the same `PerformanceScope`), then ONE Trello note for Uche
-  covering all three. Reminder for the leaderboard: `/employees/leaderboard` must be mounted BEFORE the organization
+  `GET /employees/me/performance` plus `GET /employees/{id}/performance` (15 tests). **Part 2 BUILT 2026-10-22:**
+  `GET /departments/{id}/performance-summary` (6 tests). **Remaining in E:** the leaderboard (same
+  `PerformanceScope`), then ONE Trello note for Uche covering all three. Reminder for the leaderboard: `/employees/leaderboard` must be mounted BEFORE the organization
   router in `main.py`, or `/employees/{employee_id}` swallows it (422).
 - **F. The company view:** `GET /company-performance-summary` (revenue-weighted headline with "N of M counted", saved
   quarterly trend, live custom range up to 12 months, Most Improved top three with context).

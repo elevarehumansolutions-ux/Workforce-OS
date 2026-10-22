@@ -13,9 +13,12 @@ second layer; see 04_DATABASE.md.)
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import exists, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.modules.organization.enums import EmployeeStatus
+from app.modules.organization.models import Employee, Position
 
 from .models import DepartmentScore, EmployeeKPIScore
 
@@ -140,6 +143,88 @@ class ScoringRepository:
             select(EmployeeKPIScore)
             .where(
                 EmployeeKPIScore.employee_id == employee_id,
+                EmployeeKPIScore.period_start == period_start,
+                EmployeeKPIScore.period_end == period_end,
+            )
+            .execution_options(populate_existing=True)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_department_score(
+        self, department_id: uuid.UUID, period_start: date, period_end: date
+    ) -> DepartmentScore | None:
+        """A department's saved row for one period, or ``None`` if none was written yet.
+
+        Args:
+            department_id: The department.
+            period_start: First day of the period.
+            period_end: Last day of the period.
+        """
+        stmt = (
+            select(DepartmentScore)
+            .where(
+                DepartmentScore.department_id == department_id,
+                DepartmentScore.period_start == period_start,
+                DepartmentScore.period_end == period_end,
+            )
+            .execution_options(populate_existing=True)
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def list_people_of_department(
+        self, department_id: uuid.UUID, period_start: date, period_end: date
+    ) -> list[Employee]:
+        """The people to list for a department in a period.
+
+        Everyone currently in the department who is active, plus an inactive
+        person (someone who left) only if they have a saved score for this
+        period, so a leaver's old quarter still shows but an empty current
+        quarter is not cluttered with them. A person's department is the one
+        their position belongs to today.
+
+        Args:
+            department_id: The department.
+            period_start: First day of the period.
+            period_end: Last day of the period.
+        """
+        has_a_saved_score = exists().where(
+            EmployeeKPIScore.employee_id == Employee.id,
+            EmployeeKPIScore.period_start == period_start,
+            EmployeeKPIScore.period_end == period_end,
+        )
+        stmt = (
+            select(Employee)
+            .join(Position, Position.id == Employee.position_id)
+            .where(
+                Position.department_id == department_id,
+                Employee.deleted_at.is_(None),
+                or_(Employee.status == EmployeeStatus.ACTIVE.value, has_a_saved_score),
+            )
+            .order_by(Employee.first_name, Employee.last_name)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def list_scores_for_employees(
+        self, employee_ids: list[uuid.UUID], period_start: date, period_end: date
+    ) -> list[EmployeeKPIScore]:
+        """The saved KPI rows of several people for one period, in one query.
+
+        One query for the whole department, not one per person.
+
+        Args:
+            employee_ids: The people.
+            period_start: First day of the period.
+            period_end: Last day of the period.
+        """
+        if len(employee_ids) == 0:
+            return []
+        stmt = (
+            select(EmployeeKPIScore)
+            .where(
+                EmployeeKPIScore.employee_id.in_(employee_ids),
                 EmployeeKPIScore.period_start == period_start,
                 EmployeeKPIScore.period_end == period_end,
             )

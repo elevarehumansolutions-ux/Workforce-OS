@@ -14,9 +14,42 @@ from app.core.dependencies import get_current_membership, get_db
 from app.modules.tenancy_identity.models import Membership
 
 from .reads import PerformanceReadService
-from .schemas import PersonPerformanceResponse
+from .schemas import DepartmentPerformanceResponse, PersonPerformanceResponse
 
 router = APIRouter()
+
+
+@router.get("/departments/{department_id}/performance-summary", status_code=200)
+async def get_department_performance(
+    department_id: uuid.UUID,
+    period_start: date | None = Query(None, description="First day of the period; with period_end, or neither"),
+    period_end: date | None = Query(None, description="Last day of the period"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> DepartmentPerformanceResponse:
+    """A department's two numbers for a period, with one page of its people.
+
+    "Hit its goals" (KPI results) and "team punctuality" are shown side by side
+    and never blended. HR and executives may open any department; a head or
+    manager only their own (see ``PerformanceScope``).
+
+    Args:
+        department_id: The department.
+        period_start: First day of the period, or leave both dates out.
+        period_end: Last day of the period.
+        page: Page of the people list (1-based).
+        limit: People per page (1 to 100).
+        db: Database session dependency.
+        caller: The authenticated caller's membership.
+
+    Raises:
+        DepartmentNotFoundException: No such department, or the caller may not see it (404).
+        ValidationException: Only one date given, or the end is before the start (422).
+    """
+    service = PerformanceReadService(db)
+    return await service.get_department_performance(caller, department_id, period_start, period_end, page, limit)
 
 
 @router.get("/employees/me/performance", status_code=200)

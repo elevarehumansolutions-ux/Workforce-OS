@@ -6,6 +6,8 @@ from datetime import date
 
 from pydantic import BaseModel
 
+from app.core.schemas import PaginationMeta
+
 
 class KPIScoreLine(BaseModel):
     """One person's result on one KPI.
@@ -21,6 +23,53 @@ class KPIScoreLine(BaseModel):
     tasks_on_time: int
     tasks_late: int
     tasks_not_done: int
+
+
+class PersonScoreLine(BaseModel):
+    """One person in a department's list: their overall score and how many KPIs it rests on.
+
+    ``overall_score`` is empty when the person has no scored tasks in the period
+    (no data, never 0).
+    """
+
+    employee_id: uuid.UUID
+    employee_name: str
+    overall_score: decimal.Decimal | None
+    kpis_counted: int
+    kpis_expected: int
+
+
+class DepartmentPerformanceResponse(BaseModel):
+    """A department's performance for one period: two numbers side by side, then its people.
+
+    The two numbers are never blended (08_DECISIONS.md 2026-10-21, question 5):
+
+    - ``kpi_results_score``: did the department hit its goals? It can be above
+      100. ``kpis_counted`` of ``kpis_expected`` is the "N of M" beside it.
+    - ``punctuality_score``: do people deliver on time, over every task of the
+      department, including tasks nobody holds. The three counts sit beside it.
+
+    Either score is ``null`` when there is no data, with its own reason. ``people``
+    is one page of the department's people, highest overall score first, people
+    with no data last.
+    """
+
+    department_id: uuid.UUID
+    department_name: str
+    period_start: date
+    period_end: date
+    is_final: bool
+    kpi_results_score: decimal.Decimal | None
+    kpis_counted: int
+    kpis_expected: int
+    kpi_results_no_data_reason: str | None
+    punctuality_score: decimal.Decimal | None
+    punctuality_on_time: int
+    punctuality_late: int
+    punctuality_not_done: int
+    punctuality_no_data_reason: str | None
+    people: list[PersonScoreLine]
+    people_pagination: PaginationMeta
 
 
 class PersonPerformanceResponse(BaseModel):
