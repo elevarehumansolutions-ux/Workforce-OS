@@ -193,7 +193,7 @@ export default function HrDashboardPage() {
               <div className="mt-4">
                 <p className="text-xs uppercase tracking-wide text-gray-500">Vision</p>
                 <p className="mt-1 text-sm text-gray-300">
-                  To become the leading workforce management platform across West Africa, empowering organizations with intelligent, people-first HR technology.
+                  To become the leading workforce operating system across West Africa, empowering organizations with intelligent, people-first HR technology.
                 </p>
               </div>
               <div className="mt-4">

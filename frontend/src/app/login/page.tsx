@@ -165,8 +165,8 @@ function LoginContent() {
 
       <div className="relative z-10 mx-auto flex min-h-[calc(100vh-96px)] w-full max-w-7xl flex-col items-center justify-center gap-16 px-8 py-12 sm:px-16 lg:flex-row lg:items-center lg:justify-between">
         <div className="max-w-2xl">
-          <h1 className="text-4xl font-extrabold leading-tight sm:text-5xl">The Engine for West Africa&apos;s Teams</h1>
-          <p className="mt-4 text-lg text-gray-400">Workforce Management System</p>
+          <h1 className="text-4xl font-extrabold leading-tight sm:text-5xl">Where strategy becomes daily execution</h1>
+          <p className="mt-4 text-lg text-gray-400">Workforce Operating System</p>
           <div className="mt-6 flex items-center gap-2 text-sm text-gray-300">
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
             <span>Ready for the Nigeria Workforce OS MVP Onboarding</span>
