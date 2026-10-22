@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ApiError, apiFetch } from "@/lib/api";
+import { INDUSTRY_OPTIONS, OTHER_INDUSTRY, resolveIndustry, splitIndustry } from "@/lib/industry";
 import { formatDateTime } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
 import { SETTINGS_INPUT_CLASS, SETTINGS_LABEL_CLASS, isHrRole, monthName, subscriptionClasses, subscriptionLabel } from "@/lib/settings";
@@ -12,17 +13,6 @@ interface BusinessDna {
   timezone: string;
   industry: string | null;
 }
-
-const INDUSTRY_OPTIONS = [
-  "Information Technology",
-  "Financial Services",
-  "Manufacturing",
-  "Healthcare",
-  "Retail & E-commerce",
-  "Agriculture",
-  "Logistics & Transportation",
-  "Other",
-];
 
 interface IntlWithSupportedValuesOf {
   supportedValuesOf?: (key: string) => string[];
@@ -53,7 +43,7 @@ export default function GeneralSection(props: SectionProps) {
   );
 
   // Edits are kept as differences from what is saved, so nothing is sent that wasn't changed.
-  const [edits, setEdits] = useState<{ name?: string; industry?: string; timezone?: string }>({});
+  const [edits, setEdits] = useState<{ name?: string; industry?: string; customIndustry?: string; timezone?: string }>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -66,11 +56,12 @@ export default function GeneralSection(props: SectionProps) {
   const savedTimezone = dna ? dna.timezone : "Africa/Lagos";
 
   const name = edits.name !== undefined ? edits.name : savedName;
-  const industry = edits.industry !== undefined ? edits.industry : savedIndustry;
+  const savedSplit = splitIndustry(savedIndustry || null);
+  const industry = edits.industry !== undefined ? edits.industry : savedIndustry ? savedSplit.choice : "";
+  const customIndustry = edits.customIndustry !== undefined ? edits.customIndustry : savedSplit.custom;
   const timezone = edits.timezone !== undefined ? edits.timezone : savedTimezone;
   const dirty = Object.keys(edits).length > 0;
 
-  const industries = INDUSTRY_OPTIONS.indexOf(industry) === -1 && industry ? [industry].concat(INDUSTRY_OPTIONS) : INDUSTRY_OPTIONS;
   const zones = timezoneOptions();
   const timezones = zones.indexOf(timezone) === -1 ? [timezone].concat(zones) : zones;
 
@@ -85,7 +76,14 @@ export default function GeneralSection(props: SectionProps) {
       }
       body.organization_name = edits.name.trim();
     }
-    if (edits.industry !== undefined && edits.industry) body.industry = edits.industry;
+    if (edits.industry !== undefined || edits.customIndustry !== undefined) {
+      const resolved = resolveIndustry(industry, customIndustry);
+      if (industry === OTHER_INDUSTRY && !resolved) {
+        setError("Please type your industry, or choose one from the list.");
+        return;
+      }
+      if (resolved) body.industry = resolved;
+    }
     if (edits.timezone !== undefined && edits.timezone) body.timezone = edits.timezone;
     if (Object.keys(body).length === 0) return;
     setSaving(true);
@@ -144,7 +142,7 @@ export default function GeneralSection(props: SectionProps) {
                 className={SETTINGS_INPUT_CLASS}
               >
                 <option value="">Choose an industry</option>
-                {industries.map(function (i) {
+                {INDUSTRY_OPTIONS.map(function (i) {
                   return (
                     <option key={i} value={i}>
                       {i}
@@ -152,6 +150,20 @@ export default function GeneralSection(props: SectionProps) {
                   );
                 })}
               </select>
+              {industry === OTHER_INDUSTRY ? (
+                <input
+                  type="text"
+                  maxLength={100}
+                  value={customIndustry}
+                  disabled={!canEdit}
+                  onChange={function (e) {
+                    setEdits({ ...edits, industry: OTHER_INDUSTRY, customIndustry: e.target.value });
+                  }}
+                  placeholder="Type your industry, e.g. Real Estate"
+                  aria-label="Your industry"
+                  className={SETTINGS_INPUT_CLASS + " mt-3"}
+                />
+              ) : null}
             </div>
             <div>
               <label className={SETTINGS_LABEL_CLASS}>Timezone</label>
