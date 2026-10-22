@@ -15,6 +15,8 @@ from app.modules.blueprint.schemas import (
     BlueprintAnswer,
     ProposedCleanup,
     ProposedDepartment,
+    ProposedKeyResult,
+    ProposedKPI,
     ProposedObjective,
     ProposedPosition,
 )
@@ -34,7 +36,7 @@ def _auth(login: dict) -> dict:
 
 
 def _logistics_answer(extra_cleanups=()) -> BlueprintAnswer:
-    """Operations (Director <- Manager), plus one company objective with two key results."""
+    """Operations (Director <- Manager), one objective with two key results, two KPIs."""
     return BlueprintAnswer(
         departments=[ProposedDepartment(ref="D1", name="Operations", rationale="Moves the goods.")],
         positions=[
@@ -46,9 +48,22 @@ def _logistics_answer(extra_cleanups=()) -> BlueprintAnswer:
         objectives=[
             ProposedObjective(
                 ref="O1", title="Deliver on time", department="D1",
-                key_results=["95% on-time deliveries", "Cut average transit time to 2 days"],
+                key_results=[
+                    ProposedKeyResult(ref="K1", description="95% on-time deliveries"),
+                    ProposedKeyResult(ref="K2", description="Cut average transit time to 2 days"),
+                ],
                 rationale="Customers value speed.",
             )
+        ],
+        kpis=[
+            ProposedKPI(
+                name="On-time delivery rate", department="D1", key_result="K1", weight=60,
+                target_value=95, unit="%", rationale="Direct measure of K1.",
+            ),
+            ProposedKPI(
+                name="Average transit time", department="D1", key_result="K2", weight=40,
+                target_value=2, unit="days", lower_is_better=True, rationale="Direct measure of K2.",
+            ),
         ],
         cleanups=list(extra_cleanups),
     )
@@ -84,11 +99,11 @@ def _by_title(items, title):
 
 @pytest.mark.asyncio
 async def test_generation_saves_pending_items_and_logs_the_cost(client, db_session, monkeypatch):
-    """Nothing real is created: 1 department, 2 positions, 1 objective, 2 key results, all pending."""
+    """Nothing real is created: 1 department, 2 positions, 1 objective, 2 key results, 2 KPIs, all pending."""
     _, headers, org_id, items = await _generate(client, db_session, monkeypatch, "bp_gen1@example.com")
 
     assert sorted(i.kind for i in items) == [
-        "department", "key_result", "key_result", "objective", "position", "position",
+        "department", "key_result", "key_result", "kpi", "kpi", "objective", "position", "position",
     ]
     assert {i.status for i in items} == {"pending"}
     assert (await client.get(DEPARTMENTS, headers=headers)).json()["data"] == []
@@ -354,3 +369,130 @@ async def test_a_company_with_its_own_wrong_structure_is_cleaned_up(client, db_s
 
     names = sorted(d["name"] for d in (await client.get(DEPARTMENTS, headers=headers)).json()["data"])
     assert names == ["Human Resources"]
+
+
+# ------------------------------------------------------------------------- KPIs
+
+KPIS = "/api/v1/kpis"
+
+
+async def _kpis_of(client, headers):
+    return (await client.get(f"{KPIS}?limit=100", headers=headers)).json()["data"]
+
+
+@pytest.mark.asyncio
+async def test_accept_all_creates_the_kpis_linked_to_their_key_results(client, db_session, monkeypatch):
+    """The two KPIs become real, weights 60 + 40, each pointing at the key result it measures."""
+    _, headers, _, _ = await _generate(client, db_session, monkeypatch, "bp_kpi1@example.com")
+
+    resp = await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
+
+    assert resp.json()["skipped"] == []
+    kpis = {k["name"]: k for k in await _kpis_of(client, headers)}
+    assert set(kpis) == {"On-time delivery rate", "Average transit time"}
+    assert float(kpis["On-time delivery rate"]["weight"]) == 60
+    assert float(kpis["Average transit time"]["weight"]) == 40
+    assert kpis["On-time delivery rate"]["is_inverse"] is False
+    assert kpis["Average transit time"]["is_inverse"] is True
+    assert float(kpis["On-time delivery rate"]["target_value"]) == 95
+    assert kpis["On-time delivery rate"]["unit"] == "%"
+    okr = (await client.get(OKRS, headers=headers)).json()["data"][0]
+    key_results = {
+        k["description"]: k["id"]
+        for k in (await client.get(f"{OKRS}/{okr['id']}/key-results", headers=headers)).json()["data"]
+    }
+    assert kpis["On-time delivery rate"]["key_result_id"] == key_results["95% on-time deliveries"]
+    assert kpis["Average transit time"]["key_result_id"] == key_results["Cut average transit time to 2 days"]
+
+
+@pytest.mark.asyncio
+async def test_approving_a_kpi_creates_its_department_key_result_and_objective_first(
+    client, db_session, monkeypatch
+):
+    """One KPI approved: Operations, the objective and just that key result are created too."""
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_kpi2@example.com")
+
+    resp = await client.post(f"{BLUEPRINT}/{_by_title(items, 'On-time delivery rate').id}/approve", headers=headers)
+
+    assert resp.status_code == 200
+    assert [d["name"] for d in (await client.get(DEPARTMENTS, headers=headers)).json()["data"]] == ["Operations"]
+    okr = (await client.get(OKRS, headers=headers)).json()["data"][0]
+    key_results = (await client.get(f"{OKRS}/{okr['id']}/key-results", headers=headers)).json()["data"]
+    assert [k["description"] for k in key_results] == ["95% on-time deliveries"]
+    kpis = await _kpis_of(client, headers)
+    assert [k["name"] for k in kpis] == ["On-time delivery rate"]
+    assert kpis[0]["key_result_id"] == key_results[0]["id"]
+
+
+@pytest.mark.asyncio
+async def test_a_kpi_whose_key_result_was_skipped_is_still_created_without_the_link(
+    client, db_session, monkeypatch
+):
+    """The link is optional: rejecting the key result must not block the KPI."""
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_kpi3@example.com")
+    await client.post(f"{BLUEPRINT}/{_by_title(items, '95% on-time deliveries').id}/reject", headers=headers)
+
+    resp = await client.post(f"{BLUEPRINT}/{_by_title(items, 'On-time delivery rate').id}/approve", headers=headers)
+
+    assert resp.status_code == 200
+    kpis = await _kpis_of(client, headers)
+    assert [(k["name"], k["key_result_id"]) for k in kpis] == [("On-time delivery rate", None)]
+
+
+def _kpis_for_existing_department(*weights):
+    """An answer that only proposes KPIs for the company's existing department (ED1)."""
+    return BlueprintAnswer(
+        departments=[],
+        positions=[],
+        objectives=[],
+        kpis=[
+            ProposedKPI(name=f"Sales KPI {n}", department="ED1", weight=w, rationale="Needed.")
+            for n, w in enumerate(weights)
+        ],
+        cleanups=[],
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_existing_departments_free_weight_is_respected(client, db_session, monkeypatch):
+    """Sales already has a 70% KPI: the AI's two KPIs share the remaining 30%, and all are created."""
+    login, headers, org_id = await _org_with_dna(client, db_session, "bp_kpi4@example.com")
+    sales = (await client.post(DEPARTMENTS, json={"name": "Sales"}, headers=headers)).json()
+    await client.post(KPIS, json={"department_id": sales["id"], "name": "Revenue", "weight": 70}, headers=headers)
+    _fake_anthropic(monkeypatch, usage=_usage(), parsed_output=_kpis_for_existing_department(50, 50))
+    items = await generate_blueprint(db_session, org_id)
+
+    assert sorted(float(i.kpi_weight) for i in items) == [15.0, 15.0]
+    resp = await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
+
+    assert resp.json()["skipped"] == []
+    assert sum(float(k["weight"]) for k in await _kpis_of(client, headers)) == 100
+
+
+@pytest.mark.asyncio
+async def test_a_department_with_a_full_set_of_kpis_gets_no_proposals(client, db_session, monkeypatch):
+    """Sales is at 100%: even if Claude proposes KPIs for it, none are saved."""
+    login, headers, org_id = await _org_with_dna(client, db_session, "bp_kpi5@example.com")
+    sales = (await client.post(DEPARTMENTS, json={"name": "Sales"}, headers=headers)).json()
+    await client.post(KPIS, json={"department_id": sales["id"], "name": "Revenue", "weight": 100}, headers=headers)
+    _fake_anthropic(monkeypatch, usage=_usage(), parsed_output=_kpis_for_existing_department(100))
+
+    assert await generate_blueprint(db_session, org_id) == []
+
+
+@pytest.mark.asyncio
+async def test_a_kpi_that_no_longer_fits_is_skipped_with_the_reason(client, db_session, monkeypatch):
+    """HR adds a 90% KPI by hand after the draft: the AI's KPIs would exceed 100%, so accept-all skips them."""
+    login, headers, org_id = await _org_with_dna(client, db_session, "bp_kpi6@example.com")
+    sales = (await client.post(DEPARTMENTS, json={"name": "Sales"}, headers=headers)).json()
+    _fake_anthropic(monkeypatch, usage=_usage(), parsed_output=_kpis_for_existing_department(50, 50))
+    await generate_blueprint(db_session, org_id)
+    await client.post(KPIS, json={"department_id": sales["id"], "name": "Hand made", "weight": 90}, headers=headers)
+
+    resp = await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
+
+    body = resp.json()
+    assert body["accepted"] == 0
+    assert len(body["skipped"]) == 2
+    assert "100%" in body["skipped"][0]["reason"]
+    assert [k["name"] for k in await _kpis_of(client, headers)] == ["Hand made"]

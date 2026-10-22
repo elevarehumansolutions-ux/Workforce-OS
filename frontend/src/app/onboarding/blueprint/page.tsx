@@ -11,6 +11,7 @@ import {
   fetchLatestBlueprint,
   generateBlueprint,
   isPending,
+  kpiSummary,
   rejectBlueprintItem,
   shownTitle,
 } from "@/lib/blueprint";
@@ -410,6 +411,14 @@ export default function BlueprintPage() {
     );
   }
 
+  // "Weight 60% · Target 95 % · Higher is better", plus the key result it measures.
+  function kpiNote(kpi: BlueprintItem): string {
+    const keyResult = items.find(function (i) {
+      return i.kind === "key_result" && i.ref !== null && i.ref === kpi.key_result_ref;
+    });
+    return kpiSummary(kpi) + (keyResult ? " · Measures: " + shownTitle(keyResult) : "");
+  }
+
   function cleanupText(item: BlueprintItem): string {
     if (item.kind === "rename_department") {
       const current = existingDepartments.find(function (d) { return d.id === item.department_id; });
@@ -488,8 +497,8 @@ export default function BlueprintPage() {
           <h1 className="text-3xl font-bold sm:text-4xl">Your suggested structure</h1>
           <p className="mt-2 text-gray-400">
             From your Business DNA, our AI drafted your departments, your organization chart (who reports to
-            whom), and your objectives. Add what fits, edit the wording, or skip anything. You can change all
-            of it later.
+            whom), your objectives and your KPIs. Add what fits, edit the wording, or skip anything. You can
+            change all of it later.
           </p>
         </div>
 
@@ -646,6 +655,32 @@ export default function BlueprintPage() {
                     </div>
                   );
                 })}
+              </div>
+            ) : null}
+
+            {/* KPIs */}
+            {view.kpiSections.length > 0 ? (
+              <div className={card + " space-y-6"}>
+                <p className="text-xs uppercase tracking-wide text-gray-500">KPIs</p>
+                {view.kpiSections.map(function (section) {
+                  return (
+                    <div key={section.title}>
+                      <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-200">
+                        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: section.color }} />
+                        {section.title}
+                      </p>
+                      <div className="space-y-1.5">
+                        {section.kpis.map(function (kpi) {
+                          return renderLine({ item: kpi, note: kpiNote(kpi) });
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+                <p className="text-xs text-gray-500">
+                  Weights are each KPI&apos;s share of its department&apos;s score. Targets are a starting point:
+                  you can change them on the KPIs step.
+                </p>
               </div>
             ) : null}
 
