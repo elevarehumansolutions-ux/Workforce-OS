@@ -99,12 +99,16 @@ endpoint at a time, block by block. The original wording of each question follow
 
 Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (checked 2026-10-21); `kpi_scores` does.
 
-- **A. Tables and migration:** `employee_kpi_scores` (one row per employee per KPI per period, the three counts, the
-  score, a frozen flag), `executive_summaries` (one row per organization per period, text, a frozen flag, a fingerprint
-  of the facts so an unchanged week is skipped), indexes, RLS, table tests.
-- **B. The marking rule as one plain function, tested on its own:** which task belongs to which period (real deadline),
-  100 / 50 / 0, the exclusions (cancelled, no deadline, pending block held back and carried to the next period), with
-  Chidi's examples as tests. Written once, like `tasks/overdue.py`.
+- **A. Tables and migration: BUILT 2026-10-22** (migration `c84e1d5d299f`, new module `scoring/`, 6 table tests).
+  Three tables, not two: `employee_kpi_scores` (one row per employee per KPI per period, the three counts, the score,
+  `weight_used`, `finalized_at`), `department_scores` (ADDED, approved by the user: the department's results score,
+  punctuality counts and score, the revenue share it used, so a closed period never changes), `executive_summaries`
+  (one row per organization per period, text, `source`, a fingerprint of the facts so an unchanged week is skipped).
+  All with RLS and CHECK rules that keep "no data" from being stored as zero. Details in `04_DATABASE.md` and
+  `08_DECISIONS.md` 2026-10-22.
+- **B. The marking rule as one plain function, tested on its own: BUILT 2026-10-22** (`scoring/marking.py`, 14 pure
+  tests): `mark_task`, `moment_it_counts` (the single carry-over mechanism), `count_marks`, `score_from_counts`; Chidi's
+  quarter is a test; proven able to fail. Details in `08_DECISIONS.md` 2026-10-22 (second entry).
 - **C. Employee scores:** work out and save a person's per-KPI rows and overall score for a period ("so far" and final),
   with "based on N of M" and `null` for no data.
 - **D. The jobs:** the nightly refresh of open periods, the frozen write at period close, and the deferred `task_count`
