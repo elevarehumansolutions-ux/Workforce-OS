@@ -292,6 +292,24 @@ CREATE TABLE ai_usage_log (
 - **`ai_usage_log`, added 2026-09-07.** One row per actual LLM call, not per suggestion, a single call can produce several suggestions at once (one department's positions analyzed together), so cost has to attach to the call itself, not be arbitrarily split across its results. Both AI Suggestions and Performance's executive-summary generation write here, through a small shared internal LLM-calling utility rather than each duplicating their own "how do I call Claude" code, same discipline as everywhere else in this schema, one place for a piece of logic. `GET /ai-usage` (an org's own HR Administrator, normal RLS) shows that org's own usage; aggregate cost across every customer goes through the same internal admin scripts already built for billing, not a new access pattern.
 - **Quarterly revenue targets aren't a stored table.** The annual target is `departments.revenue_allocation_percentage / 100 × business_dna.capital_investment_amount`; the quarterly figure is that divided by four, computed when needed. If uneven quarter-by-quarter splits become a real requirement later, that's worth a table then, not speculatively now.
 
+### `blueprint_items` (added 2026-10-22, migration `f208d4e04adc`, RLS `tenant_isolation`)
+
+The AI-proposed starting structure, held until HR reviews it. One row per proposed department, position, objective, key result, rename or note. Not part of `ai_suggestions` on purpose (that table models single-column proposals on rows that already exist; see `08_DECISIONS.md` 2026-10-22).
+
+| Column | Meaning |
+|---|---|
+| `organization_id`, `batch_id` | owner; one generation run |
+| `kind` | `department`, `position`, `objective`, `key_result`, `rename_department`, `rename_position`, `review_note` (CHECK) |
+| `ref` | short key other items of the batch use to point here (`D1`, `P3`, `O2`); unique per batch (partial unique index, `WHERE ref IS NOT NULL`) |
+| `title`, `rationale`, `sort_order` | what is proposed (a rename's NEW name), why, and the AI's order |
+| `department_id`, `position_id`, `reports_to_position_id` | parents/targets that ALREADY exist as real rows (FKs) |
+| `department_ref`, `reports_to_ref`, `objective_ref` | parents that are other items of the same batch, not yet real |
+| `status` | `pending` / `approved` / `edited` / `rejected` (CHECK) |
+| `reviewed_title`, `reviewed_by_user_id`, `reviewed_at` | the decision |
+| `created_entity_id` | the real department/position/OKR/key result it became (no FK: it points at four different tables) |
+
+A CHECK makes a rename item carry the id it renames. The organogram is `reports_to_position_id` / `reports_to_ref` between positions (the real `positions.reports_to_position_id` is set on approval).
+
 ## Cluster 5: KPIs
 
 ```sql

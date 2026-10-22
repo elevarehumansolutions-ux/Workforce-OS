@@ -3,7 +3,6 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
-import PositionsEditor from "@/components/PositionsEditor";
 
 interface Department {
   id: string;
@@ -31,6 +30,7 @@ interface PaginatedResponse<T> {
 
 const ONBOARDING_STEPS = [
   "Business DNA",
+  "AI Structure",
   "Organization",
   "OKRs",
   "AI Suggestions",
@@ -182,7 +182,7 @@ export default function OrgSetupPage() {
 
         <div className="hidden items-center gap-2 md:flex">
           {ONBOARDING_STEPS.map((step, i) => {
-            const status = i < 1 ? "done" : i === 1 ? "active" : "upcoming";
+            const status = i < 2 ? "done" : i === 2 ? "active" : "upcoming";
             return (
               <div key={step} className="flex items-center gap-2">
                 <div className="flex items-center gap-2">
@@ -219,9 +219,10 @@ export default function OrgSetupPage() {
       {/* Main content */}
       <div className="mx-auto max-w-5xl px-6 py-12">
         <div className="text-center">
-          <h1 className="text-3xl font-bold sm:text-4xl">Set up your organization</h1>
+          <h1 className="text-3xl font-bold sm:text-4xl">Confirm your organization</h1>
           <p className="mt-2 text-gray-400">
-            Design corporate compartments, regional bases, and the roles in each department.
+            Your departments and roles came from the previous step. Mark which departments are critical and
+            add your locations. Roles can be adjusted any time in Organization Structure.
           </p>
         </div>
 
@@ -359,15 +360,15 @@ export default function OrgSetupPage() {
             </div>
           </div>
 
-          {/* Positions & reporting hierarchy */}
-          <PositionsEditor departments={departments} />
+          {/* Roles and reporting lines are no longer typed in here: they come from the AI
+              Structure step, and stay editable in Organization Structure. */}
 
           {/* Footer nav */}
           <div className="flex items-center justify-between pt-2">
             <button
               type="button"
               onClick={function () {
-                router.push("/onboarding/business-dna");
+                router.push("/onboarding/blueprint");
               }}
               className="flex items-center gap-2 text-sm font-medium text-gray-400 hover:text-gray-200"
             >

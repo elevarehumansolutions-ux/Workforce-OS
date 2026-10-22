@@ -53,6 +53,7 @@ interface DepartmentGroup {
 
 const ONBOARDING_STEPS = [
   "Business DNA",
+  "AI Structure",
   "Organization",
   "OKRs",
   "AI Suggestions",
@@ -255,11 +256,11 @@ export default function KpisPage() {
             let labelClass = "text-sm ";
             let isCheck = false;
 
-            if (i < 4) {
+            if (i < 5) {
               circleClass += "border border-indigo-500 text-indigo-400";
               labelClass += "text-gray-500";
               isCheck = true;
-            } else if (i === 4) {
+            } else if (i === 5) {
               circleClass += "bg-indigo-500 text-white";
               labelClass += "font-medium text-indigo-400";
             } else {

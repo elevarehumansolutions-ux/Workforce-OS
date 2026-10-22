@@ -56,6 +56,7 @@ from app.modules.workflow.models import (
     WorkflowStep,
     WorkflowInstance,
 )
+from app.modules.blueprint.models import BlueprintItem
 
 __all__ = [
     "Organization",
@@ -85,4 +86,5 @@ __all__ = [
     "WorkflowTemplate",
     "WorkflowStep",
     "WorkflowInstance",
+    "BlueprintItem",
 ]
