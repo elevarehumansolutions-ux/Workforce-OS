@@ -30,6 +30,7 @@ from app.modules.business_dna.router import router as business_dna_router
 from app.modules.okrs.router import router as okrs_router
 from app.modules.kpis.router import router as kpis_router
 from app.modules.ai.router import router as ai_router
+from app.modules.blueprint.router import router as blueprint_router
 from app.modules.attendance.router import router as attendance_router
 from app.modules.tasks.router import router as tasks_router
 from app.modules.workflow.listeners import register_listeners as register_workflow_listeners
@@ -183,6 +184,7 @@ app.include_router(business_dna_router, prefix="/api/v1", tags=["business-dna"])
 app.include_router(okrs_router, prefix="/api/v1", tags=["okrs"])
 app.include_router(kpis_router, prefix="/api/v1", tags=["kpis"])
 app.include_router(ai_router, prefix="/api/v1", tags=["ai-suggestions"])
+app.include_router(blueprint_router, prefix="/api/v1", tags=["blueprint"])
 app.include_router(attendance_router, prefix="/api/v1", tags=["attendance"])
 app.include_router(tasks_router, prefix="/api/v1", tags=["tasks"])
 app.include_router(workflow_router, prefix="/api/v1", tags=["workflow"])
