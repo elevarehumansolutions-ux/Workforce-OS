@@ -4,6 +4,7 @@ Two groups: what Claude must answer with (``Proposed*``, ``BlueprintAnswer``)
 and what the API sends and receives.
 """
 
+import decimal
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -38,13 +39,33 @@ class ProposedPosition(BaseModel):
     rationale: str
 
 
+class ProposedKeyResult(BaseModel):
+    """One measurable key result of an objective. The ref lets a KPI point at it."""
+
+    ref: str
+    description: str
+
+
 class ProposedObjective(BaseModel):
     """An objective with its key results; no department means a company-wide objective."""
 
     ref: str
     title: str
     department: str | None = None
-    key_results: list[str]
+    key_results: list[ProposedKeyResult]
+    rationale: str
+
+
+class ProposedKPI(BaseModel):
+    """A measurable indicator for one department, with its share of that department's score."""
+
+    name: str
+    department: str
+    key_result: str | None = None
+    weight: float
+    target_value: float | None = None
+    unit: str | None = None
+    lower_is_better: bool = False
     rationale: str
 
 
@@ -63,6 +84,7 @@ class BlueprintAnswer(BaseModel):
     departments: list[ProposedDepartment]
     positions: list[ProposedPosition]
     objectives: list[ProposedObjective]
+    kpis: list[ProposedKPI]
     cleanups: list[ProposedCleanup]
 
 
@@ -89,6 +111,11 @@ class BlueprintItemResponse(BaseModel):
     department_ref: str | None
     reports_to_ref: str | None
     objective_ref: str | None
+    key_result_ref: str | None
+    kpi_weight: decimal.Decimal | None
+    kpi_target_value: decimal.Decimal | None
+    kpi_unit: str | None
+    kpi_is_inverse: bool | None
     status: str
     reviewed_title: str | None
     reviewed_at: datetime | None

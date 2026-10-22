@@ -13,6 +13,7 @@ class BlueprintKind(str, Enum):
     POSITION = "position"
     OBJECTIVE = "objective"
     KEY_RESULT = "key_result"
+    KPI = "kpi"
     # Clean-ups of what the company already has (the "sanitize" part).
     RENAME_DEPARTMENT = "rename_department"
     RENAME_POSITION = "rename_position"

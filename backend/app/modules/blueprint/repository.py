@@ -25,6 +25,7 @@ KIND_ORDER = [
     BlueprintKind.RENAME_POSITION.value,
     BlueprintKind.OBJECTIVE.value,
     BlueprintKind.KEY_RESULT.value,
+    BlueprintKind.KPI.value,
     BlueprintKind.REVIEW_NOTE.value,
 ]
 

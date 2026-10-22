@@ -7,11 +7,14 @@ position or OKR: a real row is created only when HR approves an item
 
 from __future__ import annotations
 
+import decimal
 import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    DECIMAL,
     UUID,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -60,6 +63,11 @@ class BlueprintItem(BaseModel):
             "(kind = 'rename_position' AND position_id IS NOT NULL) OR "
             "kind NOT IN ('rename_department', 'rename_position')",
             name="check_blueprint_item_rename_has_target",
+        ),
+        # A KPI proposal must carry its weight.
+        CheckConstraint(
+            "kind <> 'kpi' OR kpi_weight IS NOT NULL",
+            name="check_blueprint_item_kpi_has_weight",
         ),
         # A ref is how items of one batch find each other, so it is unique per batch.
         Index(
@@ -116,6 +124,21 @@ class BlueprintItem(BaseModel):
     department_ref: Mapped[str | None] = mapped_column(String(20), nullable=True)
     reports_to_ref: Mapped[str | None] = mapped_column(String(20), nullable=True)
     objective_ref: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    key_result_ref: Mapped[str | None] = mapped_column(
+        String(20), nullable=True, doc="The key result a proposed KPI measures, if any"
+    )
+
+    # Only for kind 'kpi' (title is the KPI's name, department_* its department).
+    kpi_weight: Mapped[decimal.Decimal | None] = mapped_column(
+        DECIMAL(5, 2), nullable=True, doc="Share of its department's KPIs, in percent"
+    )
+    kpi_target_value: Mapped[decimal.Decimal | None] = mapped_column(
+        DECIMAL(14, 2), nullable=True
+    )
+    kpi_unit: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kpi_is_inverse: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True, doc="True when a lower figure is better (for example days to deliver)"
+    )
 
     status: Mapped[str] = mapped_column(
         String(20),

@@ -8,6 +8,7 @@ department, position or OKR: it only saves pending items for HR to review.
 
 import logging
 import uuid
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,7 @@ from app.modules.ai.grounding import make_handles, normalize_handle
 from app.modules.ai.llm import generate_structured
 from app.modules.ai.prompts import BusinessContext
 from app.modules.business_dna.repository import BusinessDNARepository
+from app.modules.kpis.repository import KPIRepository
 from app.modules.okrs.repository import OKRRepository
 
 from .enums import BlueprintKind
@@ -23,6 +25,8 @@ from .models import BlueprintItem
 from .prompts import (
     MAX_DEPARTMENTS,
     MAX_KEY_RESULTS_PER_OBJECTIVE,
+    MAX_KPIS,
+    MAX_KPIS_PER_DEPARTMENT,
     MAX_OBJECTIVES,
     MAX_POSITIONS,
     ExistingDepartment,
@@ -111,6 +115,34 @@ def _cut_reporting_loops(boss_of: dict[str, str]) -> None:
             boss_of.pop(start, None)
 
 
+def normalize_weights(raw: list[float], budget: Decimal) -> list[Decimal]:
+    """Scale proposed KPI weights so they add up to exactly ``budget`` (2 decimals).
+
+    Claude's arithmetic is not trusted: a department's weights may not exceed 100%
+    (and an existing department may already use some of it), so they are always
+    rescaled. A negative or missing weight counts as 0; if every weight is 0 the
+    budget is split equally. Any rounding leftover goes on the first KPI.
+    """
+    weights = [max(w, 0.0) if w == w else 0.0 for w in raw]  # w == w is False for NaN
+    total = sum(weights)
+    if total <= 0:
+        weights = [1.0] * len(weights)
+        total = float(len(weights))
+    scaled = [
+        (Decimal(str(w)) / Decimal(str(total)) * budget).quantize(Decimal("0.01"), ROUND_HALF_UP)
+        for w in weights
+    ]
+    scaled[0] += budget - sum(scaled)
+    return scaled
+
+
+def _target_value(value: float | None) -> Decimal | None:
+    """A KPI target as a Decimal that fits the column; None if missing or absurd."""
+    if value is None or value != value or abs(value) >= 1e11:
+        return None
+    return Decimal(str(round(value, 2)))
+
+
 def build_item_rows(
     answer: BlueprintAnswer,
     *,
@@ -120,6 +152,7 @@ def build_item_rows(
     department_names: dict[uuid.UUID, str],
     position_names: dict[uuid.UUID, tuple[str, uuid.UUID]],
     existing_objective_titles: set[str],
+    kpi_room: dict[uuid.UUID, Decimal] | None = None,
 ) -> list[dict]:
     """Turn Claude's answer into rows ready to save. Pure: no database, no API.
 
@@ -131,8 +164,14 @@ def build_item_rows(
         department_names: Existing department id -> name.
         position_names: Existing position id -> (title, department id).
         existing_objective_titles: Normalised titles of OKRs the company has.
+        kpi_room: For an existing department, how much of its 100% KPI weight is
+            still free. A department not in the map has all 100 free.
     """
     rows: list[dict] = []
+    kpi_room = kpi_room or {}
+    # Every row's ref must be unique in the batch whatever its kind (a database
+    # rule), so Claude reusing "P1" for a department and a position cannot crash the save.
+    used_refs: set[str] = set()
 
     def add_row(kind: str, title: str, rationale: str, **extra) -> None:
         rows.append(
@@ -153,7 +192,7 @@ def build_item_rows(
     for proposed in answer.departments[:MAX_DEPARTMENTS]:
         ref = normalize_handle(proposed.ref)
         name = clean_text(proposed.name, _TITLE_LIMIT)
-        taken = ref in known.new_department_refs or ref in known.department_alias
+        taken = ref in known.new_department_refs or ref in known.department_alias or ref in used_refs
         if not ref or not name or taken or ref in known.existing_department_ids:
             continue
         already_there = existing_department_by_name.get(name_key(name))
@@ -162,6 +201,7 @@ def build_item_rows(
             known.department_alias[ref] = already_there
             continue
         known.new_department_refs.add(ref)
+        used_refs.add(ref)
         add_row(
             BlueprintKind.DEPARTMENT.value,
             name,
@@ -179,7 +219,7 @@ def build_item_rows(
         ref = normalize_handle(proposed.ref)
         title = clean_text(proposed.title, _TITLE_LIMIT)
         place = known.find_department(proposed.department)
-        taken = ref in known.new_position_refs or ref in known.position_alias
+        taken = ref in known.new_position_refs or ref in known.position_alias or ref in used_refs
         if not ref or not title or place is None or taken or ref in known.existing_position_ids:
             continue
         department_id, department_ref = place
@@ -189,6 +229,7 @@ def build_item_rows(
                 known.position_alias[ref] = already_there
                 continue
         known.new_position_refs.add(ref)
+        used_refs.add(ref)
         kept_positions.append((proposed, ref, title, department_id, department_ref))
 
     # --- positions, pass 2: who reports to whom (the organogram) -------------
@@ -220,12 +261,12 @@ def build_item_rows(
         )
 
     # --- objectives and their key results ------------------------------------
-    used_objective_refs: set[str] = set()
     seen_titles = set(existing_objective_titles)
+    kept_key_result_refs: set[str] = set()
     for proposed in answer.objectives[:MAX_OBJECTIVES]:
         ref = normalize_handle(proposed.ref)
         title = clean_text(proposed.title, _TITLE_LIMIT)
-        if not ref or not title or ref in used_objective_refs or name_key(title) in seen_titles:
+        if not ref or not title or ref in used_refs or name_key(title) in seen_titles:
             continue
         department_id, department_ref = None, None
         if proposed.department:
@@ -233,7 +274,7 @@ def build_item_rows(
             if place is None:
                 continue
             department_id, department_ref = place
-        used_objective_refs.add(ref)
+        used_refs.add(ref)
         seen_titles.add(name_key(title))
         add_row(
             BlueprintKind.OBJECTIVE.value,
@@ -243,13 +284,60 @@ def build_item_rows(
             department_id=department_id,
             department_ref=department_ref,
         )
-        key_results = [clean_text(k, _TITLE_LIMIT) for k in proposed.key_results]
-        for description in [k for k in key_results if k][:MAX_KEY_RESULTS_PER_OBJECTIVE]:
+        usable = [k for k in proposed.key_results if clean_text(k.description, _TITLE_LIMIT)]
+        for key_result in usable[:MAX_KEY_RESULTS_PER_OBJECTIVE]:
+            key_result_ref = normalize_handle(key_result.ref)
+            # A blank or reused ref only costs the KPI link, never the key result itself.
+            if not key_result_ref or key_result_ref in used_refs:
+                key_result_ref = None
+            else:
+                used_refs.add(key_result_ref)
+                kept_key_result_refs.add(key_result_ref)
             add_row(
                 BlueprintKind.KEY_RESULT.value,
-                description,
+                clean_text(key_result.description, _TITLE_LIMIT),
                 "Measures the objective above.",
+                ref=key_result_ref,
                 objective_ref=ref,
+            )
+
+    # --- KPIs, per department ---------------------------------------------------
+    # Group first, so each department's weights can be rescaled together.
+    kpis_by_department: dict[str, list] = {}
+    department_of_group: dict[str, tuple[uuid.UUID | None, str | None]] = {}
+    for proposed in answer.kpis[:MAX_KPIS]:
+        name = clean_text(proposed.name, _TITLE_LIMIT)
+        place = known.find_department(proposed.department)
+        if not name or place is None:
+            continue
+        group_key = str(place[0]) if place[0] is not None else "ref:" + str(place[1])
+        group = kpis_by_department.setdefault(group_key, [])
+        if len(group) >= MAX_KPIS_PER_DEPARTMENT:
+            continue
+        group.append(proposed)
+        department_of_group[group_key] = place
+
+    for group_key, group in kpis_by_department.items():
+        department_id, department_ref = department_of_group[group_key]
+        room = Decimal(100)
+        if department_id is not None:
+            room = kpi_room.get(department_id, Decimal(100))
+        if room <= 0:
+            continue
+        weights = normalize_weights([k.weight for k in group], room)
+        for proposed, weight in zip(group, weights):
+            linked = normalize_handle(proposed.key_result or "")
+            add_row(
+                BlueprintKind.KPI.value,
+                clean_text(proposed.name, _TITLE_LIMIT),
+                clean_text(proposed.rationale, _RATIONALE_LIMIT),
+                department_id=department_id,
+                department_ref=department_ref,
+                key_result_ref=linked if linked in kept_key_result_refs else None,
+                kpi_weight=weight,
+                kpi_target_value=_target_value(proposed.target_value),
+                kpi_unit=clean_text(proposed.unit, 40) or None,
+                kpi_is_inverse=bool(proposed.lower_is_better),
             )
 
     # --- clean-ups of what already exists ("sanitize") ---------------------------
@@ -315,6 +403,16 @@ async def generate_blueprint(
     handle_of_department = {i: h for h, i in known.existing_department_ids.items()}
     handle_of_position = {i: h for h, i in known.existing_position_ids.items()}
 
+    # How much of each existing department's 100% KPI weight is still free.
+    kpi_repo = KPIRepository(db)
+    kpi_room: dict[uuid.UUID, Decimal] = {}
+    for department in departments:
+        used = await kpi_repo.sum_weights_for_group(department.id)
+        kpi_room[department.id] = max(Decimal(100) - used, Decimal(0))
+    full_departments = [
+        handle_of_department[i] for i, room in kpi_room.items() if room <= 0
+    ]
+
     prompt = build_blueprint_prompt(
         business,
         [ExistingDepartment(handle_of_department[d.id], d.name) for d in departments],
@@ -327,6 +425,7 @@ async def generate_blueprint(
             )
             for p in positions
         ],
+        full_departments,
     )
     answer = await generate_structured(
         db,
@@ -350,6 +449,7 @@ async def generate_blueprint(
         department_names={d.id: d.name for d in departments},
         position_names={p.id: (p.title, p.department_id) for p in positions},
         existing_objective_titles={name_key(t) for t in objective_titles},
+        kpi_room=kpi_room,
     )
     if not rows:
         return []
