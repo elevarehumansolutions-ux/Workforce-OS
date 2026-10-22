@@ -109,8 +109,14 @@ Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (
 - **B. The marking rule as one plain function, tested on its own: BUILT 2026-10-22** (`scoring/marking.py`, 14 pure
   tests): `mark_task`, `moment_it_counts` (the single carry-over mechanism), `count_marks`, `score_from_counts`; Chidi's
   quarter is a test; proven able to fail. Details in `08_DECISIONS.md` 2026-10-22 (second entry).
-- **C. Employee scores:** work out and save a person's per-KPI rows and overall score for a period ("so far" and final),
-  with "based on N of M" and `null` for no data.
+- **C. Employee scores and department rows.** **Part 1 BUILT 2026-10-22: a person's per-KPI rows** (the Task-module
+  helper `list_tasks_for_scoring` approved by the user, `scoring/repository.py` and `scoring/service.py`, 14 new tests;
+  details in `08_DECISIONS.md` 2026-10-22, third entry). **Part 2 BUILT 2026-10-22: the `department_scores` rows**
+  (`scoring/rollup.py` weighted average, `ScoringService.compute_department_scores` / `finalize_department_scores`, 15
+  new tests; results score from the weighted `kpi_scores`, team punctuality from ALL the department's marked tasks
+  including unassigned ones, the revenue share snapshot, `kpis_counted` / `kpis_expected`; details in `08_DECISIONS.md`
+  2026-10-22, fourth entry). A person's OVERALL score and "N of M" are worked out when read, from the saved per-KPI rows
+  and their `weight_used` (slice E). **Task-count KPIs have no `kpi_scores` rows until slice D writes them.**
 - **D. The jobs:** the nightly refresh of open periods, the frozen write at period close, and the deferred `task_count`
   KPI close job (cross-tenant lookup through a narrow `SECURITY DEFINER` function, logged in `07_SECURITY.md`).
 - **E. The reads for people and departments:** a person's own score, `GET /departments/{id}/performance-summary` (two
