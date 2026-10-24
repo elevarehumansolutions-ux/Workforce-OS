@@ -126,7 +126,7 @@ export default function SignupPage() {
           <p className="mt-4 text-lg text-gray-400">Set up your company&apos;s workspace in a few minutes</p>
           <div className="mt-6 flex items-center gap-2 text-sm text-gray-300">
             <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            <span>Start your West African Workforce OS journey</span>
+            <span>Start your Workforce Operating System journey</span>
           </div>
         </div>
 

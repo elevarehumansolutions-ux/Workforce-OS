@@ -1,240 +1,307 @@
 ﻿"use client";
 
-const SIDEBAR_ITEMS: { label: string; href: string }[] = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Employees", href: "/employees" },
-  { label: "Team Management", href: "/team-management" },
-  { label: "Organization Structure", href: "/organization-structure" },
-  { label: "Attendance", href: "/attendance" },
-  { label: "Leave Management", href: "/leave" },
-  { label: "Workflow", href: "/workflow/templates" },
-  { label: "Tasks", href: "/tasks" },
-  { label: "Payroll", href: "/payroll" },
-  { label: "Reports", href: "/reports" },
-  { label: "Settings", href: "/settings" },
-];
-
-function SidebarNav(activeLabel: string) {
-  return (
-    <nav className="flex flex-col gap-1 px-3">
-      {SIDEBAR_ITEMS.map(function (item) {
-        const isActive = item.label === activeLabel;
-        let linkClass = "rounded-lg px-3 py-2.5 text-sm transition ";
-        if (isActive) {
-          linkClass = linkClass + "bg-indigo-500/15 text-indigo-300 font-medium";
-        } else {
-          linkClass = linkClass + "text-gray-400 hover:bg-white/5 hover:text-gray-200";
-        }
-        return (
-          <a key={item.label} href={item.href} className={linkClass}>
-            {item.label}
-          </a>
-        );
-      })}
-    </nav>
-  );
-}
-
-function SidebarShell(activeLabel: string) {
-  return (
-    <aside className="hidden w-64 flex-col justify-between border-r border-white/10 bg-[#0a0e1a] py-6 lg:flex">
-      <div>
-        <div className="mb-8 flex items-center gap-3 px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="8" width="4" height="9" rx="1" fill="white" />
-              <rect x="13" y="3" width="4" height="14" rx="1" fill="white" />
-            </svg>
-          </div>
-          <span className="text-base font-bold text-white">Elevare</span>
-        </div>
-        {SidebarNav(activeLabel)}
-      </div>
-      <div className="flex items-center gap-3 border-t border-white/10 px-6 pt-4">
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-500 text-xs font-semibold text-white">
-          NA
-        </div>
-        <div>
-          <p className="text-sm font-medium text-white">Ngozi Adeyemi</p>
-          <p className="text-xs text-gray-500">Engineering Manager</p>
-        </div>
-      </div>
-    </aside>
-  );
-}
-
-function TopBar(breadcrumb: string, title: string) {
-  return (
-    <div className="flex items-center justify-between border-b border-white/10 px-8 py-5">
-      <div>
-        <p className="text-xs text-gray-500">{breadcrumb}</p>
-        <h1 className="text-xl font-bold text-white">{title}</h1>
-      </div>
-      <div className="flex items-center gap-4">
-        <button type="button" className="relative text-gray-400 hover:text-gray-200" aria-label="Notifications">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-          </svg>
-          <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-semibold text-white">
-            1
-          </span>
-        </button>
-        <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-300">
-          WOS MVP Ready
-        </span>
-      </div>
-    </div>
-  );
-}
-
-type AttendanceStatus = "Present" | "Late" | "Absent" | "On Leave";
+import { useState } from "react";
+import AppShell from "@/components/AppShell";
+import { ApiError, apiFetch } from "@/lib/api";
+import { errorMessage, formatDuration, fullName, loadCaller, roleLabel } from "@/lib/tasks";
+import type { PaginatedResponse } from "@/lib/tasks";
+import { useLoad } from "@/lib/useLoad";
 
 interface AttendanceRecord {
   id: string;
-  initials: string;
-  name: string;
-  department: string;
-  checkIn: string;
-  checkOut: string;
-  totalHours: string;
-  status: AttendanceStatus;
+  employee_id: string;
+  clock_in_at: string;
+  clock_out_at: string | null;
+  closed_by: "employee" | "system" | null;
+  close_reason: string | null;
 }
 
-const RECORDS: AttendanceRecord[] = [
-  { id: "1", initials: "CB", name: "Chidi Benson", department: "Engineering", checkIn: "08:12 AM", checkOut: "05:15 PM", totalHours: "9.0 hrs", status: "Present" },
-  { id: "2", initials: "FA", name: "Funmi Alao", department: "Marketing", checkIn: "09:45 AM", checkOut: "06:00 PM", totalHours: "8.2 hrs", status: "Late" },
-  { id: "3", initials: "AY", name: "Amadi Yusuf", department: "Sales", checkIn: "08:05 AM", checkOut: "05:00 PM", totalHours: "8.9 hrs", status: "Present" },
-  { id: "4", initials: "KO", name: "Kelechi Okafor", department: "HR", checkIn: "-", checkOut: "-", totalHours: "0 hrs", status: "Absent" },
-  { id: "5", initials: "TB", name: "Tunde Bakogun", department: "Operations", checkIn: "08:30 AM", checkOut: "05:30 PM", totalHours: "9.0 hrs", status: "Present" },
-  { id: "6", initials: "EO", name: "Efe Okoye", department: "Engineering", checkIn: "-", checkOut: "-", totalHours: "0 hrs", status: "On Leave" },
-  { id: "7", initials: "ZH", name: "Zainab Haruna", department: "Finance", checkIn: "08:15 AM", checkOut: "05:00 PM", totalHours: "8.7 hrs", status: "Present" },
-];
+interface ClockInResult {
+  already_clocked_in: boolean;
+  record: AttendanceRecord;
+}
 
-function AttendanceBadge(status: AttendanceStatus) {
-  let badgeClass = "rounded-full px-2.5 py-1 text-xs font-medium ";
-  if (status === "Present") {
-    badgeClass = badgeClass + "bg-emerald-500/15 text-emerald-300";
-  } else if (status === "Late") {
-    badgeClass = badgeClass + "bg-amber-500/15 text-amber-300";
-  } else if (status === "Absent") {
-    badgeClass = badgeClass + "bg-red-500/15 text-red-300";
-  } else {
-    badgeClass = badgeClass + "bg-cyan-500/15 text-cyan-300";
+const PAGE_SIZE = 20;
+
+const INPUT_CLASS =
+  "rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-sm text-gray-200 outline-none focus:border-indigo-500";
+
+function formatDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatClock(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function hoursWorked(record: AttendanceRecord): string {
+  if (!record.clock_out_at) return "In progress";
+  const seconds = (new Date(record.clock_out_at).getTime() - new Date(record.clock_in_at).getTime()) / 1000;
+  return formatDuration(seconds);
+}
+
+function statusBadge(record: AttendanceRecord) {
+  if (!record.clock_out_at) {
+    return <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300">Clocked in</span>;
   }
-  return <span className={badgeClass}>{status}</span>;
+  if (record.closed_by === "system") {
+    return <span className="rounded-full bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-300">Auto-closed</span>;
+  }
+  return <span className="rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-gray-300">Clocked out</span>;
 }
 
 export default function AttendancePage() {
+  const ctxState = useLoad("attendance-ctx", loadCaller, "Couldn't load your account. Check your connection and try again.");
+  const ctx = ctxState.data;
+
+  const [reloadCounter, setReloadCounter] = useState(0);
+  const [employeeId, setEmployeeId] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [page, setPage] = useState(1);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const rangeInvalid = dateFrom !== "" && dateTo !== "" && dateFrom > dateTo;
+
+  // Whether the caller is clocked in right now: their newest record is still open.
+  const current = useLoad<AttendanceRecord | null>(
+    "attendance-current|" + reloadCounter,
+    async function () {
+      const res = await apiFetch<PaginatedResponse<AttendanceRecord>>("/attendance?limit=1", { method: "GET" });
+      const first = res.data.length > 0 ? res.data[0] : null;
+      return first && !first.clock_out_at ? first : null;
+    },
+    "Couldn't check your attendance."
+  );
+  const noProfile = current.status === 409;
+  const clockedIn = current.data !== null;
+
+  const history = useLoad<PaginatedResponse<AttendanceRecord>>(
+    ["attendance-history", reloadCounter, employeeId, dateFrom, dateTo, page, rangeInvalid].join("|"),
+    async function () {
+      if (rangeInvalid) {
+        return {
+          data: [],
+          pagination: { page: 1, limit: PAGE_SIZE, total: 0, total_pages: 1, has_next: false, has_previous: false },
+        };
+      }
+      const params = ["page=" + page, "limit=" + PAGE_SIZE];
+      if (employeeId) params.push("employee_id=" + employeeId);
+      if (dateFrom) params.push("date_from=" + dateFrom);
+      if (dateTo) params.push("date_to=" + dateTo);
+      return apiFetch<PaginatedResponse<AttendanceRecord>>("/attendance?" + params.join("&"), { method: "GET" });
+    },
+    "Couldn't load attendance. Check your connection and try again."
+  );
+
+  const canSeeOthers = ctx !== null && (ctx.role === "hr_administrator" || ctx.role === "business_executive");
+  const rows = history.data ? history.data.data : [];
+  const totalPages = history.data ? history.data.pagination.total_pages : 1;
+  const total = history.data ? history.data.pagination.total : 0;
+
+  async function clockIn() {
+    setActionError("");
+    setNotice("");
+    setBusy(true);
+    try {
+      const res = await apiFetch<ClockInResult>("/attendance/clock-in", { method: "POST" });
+      if (res.already_clocked_in) setNotice("You were already clocked in, so nothing changed.");
+      setReloadCounter(reloadCounter + 1);
+    } catch (err) {
+      setActionError(errorMessage(err, "Couldn't clock you in. Check your connection and try again."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function clockOut() {
+    setActionError("");
+    setNotice("");
+    setBusy(true);
+    try {
+      await apiFetch("/attendance/clock-out", { method: "POST" });
+      setReloadCounter(reloadCounter + 1);
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "NOT_CLOCKED_IN") {
+        setNotice("You are not clocked in. The list has been refreshed.");
+        setReloadCounter(reloadCounter + 1);
+      } else {
+        setActionError(errorMessage(err, "Couldn't clock you out. Check your connection and try again."));
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function chooseEmployee(value: string) {
+    setEmployeeId(value);
+    setPage(1);
+  }
+
+  const viewingOwn = employeeId === "";
+
   return (
-    <div className="flex min-h-screen w-full bg-[#05070f] text-white">
-      {SidebarShell("Attendance")}
+    <AppShell
+      activeLabel="Attendance"
+      title="Attendance"
+      breadcrumb="Dashboard > Attendance"
+      userName={ctx ? ctx.userName : undefined}
+      userRole={ctx ? roleLabel(ctx.role) : undefined}
+    >
+      {ctxState.error ? (
+        <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{ctxState.error}</div>
+      ) : null}
 
-      <div className="flex flex-1 flex-col">
-        {TopBar("Dashboard > Attendance", "Attendance")}
-
-        <main className="flex-1 px-8 py-8">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-5 shadow-xl">
-              <div className="flex items-center justify-between">
-                <p className="text-xs uppercase tracking-wide text-gray-500">Present Today</p>
-                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300">Active</span>
-              </div>
-              <p className="mt-2 text-2xl font-bold text-white">234</p>
+      <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-6 shadow-xl">
+        <p className="text-xs uppercase tracking-wide text-gray-500">Your day</p>
+        {current.loading ? (
+          <p className="mt-3 text-sm text-gray-400">Checking…</p>
+        ) : noProfile ? (
+          <p className="mt-3 text-sm text-gray-300">
+            Your account isn&apos;t linked to an employee record yet, so you can&apos;t clock in. Ask your HR administrator to add you as an employee.
+          </p>
+        ) : current.error ? (
+          <p className="mt-3 text-sm text-red-300">{current.error}</p>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-lg font-semibold text-white">{clockedIn ? "You are clocked in" : "You are not clocked in"}</p>
+              {current.data ? (
+                <p className="mt-0.5 text-sm text-gray-400">Since {formatClock(current.data.clock_in_at)} on {formatDay(current.data.clock_in_at)}</p>
+              ) : (
+                <p className="mt-0.5 text-sm text-gray-400">Clock in to start your day and see the tasks assigned to you.</p>
+              )}
             </div>
-            <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-5 shadow-xl">
-              <div className="flex items-center justify-between">
-                <p className="text-xs uppercase tracking-wide text-gray-500">Late Arrivals</p>
-                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-300">Active</span>
-              </div>
-              <p className="mt-2 text-2xl font-bold text-white">12</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-5 shadow-xl">
-              <div className="flex items-center justify-between">
-                <p className="text-xs uppercase tracking-wide text-gray-500">Absent</p>
-                <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-300">Active</span>
-              </div>
-              <p className="mt-2 text-2xl font-bold text-white">8</p>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-5 shadow-xl">
-              <div className="flex items-center justify-between">
-                <p className="text-xs uppercase tracking-wide text-gray-500">On Leave</p>
-                <span className="rounded-full bg-cyan-500/15 px-2 py-0.5 text-[10px] font-medium text-cyan-300">Active</span>
-              </div>
-              <p className="mt-2 text-2xl font-bold text-white">14</p>
-            </div>
+            {clockedIn ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={clockOut}
+                className="rounded-lg border border-red-500/40 px-5 py-2.5 text-sm font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-50"
+              >
+                {busy ? "Working…" : "Clock out"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={clockIn}
+                className="rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-50"
+              >
+                {busy ? "Working…" : "Clock in"}
+              </button>
+            )}
           </div>
+        )}
+        {actionError ? <p className="mt-3 text-sm text-red-300">{actionError}</p> : null}
+        {notice ? <p className="mt-3 text-sm text-gray-300">{notice}</p> : null}
+      </div>
 
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <input
-                type="text"
-                placeholder="Search employees..."
-                className="w-56 rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-              />
-              <input
-                type="text"
-                defaultValue="August 20, 2026"
-                readOnly
-                className="w-40 rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-2 text-sm text-gray-300 outline-none"
-              />
-              <select className="rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-sm text-gray-300 outline-none focus:border-indigo-500">
-                <option>Department: All</option>
-              </select>
-            </div>
-            <button type="button" className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-300 transition hover:bg-white/5">
-              Export CSV
+      <div className="mt-6 flex flex-wrap items-end gap-4">
+        {canSeeOthers && ctx ? (
+          <div>
+            <label className="mb-1 block text-xs text-gray-500">Whose attendance</label>
+            <select value={employeeId} onChange={function (e) { chooseEmployee(e.target.value); }} className={INPUT_CLASS}>
+              <option value="">My attendance</option>
+              {ctx.employees.map(function (e) {
+                return (
+                  <option key={e.id} value={e.id}>
+                    {fullName(e)}
+                    {e.status === "inactive" ? " (inactive)" : ""}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        ) : null}
+        <div>
+          <label className="mb-1 block text-xs text-gray-500">From</label>
+          <input type="date" value={dateFrom} onChange={function (e) { setDateFrom(e.target.value); setPage(1); }} className={INPUT_CLASS} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-gray-500">To</label>
+          <input type="date" value={dateTo} onChange={function (e) { setDateTo(e.target.value); setPage(1); }} className={INPUT_CLASS} />
+        </div>
+        {dateFrom || dateTo ? (
+          <button
+            type="button"
+            onClick={function () { setDateFrom(""); setDateTo(""); setPage(1); }}
+            className="pb-2 text-sm text-indigo-400 hover:text-indigo-300"
+          >
+            Clear dates
+          </button>
+        ) : null}
+      </div>
+
+      {rangeInvalid ? <p className="mt-3 text-sm text-amber-300">The &quot;From&quot; date is after the &quot;To&quot; date.</p> : null}
+
+      <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-[#0d1220]/80 shadow-xl">
+        {history.loading ? (
+          <p className="p-10 text-center text-sm text-gray-500">Loading…</p>
+        ) : history.error ? (
+          <p className="p-10 text-center text-sm text-red-300">
+            {history.status === 409 ? "Your account isn't linked to an employee record yet, so there is no attendance to show." : history.error}
+          </p>
+        ) : rows.length === 0 ? (
+          <p className="p-10 text-center text-sm text-gray-500">
+            {viewingOwn ? "No attendance records yet. Clock in to create your first one." : "No attendance records for this person in this period."}
+          </p>
+        ) : (
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-xs uppercase tracking-wide text-gray-500">
+                <th className="px-6 py-3 font-medium">Date</th>
+                <th className="px-6 py-3 font-medium">Clock in</th>
+                <th className="px-6 py-3 font-medium">Clock out</th>
+                <th className="px-6 py-3 font-medium">Time worked</th>
+                <th className="px-6 py-3 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {rows.map(function (r) {
+                return (
+                  <tr key={r.id} className="hover:bg-white/5">
+                    <td className="px-6 py-4 font-medium text-white">{formatDay(r.clock_in_at)}</td>
+                    <td className="px-6 py-4 text-gray-300">{formatClock(r.clock_in_at)}</td>
+                    <td className="px-6 py-4 text-gray-300">{r.clock_out_at ? formatClock(r.clock_out_at) : "-"}</td>
+                    <td className="px-6 py-4 text-gray-300">{hoursWorked(r)}</td>
+                    <td className="px-6 py-4">
+                      {statusBadge(r)}
+                      {r.closed_by === "system" ? (
+                        <p className="mt-1 max-w-[220px] text-xs text-gray-500">
+                          {r.close_reason || "Did not clock out"}. The time shown is the midnight cutoff, not when they left.
+                        </p>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {totalPages > 1 ? (
+        <div className="mt-4 flex items-center justify-between text-sm text-gray-400">
+          <span>
+            Page {page} of {totalPages} · {total} records
+          </span>
+          <div className="flex gap-2">
+            <button type="button" disabled={page <= 1} onClick={function () { setPage(page - 1); }} className="rounded-lg border border-white/10 px-3 py-1.5 hover:bg-white/5 disabled:opacity-40">
+              Previous
+            </button>
+            <button type="button" disabled={page >= totalPages} onClick={function () { setPage(page + 1); }} className="rounded-lg border border-white/10 px-3 py-1.5 hover:bg-white/5 disabled:opacity-40">
+              Next
             </button>
           </div>
-
-          <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0d1220]/80 shadow-xl">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-white/10 text-xs uppercase tracking-wide text-gray-500">
-                  <th className="px-6 py-3 font-medium">Employee</th>
-                  <th className="px-6 py-3 font-medium">Department</th>
-                  <th className="px-6 py-3 font-medium">Check-in</th>
-                  <th className="px-6 py-3 font-medium">Check-out</th>
-                  <th className="px-6 py-3 font-medium">Total Hours</th>
-                  <th className="px-6 py-3 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {RECORDS.map(function (record) {
-                  return (
-                    <tr key={record.id} className="transition hover:bg-white/5">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-semibold text-indigo-300">
-                            {record.initials}
-                          </div>
-                          <span className="font-medium text-white">{record.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-gray-300">{record.department}</td>
-                      <td className="px-6 py-4 text-gray-300">{record.checkIn}</td>
-                      <td className="px-6 py-4 text-gray-300">{record.checkOut}</td>
-                      <td className="px-6 py-4 text-gray-300">{record.totalHours}</td>
-                      <td className="px-6 py-4">{AttendanceBadge(record.status)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-            <p>Showing 1-8 of 234 records</p>
-            <div className="flex items-center gap-2">
-              <button type="button" className="rounded-lg border border-white/10 px-3 py-1.5 text-gray-400 hover:bg-white/5">Previous</button>
-              <button type="button" className="rounded-lg bg-indigo-500 px-3 py-1.5 font-medium text-white">1</button>
-              <button type="button" className="rounded-lg border border-white/10 px-3 py-1.5 text-gray-400 hover:bg-white/5">2</button>
-              <button type="button" className="rounded-lg border border-white/10 px-3 py-1.5 text-gray-400 hover:bg-white/5">Next</button>
-            </div>
-          </div>
-        </main>
-      </div>
-    </div>
+        </div>
+      ) : null}
+    </AppShell>
   );
 }
-
