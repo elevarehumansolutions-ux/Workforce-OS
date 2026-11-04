@@ -207,6 +207,33 @@ class ScoringRepository:
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_people_of_departments(
+        self, department_ids: list[uuid.UUID], period_start: date, period_end: date
+    ) -> list[tuple[Employee, uuid.UUID]]:
+        """Like ``list_people_of_department`` but for several departments, each person with their department id.
+
+        Same rule for who is listed: active people, plus a leaver only if they
+        have a saved score for the period.
+        """
+        if len(department_ids) == 0:
+            return []
+        has_a_saved_score = exists().where(
+            EmployeeKPIScore.employee_id == Employee.id,
+            EmployeeKPIScore.period_start == period_start,
+            EmployeeKPIScore.period_end == period_end,
+        )
+        stmt = (
+            select(Employee, Position.department_id)
+            .join(Position, Position.id == Employee.position_id)
+            .where(
+                Position.department_id.in_(department_ids),
+                Employee.deleted_at.is_(None),
+                or_(Employee.status == EmployeeStatus.ACTIVE.value, has_a_saved_score),
+            )
+        )
+        result = await self._db.execute(stmt)
+        return [(row[0], row[1]) for row in result.all()]
+
     async def list_scores_for_employees(
         self, employee_ids: list[uuid.UUID], period_start: date, period_end: date
     ) -> list[EmployeeKPIScore]:

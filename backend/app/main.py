@@ -179,6 +179,8 @@ async def health_check():
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(tenancy_identity_router, prefix="/api/v1", tags=["memberships"])
 app.include_router(audit_and_notification_router, prefix="/api/v1", tags=["audit-log", "notifications"])
+# Before the organization router: /employees/leaderboard must not be read as /employees/{employee_id}.
+app.include_router(scoring_router, prefix="/api/v1", tags=["scoring"])
 app.include_router(organization_router, prefix="/api/v1", tags=["org-structure"])
 app.include_router(business_dna_router, prefix="/api/v1", tags=["business-dna"])
 app.include_router(okrs_router, prefix="/api/v1", tags=["okrs"])
@@ -187,7 +189,6 @@ app.include_router(ai_router, prefix="/api/v1", tags=["ai-suggestions"])
 app.include_router(attendance_router, prefix="/api/v1", tags=["attendance"])
 app.include_router(tasks_router, prefix="/api/v1", tags=["tasks"])
 app.include_router(workflow_router, prefix="/api/v1", tags=["workflow"])
-app.include_router(scoring_router, prefix="/api/v1", tags=["scoring"])
 
 # Let the Workflow module hear about completed and cancelled tasks (it creates
 # the next step's task). Tasks are only completed or cancelled through the API

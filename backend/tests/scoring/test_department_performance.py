@@ -29,8 +29,12 @@ def summary_url(department_id: str) -> str:
     return f"/api/v1/departments/{department_id}/performance-summary"
 
 
-async def _dispatch_quarter(client, db_session, w, save_scores: bool = True) -> None:
-    """Build Dispatch's Q3 as described in the module docstring; save its scores unless told not to."""
+async def _dispatch_quarter(client, db_session, w, save_scores: bool = True) -> tuple[str, str]:
+    """Build Dispatch's Q3 as described in the module docstring; save its scores unless told not to.
+
+    Returns:
+        The ids of the Lead Follow-up and Contract Paperwork KPIs.
+    """
     lead_follow_up, paperwork = await _two_kpis(client, w)
     await set_org_context(db_session, w.owner["organization"]["id"])
     await db_session.execute(update(KPI).values(created_at=datetime(2026, 6, 1, tzinfo=UTC)))
@@ -42,6 +46,7 @@ async def _dispatch_quarter(client, db_session, w, save_scores: bool = True) -> 
     if save_scores:
         await _compute_q3(db_session, w)
         await _compute(db_session, w)
+    return lead_follow_up, paperwork
 
 
 @pytest.mark.asyncio

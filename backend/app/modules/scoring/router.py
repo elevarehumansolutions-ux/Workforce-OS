@@ -14,7 +14,7 @@ from app.core.dependencies import get_current_membership, get_db
 from app.modules.tenancy_identity.models import Membership
 
 from .reads import PerformanceReadService
-from .schemas import DepartmentPerformanceResponse, PersonPerformanceResponse
+from .schemas import DepartmentPerformanceResponse, LeaderboardResponse, PersonPerformanceResponse
 
 router = APIRouter()
 
@@ -50,6 +50,34 @@ async def get_department_performance(
     """
     service = PerformanceReadService(db)
     return await service.get_department_performance(caller, department_id, period_start, period_end, page, limit)
+
+
+@router.get("/employees/leaderboard", status_code=200)
+async def get_leaderboard(
+    department_id: uuid.UUID | None = Query(None, description="Only this department"),
+    period_start: date | None = Query(None, description="First day of the period; with period_end, or neither"),
+    period_end: date | None = Query(None, description="Last day of the period"),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> LeaderboardResponse:
+    """People ranked by overall score, with their task counts beside the score.
+
+    HR and executives rank everyone (or one department); a department head or
+    manager only their own departments; an ordinary employee gets 404. Equal
+    scores share a rank; people with no data are not listed.
+
+    Must be mounted before the organization router in ``main.py``, which has
+    ``/employees/{employee_id}`` and would otherwise read "leaderboard" as an id.
+
+    Raises:
+        EmployeeNotFoundException: The caller may not see a ranked list (404).
+        DepartmentNotFoundException: Unknown or unseen ``department_id`` (404).
+        ValidationException: Only one date given, or the end is before the start (422).
+    """
+    service = PerformanceReadService(db)
+    return await service.get_leaderboard(caller, department_id, period_start, period_end, page, limit)
 
 
 @router.get("/employees/me/performance", status_code=200)

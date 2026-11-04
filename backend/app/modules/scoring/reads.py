@@ -24,7 +24,14 @@ from app.modules.tenancy_identity.repository import OrganizationRepository
 from .access import load_performance_scope
 from .repository import ScoringRepository
 from .rollup import weighted_average
-from .schemas import DepartmentPerformanceResponse, KPIScoreLine, PersonPerformanceResponse, PersonScoreLine
+from .schemas import (
+    DepartmentPerformanceResponse,
+    KPIScoreLine,
+    LeaderboardEntry,
+    LeaderboardResponse,
+    PersonPerformanceResponse,
+    PersonScoreLine,
+)
 from .service import ScoringService, period_dates
 
 
@@ -73,6 +80,11 @@ def _best_first(person: PersonScoreLine) -> tuple:
     has_no_score = person.overall_score is None
     score = person.overall_score if person.overall_score is not None else 0
     return (has_no_score, -score, person.employee_name)
+
+
+def _leaderboard_order(entry: LeaderboardEntry) -> tuple:
+    """Sort key: highest score first, ties by name."""
+    return (-entry.overall_score, entry.employee_name)
 
 
 def _cut_page(items: list, page: int, limit: int) -> tuple[list, PaginationMeta]:
@@ -301,6 +313,115 @@ class PerformanceReadService:
                 )
             )
         return sorted(lines, key=_best_first)
+
+    async def _ranked_people(
+        self,
+        organization_id: uuid.UUID,
+        departments: list,
+        first_day: date,
+        last_day: date,
+    ) -> list[LeaderboardEntry]:
+        """Everyone in the given departments who has a score, best first, with ranks.
+
+        People with no data are left out (an empty rank is not a rank). Equal
+        scores share a rank and the next rank skips, like a race: 1, 2, 2, 4.
+        """
+        names = {department.id: department.name for department in departments}
+        kpi_ids_by_department = {}
+        for department in departments:
+            kpi_ids_by_department[department.id] = await self._department_kpi_ids(
+                organization_id, department.id, last_day
+            )
+
+        people = await self._repo.list_people_of_departments(list(names), first_day, last_day)
+        all_rows = await self._repo.list_scores_for_employees([person.id for person, _ in people], first_day, last_day)
+        rows_by_person = {}
+        for row in all_rows:
+            rows_by_person.setdefault(row.employee_id, []).append(row)
+
+        scored = []
+        for person, department_id in people:
+            kpi_ids = kpi_ids_by_department[department_id]
+            rows = [row for row in rows_by_person.get(person.id, []) if row.kpi_id in kpi_ids]
+            overall = weighted_average([(row.weight_used, row.score_percentage) for row in rows])
+            if overall is None:
+                continue
+            scored.append(
+                LeaderboardEntry(
+                    rank=0,  # filled in below, once the order is known
+                    employee_id=person.id,
+                    employee_name=f"{person.first_name} {person.last_name}",
+                    department_id=department_id,
+                    department_name=names[department_id],
+                    overall_score=overall,
+                    valid_tasks=sum(row.tasks_on_time + row.tasks_late + row.tasks_not_done for row in rows),
+                    kpis_counted=len([row for row in rows if row.score_percentage is not None]),
+                    kpis_expected=len(kpi_ids),
+                )
+            )
+
+        scored.sort(key=_leaderboard_order)
+        for position, entry in enumerate(scored):
+            if position > 0 and entry.overall_score == scored[position - 1].overall_score:
+                entry.rank = scored[position - 1].rank
+            else:
+                entry.rank = position + 1
+        return scored
+
+    async def get_leaderboard(
+        self,
+        caller: Membership,
+        department_id: uuid.UUID | None,
+        period_start: date | None,
+        period_end: date | None,
+        page: int,
+        limit: int,
+    ) -> LeaderboardResponse:
+        """One page of the people ranked by overall score, for the departments the caller may see.
+
+        HR and executives rank the whole company (or one department);
+        a head or manager only their own departments. An ordinary employee gets
+        "not found": they do not get a list of colleagues' scores.
+
+        Raises:
+            EmployeeNotFoundException: The caller may not see a ranked list.
+            DepartmentNotFoundException: ``department_id`` does not exist or is not the caller's to see.
+            ValidationException: The dates are half given or back to front.
+        """
+        first_day, last_day = await self._period_for(caller, period_start, period_end)
+
+        scope = await load_performance_scope(self._db, caller)
+        if not scope.can_see_ranked_list():
+            raise EmployeeNotFoundException()
+
+        if department_id is not None:
+            department = await self._department_repo.get_department_by_id(department_id)
+            if department is None or not scope.can_see_department(department.id):
+                raise DepartmentNotFoundException()
+            departments = [department]
+        elif scope.sees_all:
+            departments = await ScoringService._every_item(
+                lambda page_number, size: self._department_repo.list_departments(
+                    caller.organization_id, page_number, size
+                )
+            )
+        else:
+            departments = []
+            for visible_id in scope.department_ids:
+                visible = await self._department_repo.get_department_by_id(visible_id)
+                if visible is not None:
+                    departments.append(visible)
+
+        ranked = await self._ranked_people(caller.organization_id, departments, first_day, last_day)
+        entries, pagination = _cut_page(ranked, page, limit)
+        is_final = await self._repo.period_is_frozen(caller.organization_id, first_day, last_day)
+        return LeaderboardResponse(
+            period_start=first_day,
+            period_end=last_day,
+            is_final=is_final,
+            entries=entries,
+            pagination=pagination,
+        )
 
     async def get_department_performance(
         self,

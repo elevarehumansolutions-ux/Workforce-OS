@@ -72,6 +72,35 @@ class DepartmentPerformanceResponse(BaseModel):
     people_pagination: PaginationMeta
 
 
+class LeaderboardEntry(BaseModel):
+    """One ranked person.
+
+    ``valid_tasks`` and ``kpis_counted`` of ``kpis_expected`` are shown beside
+    the score so a 100 on one task reads differently from a 95 on twenty.
+    Equal scores share a rank (1, 2, 2, 4).
+    """
+
+    rank: int
+    employee_id: uuid.UUID
+    employee_name: str
+    department_id: uuid.UUID
+    department_name: str
+    overall_score: decimal.Decimal
+    valid_tasks: int
+    kpis_counted: int
+    kpis_expected: int
+
+
+class LeaderboardResponse(BaseModel):
+    """One page of the ranked people. People with no data are not ranked, so not listed."""
+
+    period_start: date
+    period_end: date
+    is_final: bool
+    entries: list[LeaderboardEntry]
+    pagination: PaginationMeta
+
+
 class PersonPerformanceResponse(BaseModel):
     """A person's performance card for one period.
 
