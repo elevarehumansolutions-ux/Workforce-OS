@@ -1,9 +1,12 @@
 """Tests for the pooled company numbers and the quarter step (M12 slice F part 1). Pure: no database."""
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 
-from app.modules.scoring.company import CompanyNumbers, previous_quarter_dates
+import pytest
+
+from app.core.exceptions import ValidationException
+from app.modules.scoring.company import CompanyNumbers, check_custom_range, previous_quarter_dates, range_moments
 
 
 def row(department_id, result, share, on_time=0, late=0, not_done=0):
@@ -23,6 +26,24 @@ def test_the_previous_quarter_steps_back_three_months_and_across_a_year():
     assert previous_quarter_dates(date(2026, 10, 1), date(2026, 12, 31)) == (date(2026, 7, 1), date(2026, 9, 30))
     assert previous_quarter_dates(date(2026, 1, 1), date(2026, 3, 31)) == (date(2025, 10, 1), date(2025, 12, 31))
     assert previous_quarter_dates(date(2026, 4, 1), date(2026, 6, 30)) == (date(2026, 1, 1), date(2026, 3, 31))
+
+
+def test_a_custom_range_needs_both_dates_in_order_and_at_most_a_year():
+    """Half a range, a backwards range and a two-year range are refused; a year is fine."""
+    assert check_custom_range(date(2026, 1, 15), date(2026, 3, 20)) == (date(2026, 1, 15), date(2026, 3, 20))
+    assert check_custom_range(date(2026, 1, 1), date(2026, 12, 31)) == (date(2026, 1, 1), date(2026, 12, 31))
+    for first, last in [(None, date(2026, 3, 1)), (date(2026, 3, 1), None),
+                        (date(2026, 3, 20), date(2026, 1, 15)), (date(2025, 1, 1), date(2026, 12, 31))]:
+        with pytest.raises(ValidationException):
+            check_custom_range(first, last)
+
+
+def test_the_range_runs_from_midnight_to_midnight_on_the_companys_clock():
+    """15 January to 20 March in Lagos (UTC+1): from 14 Jan 23:00 UTC up to 20 March 23:00 UTC."""
+    start, end = range_moments(date(2026, 1, 15), date(2026, 3, 20), "Africa/Lagos")
+
+    assert start.astimezone(UTC) == datetime(2026, 1, 14, 23, 0, tzinfo=UTC)
+    assert end.astimezone(UTC) == datetime(2026, 3, 20, 23, 0, tzinfo=UTC)
 
 
 def test_punctuality_pools_every_departments_tasks_instead_of_averaging_their_scores():

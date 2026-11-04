@@ -27,14 +27,17 @@ from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.repository import OrganizationRepository
 
 from .access import load_performance_scope
-from .company import CompanyNumbers, previous_quarter_dates
+from .company import CompanyNumbers, check_custom_range, previous_quarter_dates, range_moments
 from .improvement import HOW_MANY_LISTED, MIN_VALID_TASKS, Candidate, most_improved
+from .marking import score_from_counts
 from .repository import ScoringRepository
 from .rollup import weighted_average
 from .schemas import (
     CompanyDepartmentLine,
     CompanyPerformanceResponse,
     CompanyTrendPoint,
+    CustomRangeDepartment,
+    CustomRangeResponse,
     DepartmentPerformanceResponse,
     KPIScoreLine,
     LeaderboardEntry,
@@ -97,6 +100,17 @@ def _best_first(person: PersonScoreLine) -> tuple:
 def _leaderboard_order(entry: LeaderboardEntry) -> tuple:
     """Sort key: highest score first, ties by name."""
     return (-entry.overall_score, entry.employee_name)
+
+
+LIVE_LABEL = (
+    "Custom range: calculated live from the tasks. It may differ from the closed quarterly scores, "
+    "which remain the official record."
+)
+
+
+def _by_department_name(line: CustomRangeDepartment) -> str:
+    """Sort key: department name."""
+    return line.department_name
 
 
 def _overall_and_tasks(rows: list) -> tuple:
@@ -509,6 +523,69 @@ class PerformanceReadService:
             min_valid_tasks=MIN_VALID_TASKS,
             people=people,
             departments=departments,
+        )
+
+    async def get_custom_range(
+        self,
+        caller: Membership,
+        period_start: date | None,
+        period_end: date | None,
+    ) -> CustomRangeResponse:
+        """Company and department punctuality for any window of up to 12 months, worked out live.
+
+        Only HR and executives may see it. The tasks are marked now, with the same
+        rules as the saved quarters, over the tasks whose real deadline falls in
+        the window; nothing is saved.
+
+        Raises:
+            OrganizationNotFoundException: The caller may not see the company view.
+            ValidationException: A date is missing, the end is before the start,
+                or the range is longer than 12 months.
+        """
+        scope = await load_performance_scope(self._db, caller)
+        if not scope.can_see_company():
+            raise OrganizationNotFoundException("Company performance is not available to you.")
+
+        first_day, last_day = check_custom_range(period_start, period_end)
+        organization = await self._organization_repo.get_organization_by_id(caller.organization_id)
+        start, end = range_moments(first_day, last_day, organization.timezone)
+
+        counts = await ScoringService(self._db).live_counts_by_department(start, end, datetime.now(UTC))
+
+        departments = await ScoringService._every_item(
+            lambda page, limit: self._department_repo.list_departments(caller.organization_id, page, limit)
+        )
+        lines = []
+        on_time = late = not_done = 0
+        for department in departments:
+            department_on_time, department_late, department_not_done = counts.get(department.id, (0, 0, 0))
+            on_time += department_on_time
+            late += department_late
+            not_done += department_not_done
+            lines.append(
+                CustomRangeDepartment(
+                    department_id=department.id,
+                    department_name=department.name,
+                    punctuality_score=score_from_counts(department_on_time, department_late, department_not_done),
+                    punctuality_on_time=department_on_time,
+                    punctuality_late=department_late,
+                    punctuality_not_done=department_not_done,
+                )
+            )
+        lines.sort(key=_by_department_name)
+
+        score = score_from_counts(on_time, late, not_done)
+        return CustomRangeResponse(
+            period_start=first_day,
+            period_end=last_day,
+            is_live=True,
+            label=LIVE_LABEL,
+            punctuality_score=score,
+            punctuality_on_time=on_time,
+            punctuality_late=late,
+            punctuality_not_done=not_done,
+            punctuality_no_data_reason=None if score is not None else "No task had a deadline in this range.",
+            departments=lines,
         )
 
     async def get_company_performance(

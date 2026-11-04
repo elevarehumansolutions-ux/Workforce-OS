@@ -3,11 +3,46 @@
 Plain logic with no database, like ``marking.py`` and ``rollup.py``.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
+
+from app.core.exceptions import ValidationException
 
 from .marking import score_from_counts
 from .rollup import company_headline
+
+# A custom range may cover about a year, no more (08_DECISIONS.md 2026-10-21, question 9).
+MAX_RANGE_DAYS = 365
+
+
+def check_custom_range(first_day: date | None, last_day: date | None) -> tuple[date, date]:
+    """The two dates of a custom range, if they make sense.
+
+    Raises:
+        ValidationException: A date is missing, the end is before the start, or
+            the range is longer than a year.
+    """
+    if first_day is None or last_day is None:
+        raise ValidationException("Give both period_start and period_end for a custom range.")
+    if last_day < first_day:
+        raise ValidationException("period_end cannot be before period_start.")
+    if (last_day - first_day).days > MAX_RANGE_DAYS:
+        raise ValidationException("A custom range can cover at most 12 months.")
+    return first_day, last_day
+
+
+def range_moments(first_day: date, last_day: date, timezone_name: str) -> tuple[datetime, datetime]:
+    """The first moment of ``first_day`` and the first moment AFTER ``last_day``, on the company's clock.
+
+    Example: 15 January to 20 March in Lagos is midnight on 15 January up to
+    (not including) midnight on 21 March, both on Lagos time. These are the same
+    kind of moments the saved quarters use, so the same marking applies.
+    """
+    zone = ZoneInfo(timezone_name)
+    start = datetime.combine(first_day, time.min, tzinfo=zone)
+    end = datetime.combine(last_day + timedelta(days=1), time.min, tzinfo=zone)
+    return start, end
 
 
 def previous_quarter_dates(first_day: date, last_day: date) -> tuple[date, date]:

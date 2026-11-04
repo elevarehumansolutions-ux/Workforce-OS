@@ -142,6 +142,28 @@ export interface MostImproved {
   departments: MostImprovedEntry[];
 }
 
+export interface CustomRangeDepartment {
+  department_id: string;
+  department_name: string;
+  punctuality_score: string | null;
+  punctuality_on_time: number;
+  punctuality_late: number;
+  punctuality_not_done: number;
+}
+
+export interface CustomRange {
+  period_start: string;
+  period_end: string;
+  is_live: boolean;
+  label: string;
+  punctuality_score: string | null;
+  punctuality_on_time: number;
+  punctuality_late: number;
+  punctuality_not_done: number;
+  punctuality_no_data_reason: string | null;
+  departments: CustomRangeDepartment[];
+}
+
 // ---- the period being looked at
 
 // start and end are null for "the current quarter": the server then picks the
@@ -225,6 +247,10 @@ export function personPath(employeeId: string, period: Period): string {
 
 export function companyPath(period: Period): string {
   return "/company-performance-summary" + query(period, []);
+}
+
+export function customRangePath(firstDay: string, lastDay: string): string {
+  return "/company-performance-summary/custom-range?period_start=" + firstDay + "&period_end=" + lastDay;
 }
 
 export function mostImprovedPath(period: Period): string {

@@ -344,6 +344,17 @@ class ScoringService:
                 marks_by_department.setdefault(row.department_id, []).append(mark)
         return {department_id: count_marks(marks) for department_id, marks in marks_by_department.items()}
 
+    async def live_counts_by_department(self, period_start: datetime, period_end: datetime, now: datetime) -> dict:
+        """On-time, late and not-done counts per department for any window, marked right now.
+
+        Used by the custom date range, which is worked out live instead of read
+        from the saved quarters. Same marking as the nightly job.
+
+        Returns:
+            ``{department_id: (on_time, late, not_done)}``; departments with no valid task are absent.
+        """
+        return await self._counts_by_department(period_start, period_end, now)
+
     @staticmethod
     async def _every_item(fetch_page) -> list:
         """Collect every item of a paginated list, page after page.

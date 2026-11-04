@@ -7,8 +7,23 @@ import AppShell from "@/components/AppShell";
 import PeriodBar from "@/components/performance/PeriodBar";
 import { loadCaller, roleLabel } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
-import { CURRENT_QUARTER, companyPath, mostImprovedPath, scoreClasses, scoreText } from "@/lib/performance";
-import type { CompanyPerformance, CompanyTrendPoint, MostImproved, MostImprovedEntry, Period } from "@/lib/performance";
+import {
+  CURRENT_QUARTER,
+  companyPath,
+  customRangePath,
+  mostImprovedPath,
+  periodLabel,
+  scoreClasses,
+  scoreText,
+} from "@/lib/performance";
+import type {
+  CompanyPerformance,
+  CompanyTrendPoint,
+  CustomRange,
+  MostImproved,
+  MostImprovedEntry,
+  Period,
+} from "@/lib/performance";
 
 function quarterLabel(startIso: string): string {
   return new Date(startIso + "T00:00:00Z").toLocaleDateString("en-GB", {
@@ -102,6 +117,131 @@ function MostImprovedSection(props: { period: Period }) {
           </p>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function CustomRangeResult(props: { first: string; last: string }) {
+  const load = useLoad<CustomRange>(
+    "range|" + props.first + "|" + props.last,
+    function () {
+      return apiFetch<CustomRange>(customRangePath(props.first, props.last), { method: "GET" });
+    },
+    "Could not work out this range."
+  );
+  const data = load.data;
+
+  return (
+    <div className="mt-4">
+      {load.loading ? <p className="text-sm text-gray-400">Working it out…</p> : null}
+      {load.error ? <p className="text-sm text-red-300">{load.error}</p> : null}
+      {data ? (
+        <div>
+          {/* The label comes from the server on purpose: this is not an official quarterly figure. */}
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">{data.label}</p>
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-5">
+            <p className="text-xs uppercase tracking-wide text-gray-500">
+              Company punctuality, {periodLabel(data.period_start, data.period_end)}
+            </p>
+            <p className={"mt-2 text-4xl font-bold " + scoreClasses(data.punctuality_score)}>
+              {data.punctuality_score === null ? "—" : scoreText(data.punctuality_score)}
+            </p>
+            <p className="mt-2 text-sm text-gray-400">
+              {data.punctuality_score === null
+                ? "No data yet. " + data.punctuality_no_data_reason
+                : data.punctuality_on_time + " on time, " + data.punctuality_late + " late, " + data.punctuality_not_done + " not done."}
+            </p>
+          </div>
+          <table className="mt-4 w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-xs uppercase tracking-wide text-gray-500">
+                <th className="py-2 pr-4 font-medium">Department</th>
+                <th className="py-2 pr-4 font-medium">Punctuality</th>
+                <th className="py-2 font-medium">On time / late / not done</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.departments.map(function (d) {
+                return (
+                  <tr key={d.department_id} className="border-b border-white/5">
+                    <td className="py-3 pr-4 text-white">{d.department_name}</td>
+                    <td className={"py-3 pr-4 font-semibold " + scoreClasses(d.punctuality_score)}>
+                      {scoreText(d.punctuality_score)}
+                    </td>
+                    <td className="py-3 text-gray-400">
+                      {d.punctuality_on_time} / {d.punctuality_late} / {d.punctuality_not_done}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// Any window of up to 12 months, worked out live. Goals (KPI results) are only recorded per quarter,
+// so a custom window shows punctuality only.
+function CustomRangeSection() {
+  const [first, setFirst] = useState("");
+  const [last, setLast] = useState("");
+  const [applied, setApplied] = useState<{ first: string; last: string } | null>(null);
+  const [message, setMessage] = useState("");
+
+  function apply() {
+    if (first === "" || last === "") {
+      setMessage("Pick both dates.");
+      return;
+    }
+    if (last < first) {
+      setMessage("The end date cannot be before the start date.");
+      return;
+    }
+    const days = (new Date(last).getTime() - new Date(first).getTime()) / 86400000;
+    if (days > 365) {
+      setMessage("A custom range can cover at most 12 months.");
+      return;
+    }
+    setMessage("");
+    setApplied({ first: first, last: last });
+  }
+
+  const inputClass = "rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-sm text-white";
+
+  return (
+    <div>
+      <h3 className="mt-8 text-sm font-semibold uppercase tracking-wide text-gray-400">Custom date range</h3>
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <label className="text-xs text-gray-500">
+          From
+          <input
+            type="date"
+            value={first}
+            onChange={function (e) {
+              setFirst(e.target.value);
+            }}
+            className={inputClass + " mt-1 block"}
+          />
+        </label>
+        <label className="text-xs text-gray-500">
+          To
+          <input
+            type="date"
+            value={last}
+            onChange={function (e) {
+              setLast(e.target.value);
+            }}
+            className={inputClass + " mt-1 block"}
+          />
+        </label>
+        <button type="button" onClick={apply} className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600">
+          Show
+        </button>
+      </div>
+      {message ? <p className="mt-2 text-sm text-red-300">{message}</p> : null}
+      {applied ? <CustomRangeResult first={applied.first} last={applied.last} /> : null}
     </div>
   );
 }
@@ -240,6 +380,8 @@ export default function CompanyPerformancePage() {
             )}
 
             <MostImprovedSection period={period} />
+
+            <CustomRangeSection />
           </div>
         ) : null}
       </div>

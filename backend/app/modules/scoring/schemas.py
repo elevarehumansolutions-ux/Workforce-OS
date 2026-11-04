@@ -157,6 +157,39 @@ class CompanyPerformanceResponse(BaseModel):
     trend: list[CompanyTrendPoint]
 
 
+class CustomRangeDepartment(BaseModel):
+    """One department's punctuality over a custom range (null score = no tasks in the range)."""
+
+    department_id: uuid.UUID
+    department_name: str
+    punctuality_score: decimal.Decimal | None
+    punctuality_on_time: int
+    punctuality_late: int
+    punctuality_not_done: int
+
+
+class CustomRangeResponse(BaseModel):
+    """Task-based numbers for an arbitrary window, worked out LIVE from the tasks.
+
+    Only punctuality exists for a custom window: the goals headline (KPI results)
+    is recorded per quarter, so it is not offered here. ``is_live`` is always true
+    and ``label`` says what that means, because these numbers may differ from the
+    closed quarterly scores (for example tasks held back for review are counted
+    differently). The quarterly cards remain the official record.
+    """
+
+    period_start: date
+    period_end: date
+    is_live: bool
+    label: str
+    punctuality_score: decimal.Decimal | None
+    punctuality_on_time: int
+    punctuality_late: int
+    punctuality_not_done: int
+    punctuality_no_data_reason: str | None
+    departments: list[CustomRangeDepartment]
+
+
 class MostImprovedEntry(BaseModel):
     """One entry of the Most Improved list, with how it was earned.
 

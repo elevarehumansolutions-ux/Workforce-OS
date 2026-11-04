@@ -16,6 +16,7 @@ from app.modules.tenancy_identity.models import Membership
 from .reads import PerformanceReadService
 from .schemas import (
     CompanyPerformanceResponse,
+    CustomRangeResponse,
     DepartmentPerformanceResponse,
     LeaderboardResponse,
     MostImprovedResponse,
@@ -51,6 +52,28 @@ async def get_company_performance(
     """
     service = PerformanceReadService(db)
     return await service.get_company_performance(caller, period_start, period_end)
+
+
+@router.get("/company-performance-summary/custom-range", status_code=200)
+async def get_custom_range(
+    period_start: date | None = Query(None, description="First day of the range (required)"),
+    period_end: date | None = Query(None, description="Last day of the range (required)"),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> CustomRangeResponse:
+    """Company and department punctuality for any window of up to 12 months, calculated live.
+
+    Both dates are required. Only task-based numbers exist for an arbitrary
+    window (the goals headline is recorded per quarter), and the answer carries
+    ``is_live`` and a label because it may differ from the closed quarterly
+    scores. HR administrators and business executives only.
+
+    Raises:
+        OrganizationNotFoundException: The caller may not see the company view (404).
+        ValidationException: A date is missing, the end is before the start, or the range is over 12 months (422).
+    """
+    service = PerformanceReadService(db)
+    return await service.get_custom_range(caller, period_start, period_end)
 
 
 @router.get("/company-performance-summary/most-improved", status_code=200)
