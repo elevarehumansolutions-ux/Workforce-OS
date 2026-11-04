@@ -4,6 +4,11 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
+import { markOnboardingDone } from "@/lib/onboarding";
+
+interface OnboardingMe {
+  user: { id: string };
+}
 
 type SentStatus = "invited" | "added";
 
@@ -98,7 +103,13 @@ export default function InviteTeamPage() {
     }
   }
 
-  function handleContinue() {
+  async function handleContinue() {
+    try {
+      const me = await apiFetch<OnboardingMe>("/auth/me", { method: "GET" });
+      markOnboardingDone(me.user.id);
+    } catch {
+      // Not being able to note it shouldn't stop the person finishing.
+    }
     router.push("/dashboard");
   }
 
@@ -290,4 +301,3 @@ export default function InviteTeamPage() {
     </div>
   );
 }
-

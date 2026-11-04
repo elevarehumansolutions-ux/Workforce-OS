@@ -265,11 +265,10 @@ export default function BusinessDnaPage() {
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-200">
               Business DNA{" "}
-              <span className="text-xs font-normal text-gray-500">(e.g. vision, mission and core values)</span>
+              <span className="text-sm font-normal text-gray-500">(e.g. vision, mission and core values)</span>
             </label>
-            <p className="mb-2 text-xs text-gray-500">
+            <p className="mb-2 text-sm text-gray-500">
               Describe what the company does and stands for: your vision, mission, core values, and the products or services you offer.
-              The AI uses this to suggest critical roles and KPIs.
             </p>
             <textarea
               rows={9}

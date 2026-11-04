@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -496,8 +496,8 @@ export default function BlueprintPage() {
         <div className="mx-auto max-w-3xl text-center">
           <h1 className="text-3xl font-bold sm:text-4xl">Your suggested structure</h1>
           <p className="mt-2 text-gray-400">
-            From your Business DNA, our AI drafted your departments, your organization chart (who reports to
-            whom), your objectives and your KPIs. Add what fits, edit the wording, or skip anything. You can
+            From your Business DNA, our AI drafted your objectives, your departments, your organization chart
+            (who reports to whom) and your KPIs. Add what fits, edit the wording, or skip anything. You can
             change all of it later.
           </p>
         </div>
@@ -580,6 +580,26 @@ export default function BlueprintPage() {
               </button>
             </div>
 
+            {/* Objectives */}
+            {view.objectiveSections.length > 0 ? (
+              <div className={card + " space-y-6"}>
+                <p className="text-xs uppercase tracking-wide text-gray-500">Objectives and key results</p>
+                {view.objectiveSections.map(function (section) {
+                  return (
+                    <div key={section.title}>
+                      <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-200">
+                        {section.color ? (
+                          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: section.color }} />
+                        ) : null}
+                        {section.title}
+                      </p>
+                      {renderObjectives(section.objectives)}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
             {/* Departments */}
             {view.departments.length > 0 ? (
               <div className={card}>
@@ -637,26 +657,6 @@ export default function BlueprintPage() {
                 above. A skipped role leaves the roles under it without a boss.
               </p>
             </div>
-
-            {/* Objectives */}
-            {view.objectiveSections.length > 0 ? (
-              <div className={card + " space-y-6"}>
-                <p className="text-xs uppercase tracking-wide text-gray-500">Objectives and key results</p>
-                {view.objectiveSections.map(function (section) {
-                  return (
-                    <div key={section.title}>
-                      <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-200">
-                        {section.color ? (
-                          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: section.color }} />
-                        ) : null}
-                        {section.title}
-                      </p>
-                      {renderObjectives(section.objectives)}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
 
             {/* KPIs */}
             {view.kpiSections.length > 0 ? (
