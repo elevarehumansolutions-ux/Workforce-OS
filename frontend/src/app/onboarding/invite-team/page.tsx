@@ -4,6 +4,11 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
+import { markOnboardingDone } from "@/lib/onboarding";
+
+interface OnboardingMe {
+  user: { id: string };
+}
 
 type SentStatus = "invited" | "added";
 
@@ -16,6 +21,7 @@ interface SentInvite {
 
 const ONBOARDING_STEPS = [
   "Business DNA",
+  "AI Structure",
   "Organization",
   "OKRs",
   "AI Suggestions",
@@ -97,7 +103,13 @@ export default function InviteTeamPage() {
     }
   }
 
-  function handleContinue() {
+  async function handleContinue() {
+    try {
+      const me = await apiFetch<OnboardingMe>("/auth/me", { method: "GET" });
+      markOnboardingDone(me.user.id);
+    } catch {
+      // Not being able to note it shouldn't stop the person finishing.
+    }
     router.push("/dashboard");
   }
 
@@ -122,7 +134,7 @@ export default function InviteTeamPage() {
             let labelClass = "text-sm ";
             let isCheck = false;
 
-            if (i < 5) {
+            if (i < 6) {
               circleClass += "border border-indigo-500 text-indigo-400";
               labelClass += "text-gray-500";
               isCheck = true;
@@ -289,4 +301,3 @@ export default function InviteTeamPage() {
     </div>
   );
 }
-

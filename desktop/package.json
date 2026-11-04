@@ -1,0 +1,37 @@
+{
+  "name": "elevare-workforce-os-desktop",
+  "version": "0.1.0",
+  "description": "Desktop app for Elevare Workforce OS. A secure window around the web app.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "dist": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^45.2.2",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "online.workforceos.desktop",
+    "productName": "Elevare Workforce OS",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "offline.html",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

@@ -1,215 +1,270 @@
 ﻿"use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { ApiError, apiFetch } from "@/lib/api";
+import AppShell from "@/components/AppShell";
+import { departmentName, errorMessage, fetchAllPages, loadCaller, roleLabel } from "@/lib/tasks";
+import type { CallerContext } from "@/lib/tasks";
+import { canStartCase, turnaroundLabel } from "@/lib/workflow";
+import type { WorkflowCase, WorkflowStep, WorkflowTemplate } from "@/lib/workflow";
 
-interface TemplateStep {
-  title: string;
-  department: string;
-  turnaround: string;
+interface TemplatesResult {
+  key: string;
+  templates: WorkflowTemplate[];
+  error: string;
 }
 
-interface TemplateOption {
-  id: string;
-  name: string;
-  steps: TemplateStep[];
+interface StepsResult {
+  key: string;
+  steps: WorkflowStep[];
+  error: string;
 }
 
-const TEMPLATE_OPTIONS: TemplateOption[] = [
-  {
-    id: "equipment-request",
-    name: "Equipment Request",
-    steps: [
-      { title: "Submit request form", department: "Department A", turnaround: "1 Day" },
-      { title: "Manager review and approval", department: "Department B", turnaround: "2 Days" },
-      { title: "Process and fulfill request", department: "Department C", turnaround: "3 Days" },
-    ],
-  },
-  {
-    id: "leave-approval",
-    name: "Leave Approval",
-    steps: [
-      { title: "Submit leave request", department: "HR", turnaround: "1 Day" },
-      { title: "Manager approval", department: "Department B", turnaround: "1 Day" },
-      { title: "HR confirmation", department: "HR", turnaround: "1 Day" },
-    ],
-  },
-];
+function StartWorkflowContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const presetTemplate = searchParams.get("template") || "";
 
-const SIDEBAR_HREFS: Record<string, string> = {
-  Dashboard: "/dashboard",
-  Employees: "/employees",
-  Attendance: "/attendance",
-  "Leave Management": "/leave",
-  Workflow: "/workflow/templates",
-  Tasks: "/tasks",
-  Payroll: "/payroll",
-  Reports: "/reports",
-  Settings: "/settings",
-};
+  const [ctx, setCtx] = useState<CallerContext | null>(null);
+  const [ctxError, setCtxError] = useState("");
+  const [reloadCounter, setReloadCounter] = useState(0);
+  const [templatesResult, setTemplatesResult] = useState<TemplatesResult | null>(null);
+  const [chosenId, setChosenId] = useState(presetTemplate);
+  const [subject, setSubject] = useState("");
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState("");
+  const [stepsResult, setStepsResult] = useState<StepsResult | null>(null);
 
-function SidebarNav() {
-  const items = [
-    "Dashboard",
-    "Employees",
-    "Attendance",
-    "Leave Management",
-    "Workflow",
-    "Tasks",
-    "Payroll",
-    "Reports",
-    "Settings",
-  ];
+  const templatesKey = "templates|" + reloadCounter;
+  const templatesLoading = templatesResult === null || templatesResult.key !== templatesKey;
+  const templates = templatesResult ? templatesResult.templates : [];
+
+  // The picker only offers templates that are still in the list (archived ones are hidden by default).
+  const selectedId = templates.some(function (t) {
+    return t.id === chosenId;
+  })
+    ? chosenId
+    : templates.length > 0
+      ? templates[0].id
+      : "";
+  const selected = templates.find(function (t) {
+    return t.id === selectedId;
+  });
+
+  const stepsKey = "steps|" + selectedId + "|" + reloadCounter;
+  const stepsLoading = selectedId !== "" && (stepsResult === null || stepsResult.key !== stepsKey);
+  const steps = stepsResult && stepsResult.key === stepsKey ? stepsResult.steps : [];
+  const stepsError = stepsResult && stepsResult.key === stepsKey ? stepsResult.error : "";
+
+  useEffect(function () {
+    let cancelled = false;
+    loadCaller()
+      .then(function (loaded) {
+        if (cancelled) return;
+        setCtx(loaded);
+      })
+      .catch(function (err) {
+        if (cancelled) return;
+        setCtxError(errorMessage(err, "Couldn't load this page."));
+      });
+    return function () {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(
+    function () {
+      let cancelled = false;
+      fetchAllPages<WorkflowTemplate>("/workflow-templates")
+        .then(function (list) {
+          if (cancelled) return;
+          setTemplatesResult({ key: templatesKey, templates: list, error: "" });
+        })
+        .catch(function (err) {
+          if (cancelled) return;
+          setTemplatesResult({ key: templatesKey, templates: [], error: errorMessage(err, "Couldn't load the templates. Check your connection and try again.") });
+        });
+      return function () {
+        cancelled = true;
+      };
+    },
+    [templatesKey]
+  );
+
+  useEffect(
+    function () {
+      if (!selectedId) return;
+      let cancelled = false;
+      apiFetch<WorkflowStep[]>("/workflow-templates/" + selectedId + "/steps", { method: "GET" })
+        .then(function (res) {
+          if (cancelled) return;
+          setStepsResult({ key: stepsKey, steps: Array.isArray(res) ? res : [], error: "" });
+        })
+        .catch(function (err) {
+          if (cancelled) return;
+          setStepsResult({ key: stepsKey, steps: [], error: errorMessage(err, "Couldn't load this template's steps.") });
+        });
+      return function () {
+        cancelled = true;
+      };
+    },
+    [selectedId, stepsKey]
+  );
+
+  async function start() {
+    setError("");
+    if (!selectedId) {
+      setError("Choose a template.");
+      return;
+    }
+    if (!subject.trim()) {
+      setError("Enter who or what this case is for, e.g. a client name.");
+      return;
+    }
+    setStarting(true);
+    try {
+      const created = await apiFetch<WorkflowCase>("/workflow-instances", {
+        method: "POST",
+        body: { template_id: selectedId, subject: subject.trim() },
+      });
+      router.push("/workflow/case-detail?id=" + created.id);
+    } catch (err) {
+      setError(errorMessage(err, "Couldn't start the workflow. Check your connection and try again."));
+      // The template was deleted or archived after the picker loaded: refresh it.
+      if (err instanceof ApiError && (err.code === "WORKFLOW_TEMPLATE_NOT_FOUND" || err.code === "WORKFLOW_TEMPLATE_ARCHIVED")) {
+        setReloadCounter(reloadCounter + 1);
+      }
+      setStarting(false);
+    }
+  }
+
+  const inputClass = "w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white outline-none focus:border-indigo-500";
+  const noSteps = selectedId !== "" && !stepsLoading && !stepsError && steps.length === 0;
+
   return (
-    <div className="flex w-56 flex-shrink-0 flex-col border-r border-white/10 px-4 py-6">
-      <div className="mb-8 flex items-center gap-3 px-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="3" y="8" width="4" height="9" rx="1" fill="white" />
-            <rect x="13" y="3" width="4" height="14" rx="1" fill="white" />
-          </svg>
+    <AppShell
+      activeLabel="Workflow"
+      title="Start workflow"
+      breadcrumb="Dashboard > Workflow > Start"
+      userName={ctx ? ctx.userName : undefined}
+      userRole={ctx ? roleLabel(ctx.role) : undefined}
+      actions={
+        <Link href="/workflow/templates" className="text-sm font-medium text-gray-400 hover:text-gray-200">
+          Back to templates
+        </Link>
+      }
+    >
+      {ctxError ? <div className="mb-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-300">{ctxError}</div> : null}
+      {!ctx && !ctxError ? <p className="text-sm text-gray-400">Loading…</p> : null}
+
+      {ctx && !canStartCase(ctx) ? (
+        <div className="max-w-xl rounded-2xl border border-white/10 bg-[#0d1220]/80 p-6 text-sm text-gray-400">
+          Only employees and HR administrators can start a workflow.
         </div>
-        <span className="text-base font-bold">Elevare</span>
-      </div>
-      <nav className="flex flex-1 flex-col gap-1">
-        {items.map(function (item) {
-          const isActive = item === "Workflow";
-          return (
-            <a
-              key={item}
-              href={SIDEBAR_HREFS[item] || "#"}
-              className={
-                "rounded-lg px-3 py-2.5 text-sm " +
-                (isActive ? "bg-indigo-500 font-medium text-white" : "text-gray-400 hover:bg-white/5")
-              }
-            >
-              {item}
-            </a>
-          );
-        })}
-      </nav>
-    </div>
+      ) : null}
+
+      {ctx && canStartCase(ctx) ? (
+        <div className="max-w-2xl space-y-5 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-6">
+          {error ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div> : null}
+          {templatesResult && templatesResult.error ? <p className="text-sm text-red-300">{templatesResult.error}</p> : null}
+          {templatesLoading ? <p className="text-sm text-gray-400">Loading templates…</p> : null}
+
+          {!templatesLoading && templates.length === 0 && !(templatesResult && templatesResult.error) ? (
+            <p className="text-sm text-gray-400">There are no workflow templates to start yet. An HR administrator or manager needs to create one first.</p>
+          ) : null}
+
+          {!templatesLoading && templates.length > 0 ? (
+            <>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-200">Template</label>
+                <select
+                  value={selectedId}
+                  onChange={function (e) {
+                    setChosenId(e.target.value);
+                    setError("");
+                  }}
+                  className={inputClass}
+                >
+                  {templates.map(function (t) {
+                    return (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    );
+                  })}
+                </select>
+                {selected ? <p className="mt-1 text-xs text-gray-500">Owned by {departmentName(ctx, selected.department_id)}</p> : null}
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-200">Who or what is this case for?</label>
+                <input
+                  type="text"
+                  maxLength={200}
+                  value={subject}
+                  onChange={function (e) {
+                    setSubject(e.target.value);
+                  }}
+                  placeholder="e.g. Zenith Ltd"
+                  className={inputClass}
+                />
+              </div>
+
+              <div className="rounded-lg border border-white/10 bg-[#0a0e1a] p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">What will happen</p>
+                {stepsLoading ? <p className="mt-2 text-sm text-gray-400">Loading steps…</p> : null}
+                {stepsError ? <p className="mt-2 text-sm text-red-300">{stepsError}</p> : null}
+                {noSteps ? (
+                  <p className="mt-2 text-sm text-amber-300">This template has no steps yet. Add at least one step before starting a case.</p>
+                ) : null}
+                {steps.length > 0 ? (
+                  <>
+                    <p className="mt-2 text-xs text-gray-500">The first step&apos;s task is created straight away. Each later step&apos;s task is created when the step before it ends.</p>
+                    <ol className="mt-3 space-y-2">
+                      {steps.map(function (s) {
+                        return (
+                          <li key={s.id} className="text-sm text-gray-300">
+                            <span className="mr-2 text-indigo-300">{s.step_order}.</span>
+                            {s.name}
+                            <span className="text-xs text-gray-500">
+                              {" "}
+                              · {departmentName(ctx, s.department_id)} · {turnaroundLabel(s.default_turnaround_hours)}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </>
+                ) : null}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={starting || stepsLoading || noSteps || !!stepsError}
+                  onClick={start}
+                  className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {starting ? "Starting…" : "Start workflow"}
+                </button>
+                <Link href="/workflow/templates" className="rounded-lg border border-white/15 px-4 py-2.5 text-sm font-medium text-gray-300 hover:bg-white/5">
+                  Cancel
+                </Link>
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </AppShell>
   );
 }
 
 export default function StartWorkflowPage() {
-  const router = useRouter();
-  const [selectedTemplateId, setSelectedTemplateId] = useState(TEMPLATE_OPTIONS[0].id);
-  const [caseName, setCaseName] = useState("");
-  const [notes, setNotes] = useState("");
-
-  const selectedTemplate = TEMPLATE_OPTIONS.find(function (t: TemplateOption) {
-    return t.id === selectedTemplateId;
-  });
-
-  function handleStart() {
-    if (!caseName.trim()) {
-      window.alert("Please enter a case name before starting the workflow.");
-      return;
-    }
-    // TODO: replace with a real call to the Workflow module endpoint
-    // once the backend is ready.
-    console.log("Workflow started:", { selectedTemplateId, caseName, notes });
-    router.push("/workflow/tracker");
-  }
-
-  function handleCancel() {
-    router.push("/workflow/templates");
-  }
-
   return (
-    <div className="flex min-h-screen w-full bg-[#05070f] text-white">
-      <SidebarNav />
-      <div className="flex-1 px-8 py-8">
-        <p className="text-xs text-gray-500">Dashboard &gt; Workflow Templates &gt; Start Workflow</p>
-        <h1 className="mt-1 text-2xl font-bold">Start Workflow</h1>
-
-        <div className="mt-6 max-w-2xl rounded-2xl border border-white/10 bg-[#0d1220]/80 p-6">
-          <label className="mb-2 block text-sm font-medium text-gray-200">Select Template</label>
-          <select
-            value={selectedTemplateId}
-            onChange={function (e: React.ChangeEvent<HTMLSelectElement>) {
-              setSelectedTemplateId(e.target.value);
-            }}
-            className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white outline-none focus:border-indigo-500"
-          >
-            {TEMPLATE_OPTIONS.map(function (t: TemplateOption) {
-              return (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              );
-            })}
-          </select>
-
-          <p className="mb-2 mt-6 text-sm font-medium text-gray-200">Template Steps</p>
-          <div className="space-y-3">
-            {selectedTemplate &&
-              selectedTemplate.steps.map(function (step: TemplateStep, index: number) {
-                return (
-                  <div key={step.title} className="flex items-center gap-3 rounded-lg border border-white/10 bg-[#0a0e1a] p-4">
-                    <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500 text-xs font-semibold text-white">
-                      {index + 1}
-                    </span>
-                    <div>
-                      <p className="text-sm font-semibold">{step.title}</p>
-                      <p className="text-xs text-gray-500">
-                        <span className="rounded bg-white/10 px-1.5 py-0.5 text-indigo-300">{step.department}</span>
-                        {"  "}Turnaround: {step.turnaround}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-
-          <div className="mt-6">
-            <label className="mb-2 block text-sm font-medium text-gray-200">
-              Case Name <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              value={caseName}
-              onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
-                setCaseName(e.target.value);
-              }}
-              placeholder="e.g. Enter a name or reference for this case"
-              className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-            />
-          </div>
-
-          <div className="mt-4">
-            <label className="mb-2 block text-sm font-medium text-gray-200">Notes</label>
-            <textarea
-              rows={3}
-              value={notes}
-              onChange={function (e: React.ChangeEvent<HTMLTextAreaElement>) {
-                setNotes(e.target.value);
-              }}
-              placeholder="Add any additional context or notes (optional)"
-              className="w-full resize-none rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
-            />
-          </div>
-
-          <div className="mt-6 flex items-center justify-end gap-3 border-t border-white/10 pt-6">
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="rounded-lg border border-white/15 px-5 py-2.5 text-sm font-medium text-white hover:bg-white/5"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleStart}
-              className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600"
-            >
-              Start Workflow
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <Suspense fallback={null}>
+      <StartWorkflowContent />
+    </Suspense>
   );
 }
-

@@ -27,6 +27,8 @@ Matches `ai_suggestions.suggestion_type`:
 
 ## AI is restricted to entities that already exist
 
+> **Exception for set-up, 2026-10-22 (`08_DECISIONS.md`):** the **Blueprint** (`app/modules/blueprint/`) proposes departments, positions (with who they report to), objectives and key results that do not exist yet, straight after the first Business DNA save, plus renames of what the company already has. It is held in its own table `blueprint_items`, never touches a real row until HR approves, and is grounded the same way (Claude sees only labels, never ids; unknown labels are dropped in code). The rule below still holds for everything else.
+
 For `critical_position`, `revenue_allocation`, and `kpi_weight`, the LLM must select from IDs given to it in the prompt, department, position, and KPI records that are already real rows, never invent one. This is enforced in code, not just prompted for: the response is validated against the actual IDs sent, a hallucinated ID is a rejected generation, not a suggestion that reaches the review queue. `missing_department` is the one deliberate exception, its entire point is naming something that doesn't exist yet, that suggestion creates a name string, never a department row directly, HR still has to explicitly accept it before any row is created.
 
 ## Debounce

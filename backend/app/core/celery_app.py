@@ -33,6 +33,7 @@ celery = Celery(
     include=[
         "app.modules.auth.tasks",
         "app.modules.ai.tasks",
+        "app.modules.blueprint.tasks",
         "app.modules.attendance.tasks",
         "app.modules.scoring.tasks",
         "app.modules.tasks.tasks",

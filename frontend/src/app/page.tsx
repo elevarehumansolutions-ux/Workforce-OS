@@ -178,10 +178,10 @@ function HeroSection() {
       />
       <div className="relative mx-auto grid max-w-[1280px] grid-cols-1 items-center gap-16 px-8 py-24 lg:grid-cols-2">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-indigo-400">Workforce Management System</p>
-          <h1 className="mt-4 text-5xl font-extrabold leading-tight">The Engine for West Africa&apos;s Teams.</h1>
-          <p className="mt-6 max-w-md text-lg text-gray-400">
-            Attendance, performance, and payroll - unified in one platform built for how West African businesses actually operate.
+          <p className="text-xs font-semibold uppercase tracking-wide text-indigo-400">Workforce Operating System</p>
+          <h1 className="mt-4 text-5xl font-extrabold leading-tight">Where strategy becomes daily execution.</h1>
+          <p className="mt-6 max-w-xl text-base leading-relaxed text-gray-400">
+            Elevare Workforce is a forward-thinking workforce solutions company focused on connecting talent with opportunities, empowering people, and helping businesses grow. Through innovation, collaboration, and a commitment to excellence, we aim to bridge the gap between talent and organizational needs while creating opportunities for professional development and sustainable success.
           </p>
 
           <div className="mt-6 flex items-center gap-2 text-sm text-gray-300">

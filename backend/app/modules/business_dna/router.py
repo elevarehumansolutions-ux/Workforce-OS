@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_membership, get_db, require_org_role
+from app.core.triggers import trigger_blueprint_generation
 from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.repository import OrganizationRepository
 
@@ -160,6 +161,10 @@ async def upsert_business_dna(
     )
 
     await db.commit()
+    # The first time an organization saves its Business DNA, the AI proposes its
+    # departments, positions and objectives (08_DECISIONS.md 2026-10-22). Later
+    # edits do nothing here; HR asks for a new blueprint explicitly.
+    await trigger_blueprint_generation(caller.organization_id, first_time_only=True)
     return response
 
 

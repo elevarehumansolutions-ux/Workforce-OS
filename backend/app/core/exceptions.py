@@ -890,3 +890,45 @@ class WorkflowTemplateNotArchivedException(PlatformError):
         """Initialise with platform error defaults."""
         super().__init__(message, code, status_code, details)
 
+
+class BlueprintItemNotFoundException(PlatformError):
+    """Raised when a blueprint item id finds no row (or belongs to another organization)."""
+
+    def __init__(
+        self,
+        message: str = "Blueprint item not found",
+        code: str = "BLUEPRINT_ITEM_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class BlueprintItemAlreadyReviewedException(PlatformError):
+    """Raised when reviewing a blueprint item that is no longer pending."""
+
+    def __init__(
+        self,
+        message: str = "This item has already been reviewed",
+        code: str = "BLUEPRINT_ITEM_ALREADY_REVIEWED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class BlueprintParentRejectedException(PlatformError):
+    """Raised when an item cannot be applied because the item it depends on was rejected."""
+
+    def __init__(
+        self,
+        message: str = "The item this depends on was rejected",
+        code: str = "BLUEPRINT_PARENT_REJECTED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+

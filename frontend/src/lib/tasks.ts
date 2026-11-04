@@ -21,6 +21,9 @@ export interface Task {
   // null unless the task is blocked right now.
   blocked_since: string | null;
   approved_blocked_seconds: number;
+  // Set when the task belongs to a running workflow case (a step of it).
+  workflow_instance_id: string | null;
+  workflow_step_id: string | null;
   created_by_user_id: string | null;
   created_at: string;
   updated_at: string;

@@ -41,6 +41,7 @@ interface PaginatedResponse<T> {
 
 const ONBOARDING_STEPS = [
   "Business DNA",
+  "AI Structure",
   "Organization",
   "OKRs",
   "AI Suggestions",
@@ -292,11 +293,11 @@ export default function OkrsPage() {
             let labelClass = "text-sm ";
             let content: string | number = i + 1;
 
-            if (i < 2) {
+            if (i < 3) {
               circleClass += "border border-indigo-500 text-indigo-400";
               labelClass += "text-gray-500";
               content = "check";
-            } else if (i === 2) {
+            } else if (i === 3) {
               circleClass += "bg-indigo-500 text-white";
               labelClass += "font-medium text-indigo-400";
             } else {
