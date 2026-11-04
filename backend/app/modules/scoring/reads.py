@@ -12,7 +12,12 @@ from datetime import UTC, date, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import DepartmentNotFoundException, EmployeeNotFoundException, ValidationException
+from app.core.exceptions import (
+    DepartmentNotFoundException,
+    EmployeeNotFoundException,
+    OrganizationNotFoundException,
+    ValidationException,
+)
 from app.core.schemas import PaginationMeta
 from app.modules.kpis.repository import KPIRepository
 from app.modules.organization.models import Employee
@@ -22,9 +27,13 @@ from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.repository import OrganizationRepository
 
 from .access import load_performance_scope
+from .company import CompanyNumbers, previous_quarter_dates
 from .repository import ScoringRepository
 from .rollup import weighted_average
 from .schemas import (
+    CompanyDepartmentLine,
+    CompanyPerformanceResponse,
+    CompanyTrendPoint,
     DepartmentPerformanceResponse,
     KPIScoreLine,
     LeaderboardEntry,
@@ -85,6 +94,13 @@ def _best_first(person: PersonScoreLine) -> tuple:
 def _leaderboard_order(entry: LeaderboardEntry) -> tuple:
     """Sort key: highest score first, ties by name."""
     return (-entry.overall_score, entry.employee_name)
+
+
+def _biggest_share_first(line: CompanyDepartmentLine) -> tuple:
+    """Sort key: the department with the biggest revenue share first, no share last, ties by name."""
+    has_no_share = line.revenue_share is None
+    share = line.revenue_share if line.revenue_share is not None else 0
+    return (has_no_share, -share, line.department_name)
 
 
 def _cut_page(items: list, page: int, limit: int) -> tuple[list, PaginationMeta]:
@@ -367,6 +383,106 @@ class PerformanceReadService:
             else:
                 entry.rank = position + 1
         return scored
+
+    async def get_company_performance(
+        self,
+        caller: Membership,
+        period_start: date | None,
+        period_end: date | None,
+    ) -> CompanyPerformanceResponse:
+        """The company dashboard for one period: headline, punctuality, departments and a 4-quarter trend.
+
+        Only HR and executives may see it. Everything is read from the saved
+        department rows, whose revenue shares were frozen with them, so a closed
+        quarter never shifts when HR later edits the shares.
+
+        Raises:
+            OrganizationNotFoundException: The caller may not see the company view.
+            ValidationException: The dates are half given or back to front.
+        """
+        scope = await load_performance_scope(self._db, caller)
+        if not scope.can_see_company():
+            raise OrganizationNotFoundException("Company performance is not available to you.")
+
+        first_day, last_day = await self._period_for(caller, period_start, period_end)
+
+        # The asked quarter and the three before it, oldest first.
+        periods = [(first_day, last_day)]
+        for _ in range(3):
+            periods.insert(0, previous_quarter_dates(periods[0][0], periods[0][1]))
+
+        departments = await ScoringService._every_item(
+            lambda page, limit: self._department_repo.list_departments(caller.organization_id, page, limit)
+        )
+        names = {department.id: department.name for department in departments}
+
+        rows_by_period = {period: [] for period in periods}
+        for row in await self._repo.list_department_scores_for_periods(periods):
+            if row.department_id in names:
+                rows_by_period[(row.period_start, row.period_end)].append(row)
+
+        trend = []
+        for period in periods:
+            rows = rows_by_period[period]
+            numbers = CompanyNumbers(rows)
+            trend.append(
+                CompanyTrendPoint(
+                    period_start=period[0],
+                    period_end=period[1],
+                    is_final=any(row.finalized_at is not None for row in rows),
+                    headline_score=numbers.headline_score,
+                    departments_counted=numbers.departments_counted,
+                    punctuality_score=numbers.punctuality_score,
+                )
+            )
+
+        rows = rows_by_period[(first_day, last_day)]
+        numbers = CompanyNumbers(rows)
+
+        lines = []
+        for row in rows:
+            lines.append(
+                CompanyDepartmentLine(
+                    department_id=row.department_id,
+                    department_name=names[row.department_id],
+                    revenue_share=row.revenue_allocation_percentage,
+                    kpi_results_score=row.kpi_results_score,
+                    kpis_counted=row.kpis_counted,
+                    kpis_expected=row.kpis_expected,
+                    punctuality_score=row.punctuality_score,
+                    counted_in_headline=row.department_id in numbers.counted_department_ids,
+                )
+            )
+        lines.sort(key=_biggest_share_first)
+
+        headline_reason = None
+        punctuality_reason = None
+        if len(rows) == 0:
+            headline_reason = "No scores have been worked out for this period yet."
+            punctuality_reason = headline_reason
+        else:
+            if numbers.headline_score is None:
+                headline_reason = "No department has a KPI result for this period yet."
+            if numbers.punctuality_score is None:
+                punctuality_reason = "No task of any department had a deadline in this period."
+
+        return CompanyPerformanceResponse(
+            period_start=first_day,
+            period_end=last_day,
+            is_final=trend[-1].is_final,
+            headline_score=numbers.headline_score,
+            departments_counted=numbers.departments_counted,
+            departments_expected=len(rows),
+            headline_is_plain_average=numbers.plain_average,
+            headline_no_data_reason=headline_reason,
+            punctuality_score=numbers.punctuality_score,
+            punctuality_on_time=numbers.on_time,
+            punctuality_late=numbers.late,
+            punctuality_not_done=numbers.not_done,
+            punctuality_no_data_reason=punctuality_reason,
+            departments=lines,
+            trend=trend,
+        )
 
     async def get_leaderboard(
         self,

@@ -84,6 +84,44 @@ export interface Leaderboard {
   pagination: PageInfo;
 }
 
+export interface CompanyDepartmentLine {
+  department_id: string;
+  department_name: string;
+  revenue_share: string | null;
+  kpi_results_score: string | null;
+  kpis_counted: number;
+  kpis_expected: number;
+  punctuality_score: string | null;
+  counted_in_headline: boolean;
+}
+
+export interface CompanyTrendPoint {
+  period_start: string;
+  period_end: string;
+  is_final: boolean;
+  headline_score: string | null;
+  departments_counted: number;
+  punctuality_score: string | null;
+}
+
+export interface CompanyPerformance {
+  period_start: string;
+  period_end: string;
+  is_final: boolean;
+  headline_score: string | null;
+  departments_counted: number;
+  departments_expected: number;
+  headline_is_plain_average: boolean;
+  headline_no_data_reason: string | null;
+  punctuality_score: string | null;
+  punctuality_on_time: number;
+  punctuality_late: number;
+  punctuality_not_done: number;
+  punctuality_no_data_reason: string | null;
+  departments: CompanyDepartmentLine[];
+  trend: CompanyTrendPoint[];
+}
+
 // ---- the period being looked at
 
 // start and end are null for "the current quarter": the server then picks the
@@ -165,6 +203,10 @@ export function personPath(employeeId: string, period: Period): string {
   return base + query(period, []);
 }
 
+export function companyPath(period: Period): string {
+  return "/company-performance-summary" + query(period, []);
+}
+
 export function departmentPath(departmentId: string, period: Period, page: number): string {
   return "/departments/" + departmentId + "/performance-summary" + query(period, ["page=" + page, "limit=20"]);
 }
@@ -209,6 +251,11 @@ export function departmentsICanOpen(ctx: CallerContext): Department[] {
     }
   }
   return mine;
+}
+
+// The company view is for HR and executives only.
+export function canSeeCompany(ctx: CallerContext): boolean {
+  return ctx.role === "hr_administrator" || ctx.role === "business_executive";
 }
 
 export function canSeeRankedList(ctx: CallerContext): boolean {

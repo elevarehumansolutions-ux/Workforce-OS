@@ -13,7 +13,7 @@ second layer; see 04_DATABASE.md.)
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import exists, func, or_, select, text, update
+from sqlalchemy import and_, exists, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -172,6 +172,21 @@ class ScoringRepository:
         )
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def list_department_scores_for_periods(
+        self, periods: list[tuple[date, date]]
+    ) -> list[DepartmentScore]:
+        """Every department's saved row for each of the given periods, in one query.
+
+        Args:
+            periods: ``(first_day, last_day)`` pairs.
+        """
+        if len(periods) == 0:
+            return []
+        wanted = [and_(DepartmentScore.period_start == first, DepartmentScore.period_end == last) for first, last in periods]
+        stmt = select(DepartmentScore).where(or_(*wanted)).execution_options(populate_existing=True)
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
 
     async def list_people_of_department(
         self, department_id: uuid.UUID, period_start: date, period_end: date

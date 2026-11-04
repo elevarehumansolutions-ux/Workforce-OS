@@ -135,6 +135,10 @@ Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (
   version clash in `requirements.txt` (see `08_DECISIONS.md` 2026-10-22, slice E part 2 entry).
 - **F. The company view:** `GET /company-performance-summary` (revenue-weighted headline with "N of M counted", saved
   quarterly trend, live custom range up to 12 months, Most Improved top three with context).
+  **Part 1 BUILT 2026-11-04:** the endpoint with headline, pooled company punctuality, departments and a 4-quarter
+  trend (`scoring/company.py`, `rollup.company_headline`; 15 tests), HR and executives only, plus its screen
+  `/performance/company`. **Remaining in F:** Most Improved (part 2), the live custom date range (part 3), each with
+  its screen.
 - **G. The executive summary:** fact sheet with no names, the AI call, the number check with one retry and the plain-fact
   fallback, the weekly job that skips an unchanged week, the read endpoint for HR and executives.
 - **H. Close-out:** Trello cards for Uche, docs, the full suite, the study guide if wanted.

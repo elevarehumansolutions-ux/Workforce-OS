@@ -14,9 +14,42 @@ from app.core.dependencies import get_current_membership, get_db
 from app.modules.tenancy_identity.models import Membership
 
 from .reads import PerformanceReadService
-from .schemas import DepartmentPerformanceResponse, LeaderboardResponse, PersonPerformanceResponse
+from .schemas import (
+    CompanyPerformanceResponse,
+    DepartmentPerformanceResponse,
+    LeaderboardResponse,
+    PersonPerformanceResponse,
+)
 
 router = APIRouter()
+
+
+@router.get("/company-performance-summary", status_code=200)
+async def get_company_performance(
+    period_start: date | None = Query(None, description="First day of the period; with period_end, or neither"),
+    period_end: date | None = Query(None, description="Last day of the period"),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> CompanyPerformanceResponse:
+    """The company dashboard: headline score, company punctuality, the departments behind them and a 4-quarter trend.
+
+    The headline is the departments' KPI results weighted by revenue share
+    ("N of M departments counted"); punctuality pools every department's tasks.
+    The two are never blended. Only HR administrators and business executives
+    may open it.
+
+    Args:
+        period_start: First day of the period, or leave both dates out.
+        period_end: Last day of the period.
+        db: Database session dependency.
+        caller: The authenticated caller's membership.
+
+    Raises:
+        OrganizationNotFoundException: The caller may not see the company view (404).
+        ValidationException: Only one date given, or the end is before the start (422).
+    """
+    service = PerformanceReadService(db)
+    return await service.get_company_performance(caller, period_start, period_end)
 
 
 @router.get("/departments/{department_id}/performance-summary", status_code=200)

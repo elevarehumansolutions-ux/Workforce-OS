@@ -8,7 +8,7 @@ import PeriodBar from "@/components/performance/PeriodBar";
 import PersonCard from "@/components/performance/PersonCard";
 import { loadCaller, roleLabel } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
-import { CURRENT_QUARTER, canSeeRankedList, departmentsICanOpen, personPath } from "@/lib/performance";
+import { CURRENT_QUARTER, canSeeCompany, canSeeRankedList, departmentsICanOpen, personPath } from "@/lib/performance";
 import type { Period, PersonPerformance } from "@/lib/performance";
 
 export default function MyPerformancePage() {
@@ -28,6 +28,11 @@ export default function MyPerformancePage() {
 
   const actions = ctx ? (
     <div className="flex items-center gap-2">
+      {canSeeCompany(ctx) ? (
+        <Link href="/performance/company" className="rounded-lg border border-white/10 px-4 py-2 text-sm text-gray-200 hover:bg-white/5">
+          Company view
+        </Link>
+      ) : null}
       {departmentsICanOpen(ctx).length > 0 ? (
         <Link href="/performance/department" className="rounded-lg border border-white/10 px-4 py-2 text-sm text-gray-200 hover:bg-white/5">
           Department view

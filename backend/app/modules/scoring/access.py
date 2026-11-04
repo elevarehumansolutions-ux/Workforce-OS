@@ -68,6 +68,10 @@ class PerformanceScope:
             return True
         return False
 
+    def can_see_company(self) -> bool:
+        """Whether the caller may see the company-wide view (HR and executives only)."""
+        return self.sees_all
+
     def can_see_ranked_list(self) -> bool:
         """Whether the caller may see a named list of people ranked by score.
 

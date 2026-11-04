@@ -101,6 +101,62 @@ class LeaderboardResponse(BaseModel):
     pagination: PaginationMeta
 
 
+class CompanyDepartmentLine(BaseModel):
+    """One department behind the company headline, with its own two numbers.
+
+    ``counted_in_headline`` is false for a department that has no result yet or
+    no revenue share (it is left out of the headline, not scored as 0).
+    """
+
+    department_id: uuid.UUID
+    department_name: str
+    revenue_share: decimal.Decimal | None
+    kpi_results_score: decimal.Decimal | None
+    kpis_counted: int
+    kpis_expected: int
+    punctuality_score: decimal.Decimal | None
+    counted_in_headline: bool
+
+
+class CompanyTrendPoint(BaseModel):
+    """The headline and punctuality of one saved quarter, for the trend graph."""
+
+    period_start: date
+    period_end: date
+    is_final: bool
+    headline_score: decimal.Decimal | None
+    departments_counted: int
+    punctuality_score: decimal.Decimal | None
+
+
+class CompanyPerformanceResponse(BaseModel):
+    """The company dashboard in one call: two numbers, the departments behind them, a trend.
+
+    ``headline_score`` is the departments' KPI results weighted by revenue share;
+    ``departments_counted`` of ``departments_expected`` is its "N of M". When no
+    department has a share, ``headline_is_plain_average`` is true. The company
+    ``punctuality_score`` pools every department's tasks and is never blended into
+    the headline. Either score is null with a reason when there is no data.
+    ``trend`` is the last four quarters ending at this one, oldest first.
+    """
+
+    period_start: date
+    period_end: date
+    is_final: bool
+    headline_score: decimal.Decimal | None
+    departments_counted: int
+    departments_expected: int
+    headline_is_plain_average: bool
+    headline_no_data_reason: str | None
+    punctuality_score: decimal.Decimal | None
+    punctuality_on_time: int
+    punctuality_late: int
+    punctuality_not_done: int
+    punctuality_no_data_reason: str | None
+    departments: list[CompanyDepartmentLine]
+    trend: list[CompanyTrendPoint]
+
+
 class PersonPerformanceResponse(BaseModel):
     """A person's performance card for one period.
 
