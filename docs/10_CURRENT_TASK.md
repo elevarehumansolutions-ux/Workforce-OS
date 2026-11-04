@@ -128,8 +128,10 @@ Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (
   `GET /employees/me/performance` plus `GET /employees/{id}/performance` (15 tests). **Part 2 BUILT 2026-10-22:**
   `GET /departments/{id}/performance-summary` (6 tests). **Part 3 BUILT 2026-11-04:** `GET /employees/leaderboard`
   (4 tests; the scoring router is now mounted BEFORE the organization router in `main.py`, or
-  `/employees/{employee_id}` would swallow `/employees/leaderboard`). **Remaining in E:** ONE Trello note for Uche
-  covering all three reads (the Trello connection was down on 2026-11-04). **Open for the user:** the `redis`/`kombu`
+  `/employees/{employee_id}` would swallow `/employees/leaderboard`). **Slice E is complete.** The user decided on 2026-11-04 that
+  Claude builds the frontend for M12 itself instead of writing Trello notes, so the three reads have their screens
+  (`/performance`, `/performance/department`, `/performance/leaderboard`, `/performance/person/[id]`); lint and
+  build pass, browser check still to do. Later slices get their screens in the same slice. **Open for the user:** the `redis`/`kombu`
   version clash in `requirements.txt` (see `08_DECISIONS.md` 2026-10-22, slice E part 2 entry).
 - **F. The company view:** `GET /company-performance-summary` (revenue-weighted headline with "N of M counted", saved
   quarterly trend, live custom range up to 12 months, Most Improved top three with context).
