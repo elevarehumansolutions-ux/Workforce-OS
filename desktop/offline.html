@@ -1,0 +1,51 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Elevare Workforce OS</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #05070f;
+        color: #fff;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .card {
+        max-width: 420px;
+        padding: 32px;
+        text-align: center;
+      }
+      h1 { font-size: 22px; margin: 0 0 8px; }
+      p { color: #9ca3af; font-size: 14px; line-height: 1.5; margin: 0 0 24px; }
+      button {
+        background: #6366f1;
+        color: #fff;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover { background: #4f46e5; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>You're offline</h1>
+      <p>Elevare Workforce OS needs an internet connection. Check your connection and try again.</p>
+      <button id="retry" type="button">Try again</button>
+    </div>
+    <script>
+      var target = new URLSearchParams(window.location.search).get("retry");
+      document.getElementById("retry").addEventListener("click", function () {
+        if (target) window.location.href = target;
+      });
+    </script>
+  </body>
+</html>
