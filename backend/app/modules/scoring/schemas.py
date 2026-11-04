@@ -157,6 +157,38 @@ class CompanyPerformanceResponse(BaseModel):
     trend: list[CompanyTrendPoint]
 
 
+class MostImprovedEntry(BaseModel):
+    """One entry of the Most Improved list, with how it was earned.
+
+    Example: Ada, 40 to 70 (+30 points), on 20 tasks before and 20 now.
+    """
+
+    id: uuid.UUID
+    name: str
+    previous_score: decimal.Decimal
+    current_score: decimal.Decimal
+    change_in_points: decimal.Decimal
+    previous_tasks: int
+    current_tasks: int
+
+
+class MostImprovedResponse(BaseModel):
+    """The top three people and the top three departments by gain in points since the quarter before.
+
+    A recognition list, not a verdict: fewer than three (or none) are listed
+    when not enough people qualify. ``min_valid_tasks`` is the number of valid
+    tasks required in BOTH periods.
+    """
+
+    period_start: date
+    period_end: date
+    previous_period_start: date
+    previous_period_end: date
+    min_valid_tasks: int
+    people: list[MostImprovedEntry]
+    departments: list[MostImprovedEntry]
+
+
 class PersonPerformanceResponse(BaseModel):
     """A person's performance card for one period.
 

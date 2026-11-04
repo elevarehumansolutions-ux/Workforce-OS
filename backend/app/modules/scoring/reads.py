@@ -28,6 +28,7 @@ from app.modules.tenancy_identity.repository import OrganizationRepository
 
 from .access import load_performance_scope
 from .company import CompanyNumbers, previous_quarter_dates
+from .improvement import HOW_MANY_LISTED, MIN_VALID_TASKS, Candidate, most_improved
 from .repository import ScoringRepository
 from .rollup import weighted_average
 from .schemas import (
@@ -38,6 +39,8 @@ from .schemas import (
     KPIScoreLine,
     LeaderboardEntry,
     LeaderboardResponse,
+    MostImprovedEntry,
+    MostImprovedResponse,
     PersonPerformanceResponse,
     PersonScoreLine,
 )
@@ -94,6 +97,26 @@ def _best_first(person: PersonScoreLine) -> tuple:
 def _leaderboard_order(entry: LeaderboardEntry) -> tuple:
     """Sort key: highest score first, ties by name."""
     return (-entry.overall_score, entry.employee_name)
+
+
+def _overall_and_tasks(rows: list) -> tuple:
+    """A person's overall score (None = no data) and valid-task count from their saved KPI rows."""
+    score = weighted_average([(row.weight_used, row.score_percentage) for row in rows])
+    tasks = sum(row.tasks_on_time + row.tasks_late + row.tasks_not_done for row in rows)
+    return score, tasks
+
+
+def _entry(candidate: Candidate, name: str) -> MostImprovedEntry:
+    """The response entry for a candidate that qualified."""
+    return MostImprovedEntry(
+        id=candidate.key,
+        name=name,
+        previous_score=candidate.previous_score,
+        current_score=candidate.current_score,
+        change_in_points=candidate.change_in_points(),
+        previous_tasks=candidate.previous_tasks,
+        current_tasks=candidate.current_tasks,
+    )
 
 
 def _biggest_share_first(line: CompanyDepartmentLine) -> tuple:
@@ -383,6 +406,110 @@ class PerformanceReadService:
             else:
                 entry.rank = position + 1
         return scored
+
+    async def _people_candidates(
+        self, organization_id: uuid.UUID, current: tuple[date, date], previous: tuple[date, date]
+    ) -> list[Candidate]:
+        """Every person's overall score and valid-task count in the asked quarter and the one before."""
+        kpis = await ScoringService._every_item(
+            lambda page, limit: self._kpi_repo.list_kpis(organization_id, None, None, page, limit)
+        )
+        live_kpi_ids = {kpi.id for kpi in kpis}
+
+        rows_by_person = {}
+        for row in await self._repo.list_employee_scores_for_periods([previous, current]):
+            if row.kpi_id not in live_kpi_ids:
+                continue
+            if row.employee_id not in rows_by_person:
+                rows_by_person[row.employee_id] = {"previous": [], "current": []}
+            which = "current" if (row.period_start, row.period_end) == current else "previous"
+            rows_by_person[row.employee_id][which].append(row)
+
+        candidates = []
+        for employee_id, groups in rows_by_person.items():
+            before_score, before_tasks = _overall_and_tasks(groups["previous"])
+            now_score, now_tasks = _overall_and_tasks(groups["current"])
+            candidates.append(Candidate(employee_id, before_score, before_tasks, now_score, now_tasks))
+        return candidates
+
+    async def _department_candidates(
+        self, current: tuple[date, date], previous: tuple[date, date]
+    ) -> list[Candidate]:
+        """Every department's team punctuality and task count in the asked quarter and the one before."""
+        by_department = {}
+        for row in await self._repo.list_department_scores_for_periods([previous, current]):
+            if row.department_id not in by_department:
+                by_department[row.department_id] = {}
+            which = "current" if (row.period_start, row.period_end) == current else "previous"
+            by_department[row.department_id][which] = row
+
+        candidates = []
+        for department_id, rows in by_department.items():
+            before = rows.get("previous")
+            now = rows.get("current")
+            if before is None or now is None:
+                continue
+            candidates.append(
+                Candidate(
+                    department_id,
+                    before.punctuality_score,
+                    before.punctuality_on_time + before.punctuality_late + before.punctuality_not_done,
+                    now.punctuality_score,
+                    now.punctuality_on_time + now.punctuality_late + now.punctuality_not_done,
+                )
+            )
+        return candidates
+
+    async def get_most_improved(
+        self,
+        caller: Membership,
+        period_start: date | None,
+        period_end: date | None,
+    ) -> MostImprovedResponse:
+        """The top three people and top three departments by gain in points since the quarter before.
+
+        People are compared on their overall score, departments on their team
+        punctuality (both are built from tasks, so the minimum of valid tasks
+        means the same for both). Only HR and executives may see it.
+
+        Raises:
+            OrganizationNotFoundException: The caller may not see the company view.
+            ValidationException: The dates are half given or back to front.
+        """
+        scope = await load_performance_scope(self._db, caller)
+        if not scope.can_see_company():
+            raise OrganizationNotFoundException("Company performance is not available to you.")
+
+        current = await self._period_for(caller, period_start, period_end)
+        previous = previous_quarter_dates(current[0], current[1])
+
+        people = []
+        for candidate in most_improved(await self._people_candidates(caller.organization_id, current, previous)):
+            employee = await self._employee_repo.get_employee_by_id(candidate.key)
+            if employee is None:
+                continue  # deleted since; the next one takes the place
+            people.append(_entry(candidate, f"{employee.first_name} {employee.last_name}"))
+            if len(people) == HOW_MANY_LISTED:
+                break
+
+        departments = []
+        for candidate in most_improved(await self._department_candidates(current, previous)):
+            department = await self._department_repo.get_department_by_id(candidate.key)
+            if department is None:
+                continue
+            departments.append(_entry(candidate, department.name))
+            if len(departments) == HOW_MANY_LISTED:
+                break
+
+        return MostImprovedResponse(
+            period_start=current[0],
+            period_end=current[1],
+            previous_period_start=previous[0],
+            previous_period_end=previous[1],
+            min_valid_tasks=MIN_VALID_TASKS,
+            people=people,
+            departments=departments,
+        )
 
     async def get_company_performance(
         self,

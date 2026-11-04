@@ -122,6 +122,26 @@ export interface CompanyPerformance {
   trend: CompanyTrendPoint[];
 }
 
+export interface MostImprovedEntry {
+  id: string;
+  name: string;
+  previous_score: string;
+  current_score: string;
+  change_in_points: string;
+  previous_tasks: number;
+  current_tasks: number;
+}
+
+export interface MostImproved {
+  period_start: string;
+  period_end: string;
+  previous_period_start: string;
+  previous_period_end: string;
+  min_valid_tasks: number;
+  people: MostImprovedEntry[];
+  departments: MostImprovedEntry[];
+}
+
 // ---- the period being looked at
 
 // start and end are null for "the current quarter": the server then picks the
@@ -205,6 +225,10 @@ export function personPath(employeeId: string, period: Period): string {
 
 export function companyPath(period: Period): string {
   return "/company-performance-summary" + query(period, []);
+}
+
+export function mostImprovedPath(period: Period): string {
+  return "/company-performance-summary/most-improved" + query(period, []);
 }
 
 export function departmentPath(departmentId: string, period: Period, page: number): string {

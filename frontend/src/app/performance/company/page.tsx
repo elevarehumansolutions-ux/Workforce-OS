@@ -7,8 +7,8 @@ import AppShell from "@/components/AppShell";
 import PeriodBar from "@/components/performance/PeriodBar";
 import { loadCaller, roleLabel } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
-import { CURRENT_QUARTER, companyPath, scoreClasses, scoreText } from "@/lib/performance";
-import type { CompanyPerformance, CompanyTrendPoint, Period } from "@/lib/performance";
+import { CURRENT_QUARTER, companyPath, mostImprovedPath, scoreClasses, scoreText } from "@/lib/performance";
+import type { CompanyPerformance, CompanyTrendPoint, MostImproved, MostImprovedEntry, Period } from "@/lib/performance";
 
 function quarterLabel(startIso: string): string {
   return new Date(startIso + "T00:00:00Z").toLocaleDateString("en-GB", {
@@ -42,6 +42,66 @@ function TrendBars(props: { points: CompanyTrendPoint[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function ImprovedList(props: { title: string; entries: MostImprovedEntry[] }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-5">
+      <p className="text-xs uppercase tracking-wide text-gray-500">{props.title}</p>
+      {props.entries.length === 0 ? (
+        <p className="mt-3 text-sm text-gray-400">Nobody qualifies yet.</p>
+      ) : (
+        <ol className="mt-3 space-y-3">
+          {props.entries.map(function (entry) {
+            return (
+              <li key={entry.id}>
+                <p className="text-sm font-medium text-white">
+                  {entry.name} <span className="text-emerald-300">+{scoreText(entry.change_in_points)} points</span>
+                </p>
+                <p className="text-xs text-gray-500">
+                  {scoreText(entry.previous_score)} to {scoreText(entry.current_score)}, on {entry.previous_tasks} tasks
+                  before and {entry.current_tasks} now
+                </p>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+// Recognition, not a verdict: the three biggest gains in points since the quarter before,
+// each with how it was earned, and only for people and teams with enough tasks in both quarters.
+function MostImprovedSection(props: { period: Period }) {
+  const load = useLoad<MostImproved>(
+    "improved|" + props.period.start + "|" + props.period.end,
+    function () {
+      return apiFetch<MostImproved>(mostImprovedPath(props.period), { method: "GET" });
+    },
+    "Could not load Most Improved."
+  );
+  const data = load.data;
+
+  return (
+    <div>
+      <h3 className="mt-8 text-sm font-semibold uppercase tracking-wide text-gray-400">Most improved</h3>
+      {load.loading ? <p className="mt-3 text-sm text-gray-400">Loading…</p> : null}
+      {load.error ? <p className="mt-3 text-sm text-red-300">{load.error}</p> : null}
+      {data ? (
+        <div>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            <ImprovedList title="People" entries={data.people} />
+            <ImprovedList title="Departments (team punctuality)" entries={data.departments} />
+          </div>
+          <p className="mt-3 text-xs text-gray-500">
+            Gain in points since the quarter before. Listed only with at least {data.min_valid_tasks} valid tasks in both
+            quarters, so a lucky few tasks do not win.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -178,6 +238,8 @@ export default function CompanyPerformancePage() {
                 </table>
               </div>
             )}
+
+            <MostImprovedSection period={period} />
           </div>
         ) : null}
       </div>

@@ -18,6 +18,7 @@ from .schemas import (
     CompanyPerformanceResponse,
     DepartmentPerformanceResponse,
     LeaderboardResponse,
+    MostImprovedResponse,
     PersonPerformanceResponse,
 )
 
@@ -50,6 +51,27 @@ async def get_company_performance(
     """
     service = PerformanceReadService(db)
     return await service.get_company_performance(caller, period_start, period_end)
+
+
+@router.get("/company-performance-summary/most-improved", status_code=200)
+async def get_most_improved(
+    period_start: date | None = Query(None, description="First day of the period; with period_end, or neither"),
+    period_end: date | None = Query(None, description="Last day of the period"),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> MostImprovedResponse:
+    """The top three people and the top three departments by gain in points since the quarter before.
+
+    A recognition list with the context of each entry (both scores and both task
+    counts). Needs at least 10 valid tasks in both quarters; fewer than three
+    entries (or none) is normal. Only HR administrators and business executives.
+
+    Raises:
+        OrganizationNotFoundException: The caller may not see the company view (404).
+        ValidationException: Only one date given, or the end is before the start (422).
+    """
+    service = PerformanceReadService(db)
+    return await service.get_most_improved(caller, period_start, period_end)
 
 
 @router.get("/departments/{department_id}/performance-summary", status_code=200)
