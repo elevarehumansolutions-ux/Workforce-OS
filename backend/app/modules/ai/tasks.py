@@ -65,12 +65,12 @@ async def _notify_hr_admins_of_new_suggestions(
     )
     if not recipient_ids:
         return
-    plural = "suggestion" if created_count == 1 else "suggestions"
+    plural = "recommendation" if created_count == 1 else "recommendations"
     await NotificationService(db).notify(
         organization_id=organization_id,
         recipient_user_ids=recipient_ids,
         category=NotificationCategory.AI_SUGGESTION,
-        title=f"{created_count} new AI {plural} ready for review",
+        title=f"{created_count} new {plural} ready for review",
         link_type="ai_suggestions",
     )
 

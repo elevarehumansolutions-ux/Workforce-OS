@@ -171,6 +171,15 @@ class Department(BaseModel):
         doc="Revenue allocation percentage — only meaningful when is_critical is true"
     )
 
+    profit_margin_percentage: Mapped[decimal.Decimal | None] = mapped_column(
+        DECIMAL(5, 2),
+        nullable=True,
+        doc=(
+            "Estimated profit margin (0-100): the share of the department's revenue "
+            "target expected to be profit. An estimate HR can change."
+        ),
+    )
+
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

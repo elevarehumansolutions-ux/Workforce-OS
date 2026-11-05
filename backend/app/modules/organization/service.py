@@ -377,7 +377,7 @@ class DepartmentService:
         if active_positions > 0:
             reasons.append(f"{active_positions} active position(s) still assigned")
         if has_pending_suggestion:
-            reasons.append("a pending AI suggestion still targets it (review it first)")
+            reasons.append("a pending recommendation still targets it (review it first)")
         if reasons:
             raise ResourceInUseException(message=f"Cannot delete department: {'; '.join(reasons)}")
 
@@ -604,7 +604,7 @@ class PositionService:
         if direct_reports > 0:
             reasons.append(f"{direct_reports} position(s) still reporting to it")
         if has_pending_suggestion:
-            reasons.append("a pending AI suggestion still targets it (review it first)")
+            reasons.append("a pending recommendation still targets it (review it first)")
         if reasons:
             raise ResourceInUseException(message=f"Cannot delete position: {'; '.join(reasons)}")
 

@@ -125,6 +125,24 @@ class BlueprintRepository:
         )
         return await paginate(stmt, page, limit, self._db)
 
+    async def list_department_share_items(self, batch_id: uuid.UUID) -> list[BlueprintItem]:
+        """The batch's departments that carry a capital share and have not been skipped.
+
+        These are the ones the capital is split between, in the AI's own order.
+        """
+        stmt = (
+            select(BlueprintItem)
+            .where(
+                BlueprintItem.batch_id == batch_id,
+                BlueprintItem.kind == BlueprintKind.DEPARTMENT.value,
+                BlueprintItem.revenue_allocation_pct.is_not(None),
+                BlueprintItem.status != BlueprintStatus.REJECTED.value,
+            )
+            .order_by(BlueprintItem.sort_order, BlueprintItem.id)
+            .execution_options(populate_existing=True)
+        )
+        return list((await self._db.execute(stmt)).scalars().all())
+
     async def list_pending_items(self, organization_id: uuid.UUID) -> list[BlueprintItem]:
         """All pending items, in the AI's own order (the caller sorts by kind)."""
         stmt = (

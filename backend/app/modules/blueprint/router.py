@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db, require_org_role
 from app.core.schemas import PaginationResponse
-from app.core.triggers import trigger_ai_suggestion_generation, trigger_blueprint_generation
+from app.core.triggers import trigger_blueprint_generation
 from app.modules.tenancy_identity.models import Membership
 
 from .enums import BlueprintKind, BlueprintStatus
@@ -89,9 +89,9 @@ async def accept_all(
     """
     result = await BlueprintService(db).accept_all(caller.organization_id, caller.user_id)
     await db.commit()
-    if result.accepted:
-        # The structure changed, so the critical-role and revenue suggestions can now be worked out.
-        await trigger_ai_suggestion_generation(caller.organization_id)
+    # No AI Suggestions run here on purpose: the blueprint already decided the critical
+    # departments and roles, the capital shares and the KPI weights, so asking the old
+    # engine again would duplicate them. It still runs on later changes (new objective, ...).
     return result
 
 
@@ -105,7 +105,6 @@ async def approve_item(
     item = await BlueprintService(db).approve_item(item_id, caller.user_id)
     response = BlueprintItemResponse.model_validate(item)
     await db.commit()
-    await trigger_ai_suggestion_generation(caller.organization_id)
     return response
 
 
@@ -120,7 +119,6 @@ async def edit_item(
     item = await BlueprintService(db).edit_item(item_id, caller.user_id, data.title)
     response = BlueprintItemResponse.model_validate(item)
     await db.commit()
-    await trigger_ai_suggestion_generation(caller.organization_id)
     return response
 
 

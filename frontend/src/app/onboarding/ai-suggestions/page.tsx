@@ -59,7 +59,6 @@ interface EditValues {
   weight: string;
 }
 
-const ONBOARDING_STEPS = ["Business DNA", "AI Structure", "Organization", "OKRs", "AI Suggestions", "KPIs", "Invite Team"];
 
 // The exact values the backend accepts (CriticalityType / RiskLevel enums).
 const CRITICALITY_OPTIONS: { value: string; label: string }[] = [
@@ -193,7 +192,7 @@ export default function AiSuggestionsPage() {
       })
       .catch(function (err) {
         if (cancelled) return;
-        setLoadError(err instanceof ApiError ? err.message : "Couldn't load your AI suggestions.");
+        setLoadError(err instanceof ApiError ? err.message : "Couldn't load your recommendations.");
       })
       .finally(function () {
         if (!cancelled) setLoading(false);
@@ -212,7 +211,7 @@ export default function AiSuggestionsPage() {
       const data = await loadData();
       applyLoaded(data);
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : "Couldn't load your AI suggestions.");
+      setLoadError(err instanceof ApiError ? err.message : "Couldn't load your recommendations.");
     } finally {
       setLoading(false);
     }
@@ -437,43 +436,15 @@ export default function AiSuggestionsPage() {
           <span className="text-base font-bold">Elevare</span>
         </div>
 
-        <div className="hidden items-center gap-2 md:flex">
-          {ONBOARDING_STEPS.map(function (step, i) {
-            let circleClass = "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ";
-            let labelClass = "text-sm ";
-            let isCheck = false;
-
-            if (i < 4) {
-              circleClass += "border border-indigo-500 text-indigo-400";
-              labelClass += "text-gray-500";
-              isCheck = true;
-            } else if (i === 4) {
-              circleClass += "bg-indigo-500 text-white";
-              labelClass += "font-medium text-indigo-400";
-            } else {
-              circleClass += "border border-white/20 text-gray-400";
-              labelClass += "text-gray-500";
-            }
-
-            return (
-              <div key={step} className="flex items-center gap-2">
-                <div className="flex items-center gap-2">
-                  <span className={circleClass}>
-                    {isCheck ? (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                        <path d="M20 6 9 17l-5-5" />
-                      </svg>
-                    ) : (
-                      i + 1
-                    )}
-                  </span>
-                  <span className={labelClass}>{step}</span>
-                </div>
-                {i < ONBOARDING_STEPS.length - 1 && <span className="h-px w-6 bg-white/10" />}
-              </div>
-            );
-          })}
-        </div>
+        <button
+          type="button"
+          onClick={function () {
+            router.push("/dashboard");
+          }}
+          className="hidden text-sm font-medium text-gray-400 hover:text-gray-200 md:block"
+        >
+          Back to dashboard
+        </button>
 
         <div className="text-sm text-gray-400">
           Need help? <a href="#" className="text-indigo-400 hover:text-indigo-300">Contact Support</a>
@@ -482,9 +453,9 @@ export default function AiSuggestionsPage() {
 
       <div className="mx-auto max-w-4xl px-6 py-12">
         <div className="text-center">
-          <h1 className="text-3xl font-bold sm:text-4xl">Review AI suggestions</h1>
+          <h1 className="text-3xl font-bold sm:text-4xl">Review recommendations</h1>
           <p className="mt-2 text-gray-400">
-            Our AI looks at your departments, roles and goals and suggests what to flag or adjust. Nothing changes
+            We look at your departments, roles and goals and recommend what to flag or adjust. Nothing changes
             until you approve it.
           </p>
         </div>
@@ -493,10 +464,10 @@ export default function AiSuggestionsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="rounded-full bg-indigo-500/15 px-3 py-1 text-xs font-medium text-indigo-300">
-                AI Engine Active
+                Recommendations
               </span>
               <span className="text-sm text-gray-300">
-                {loading ? "Loading…" : pendingCount + (pendingCount === 1 ? " suggestion" : " suggestions") + " waiting for review"}
+                {loading ? "Loading…" : pendingCount + (pendingCount === 1 ? " recommendation" : " recommendations") + " waiting for review"}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -560,7 +531,7 @@ export default function AiSuggestionsPage() {
                         <h3 className="text-base font-semibold">{heading.title}</h3>
                         {heading.where ? <span className="text-sm text-gray-500">• {heading.where}</span> : null}
                         <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-medium text-gray-300">
-                          AI SUGGESTED
+                          RECOMMENDED
                         </span>
                         {isDecided ? (
                           <span
@@ -575,7 +546,7 @@ export default function AiSuggestionsPage() {
                       </div>
 
                       <p className="mt-2 text-sm text-gray-400">
-                        <span className="italic text-gray-500">AI Rationale:</span> {s.rationale}
+                        <span className="italic text-gray-500">Why:</span> {s.rationale}
                       </p>
 
                       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -753,27 +724,15 @@ export default function AiSuggestionsPage() {
             })}
           </div>
 
-          <div className="flex items-center justify-between border-t border-white/10 pt-6">
+          <div className="flex items-center justify-end border-t border-white/10 pt-6">
             <button
               type="button"
               onClick={function () {
-                router.push("/onboarding/okrs");
-              }}
-              className="flex items-center gap-2 text-sm font-medium text-gray-400 hover:text-gray-200"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M19 12H5M12 19l-7-7 7-7" />
-              </svg>
-              Go Back
-            </button>
-            <button
-              type="button"
-              onClick={function () {
-                router.push("/onboarding/kpis");
+                router.push("/dashboard");
               }}
               className="flex items-center gap-2 rounded-lg bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
             >
-              Continue
+              Done
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M5 12h14M13 5l7 7-7 7" />
               </svg>

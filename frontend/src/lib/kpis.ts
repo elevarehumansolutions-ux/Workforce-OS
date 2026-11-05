@@ -41,6 +41,45 @@ export interface KpiForm {
   trackingMode: "manual" | "task_count";
 }
 
+// What a department is expected to return in a year: its share of the capital
+// investment (set on the department) x the capital amount (Business DNA, which only
+// HR and executives may read). Either part missing means "not known": share and
+// amount are null and the screen says so instead of showing zero.
+export interface DepartmentReturn {
+  sharePct: number | null;
+  capital: number | null;
+  // The department's revenue target for a year (share x capital).
+  annualReturn: number | null;
+  // Estimated profit margin in percent, and revenue target x margin.
+  marginPct: number | null;
+  annualProfit: number | null;
+}
+
+export async function loadDepartmentReturn(departmentId: string): Promise<DepartmentReturn> {
+  const department = await apiFetch<{
+    revenue_allocation_percentage: string | number | null;
+    profit_margin_percentage: string | number | null;
+  }>(
+    "/departments/" + departmentId,
+    { method: "GET" }
+  );
+  let capital: number | null = null;
+  try {
+    const dna = await apiFetch<{ capital_investment_amount: string | number | null }>("/business-dna", { method: "GET" });
+    const amount = Number(dna.capital_investment_amount);
+    capital = dna.capital_investment_amount !== null && amount > 0 ? amount : null;
+  } catch {
+    // Someone who may not read the capital amount still sees the percentage.
+  }
+  const raw = department.revenue_allocation_percentage;
+  const sharePct = raw === null || raw === undefined ? null : Number(raw);
+  const annual = capital !== null && sharePct !== null ? (capital * sharePct) / 100 : null;
+  const marginRaw = department.profit_margin_percentage;
+  const marginPct = marginRaw === null || marginRaw === undefined ? null : Number(marginRaw);
+  const profit = annual !== null && marginPct !== null ? (annual * marginPct) / 100 : null;
+  return { sharePct: sharePct, capital: capital, annualReturn: annual, marginPct: marginPct, annualProfit: profit };
+}
+
 export function loadKpisOfDepartment(departmentId: string): Promise<KpiFull[]> {
   return fetchAllPages<KpiFull>("/kpis?department_id=" + departmentId);
 }

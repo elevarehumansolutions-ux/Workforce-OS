@@ -19,15 +19,7 @@ interface SentInvite {
   status: SentStatus;
 }
 
-const ONBOARDING_STEPS = [
-  "Business DNA",
-  "AI Structure",
-  "Organization",
-  "OKRs",
-  "AI Suggestions",
-  "KPIs",
-  "Invite Team",
-];
+const ONBOARDING_STEPS = ["Business DNA", "Your business plan", "Invite Team"];
 
 // Matches MembershipRole on the backend exactly — these are sent as-is in
 // the request body, so the value must be the real enum string, not a label.
@@ -134,7 +126,7 @@ export default function InviteTeamPage() {
             let labelClass = "text-sm ";
             let isCheck = false;
 
-            if (i < 6) {
+            if (i < 2) {
               circleClass += "border border-indigo-500 text-indigo-400";
               labelClass += "text-gray-500";
               isCheck = true;
@@ -276,7 +268,7 @@ export default function InviteTeamPage() {
             <button
               type="button"
               onClick={function () {
-                router.push("/onboarding/kpis");
+                router.push("/onboarding/blueprint");
               }}
               className="flex items-center gap-2 text-sm font-medium text-gray-400 hover:text-gray-200"
             >

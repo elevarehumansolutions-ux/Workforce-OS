@@ -12,10 +12,11 @@ import {
   deleteKeyResult,
   deleteObjective,
   editKeyResult,
+  loadMeasuringKpis,
   loadObjectives,
   renameObjective,
 } from "@/lib/strategy";
-import type { KeyResult, Objective } from "@/lib/strategy";
+import type { KeyResult, MeasuringKpi, Objective } from "@/lib/strategy";
 
 const INPUT = "w-full rounded-lg border border-white/10 bg-[#05070f] px-3 py-2 text-sm text-white outline-none focus:border-indigo-400";
 const BUTTON = "rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-50";
@@ -60,7 +61,7 @@ function DeleteControl(props: { what: string; onDelete: () => Promise<void>; onD
 
 // ---- one key result: shows its text and date, HR can edit it in place
 
-function KeyResultRow(props: { keyResult: KeyResult; canEdit: boolean; onChanged: () => void }) {
+function KeyResultRow(props: { keyResult: KeyResult; measuredBy: MeasuringKpi[]; canEdit: boolean; onChanged: () => void }) {
   const kr = props.keyResult;
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(kr.description);
@@ -106,6 +107,21 @@ function KeyResultRow(props: { keyResult: KeyResult; canEdit: boolean; onChanged
       <div>
         <p className="text-sm text-gray-200">{kr.description}</p>
         {kr.target_date ? <p className="text-xs text-gray-500">Target date: {kr.target_date}</p> : null}
+        {props.measuredBy.length > 0 ? (
+          <ul className="mt-1 space-y-0.5">
+            {props.measuredBy.map(function (k) {
+              const target = k.target_value !== null ? Number(k.target_value) + (k.unit ? " " + k.unit : "") : "no target set";
+              return (
+                <li key={k.name} className="text-xs text-indigo-300/90">
+                  Measured by KPI “{k.name}”: {Number(k.weight)}% of its department&apos;s score, target {target},{" "}
+                  {k.is_inverse ? "a lower result is better" : "a higher result is better"}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="mt-1 text-xs text-gray-600">No KPI measures this yet.</p>
+        )}
       </div>
       {props.canEdit ? (
         <div className="flex items-start gap-2">
@@ -119,7 +135,12 @@ function KeyResultRow(props: { keyResult: KeyResult; canEdit: boolean; onChanged
 
 // ---- one objective with its key results
 
-function ObjectiveCard(props: { objective: Objective; canEdit: boolean; onChanged: () => void }) {
+function ObjectiveCard(props: {
+  objective: Objective;
+  measuring: Record<string, MeasuringKpi[]>;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
   const o = props.objective;
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(o.title);
@@ -192,7 +213,15 @@ function ObjectiveCard(props: { objective: Objective; canEdit: boolean; onChange
       <div className="mt-3 space-y-2">
         {o.keyResults.length === 0 ? <p className="text-sm text-gray-500">No key results yet.</p> : null}
         {o.keyResults.map(function (kr) {
-          return <KeyResultRow key={kr.id} keyResult={kr} canEdit={props.canEdit} onChanged={props.onChanged} />;
+          return (
+            <KeyResultRow
+              key={kr.id}
+              keyResult={kr}
+              measuredBy={props.measuring[kr.id] || []}
+              canEdit={props.canEdit}
+              onChanged={props.onChanged}
+            />
+          );
         })}
       </div>
 
@@ -263,6 +292,8 @@ export default function StrategyPage() {
   const [reloads, setReloads] = useState(0);
   const caller = useLoad("caller", loadCaller, "Could not load your details.");
   const list = useLoad<Objective[]>("okrs|" + reloads, loadObjectives, "Could not load the objectives.");
+  const measuringKpis = useLoad<Record<string, MeasuringKpi[]>>("kpis|" + reloads, loadMeasuringKpis, "Could not load the KPIs.");
+  const measuring = measuringKpis.data ? measuringKpis.data : {};
 
   const ctx = caller.data;
   const canEdit = ctx ? isHr(ctx) : false;
@@ -294,7 +325,7 @@ export default function StrategyPage() {
       <section key={heading} className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">{heading}</h2>
         {items.map(function (o) {
-          return <ObjectiveCard key={o.id + o.title} objective={o} canEdit={canEdit} onChanged={reload} />;
+          return <ObjectiveCard key={o.id + o.title} objective={o} measuring={measuring} canEdit={canEdit} onChanged={reload} />;
         })}
       </section>
     );

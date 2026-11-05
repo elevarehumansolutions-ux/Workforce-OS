@@ -30,19 +30,19 @@ const FILTERS: { label: string; category: string; unread: boolean }[] = [
   { label: "Unread", category: "", unread: true },
   { label: "Tasks", category: "task", unread: false },
   { label: "Approvals", category: "approval_request", unread: false },
-  { label: "AI Suggestions", category: "ai_suggestion", unread: false },
+  { label: "Recommendations", category: "ai_suggestion", unread: false },
   { label: "System", category: "system", unread: false },
 ];
 
 function categoryLabel(category: string): string {
-  if (category === "ai_suggestion") return "AI Suggestions";
+  if (category === "ai_suggestion") return "Recommendation";
   if (category === "approval_request") return "Approval";
   if (category === "task") return "Task";
   return "System";
 }
 
 function categoryBadge(category: string): string {
-  if (category === "ai_suggestion") return "AI";
+  if (category === "ai_suggestion") return "R";
   if (category === "approval_request") return "A";
   if (category === "task") return "T";
   return "S";

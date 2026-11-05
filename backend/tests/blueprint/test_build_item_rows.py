@@ -23,13 +23,13 @@ SALES_ID = uuid.uuid4()
 GM_ID = uuid.uuid4()
 
 
-def _dept(ref, name):
-    return ProposedDepartment(ref=ref, name=name, rationale="Needed.")
+def _dept(ref, name, **extra):
+    return ProposedDepartment(ref=ref, name=name, rationale="Needed.", **extra)
 
 
-def _pos(ref, title, department, reports_to=None):
+def _pos(ref, title, department, reports_to=None, **extra):
     return ProposedPosition(
-        ref=ref, title=title, department=department, reports_to=reports_to, rationale="Needed."
+        ref=ref, title=title, department=department, reports_to=reports_to, rationale="Needed.", **extra
     )
 
 
@@ -364,3 +364,119 @@ def test_a_reused_key_result_ref_keeps_the_key_result_but_loses_its_ref():
 
     refs = [r["ref"] for r in rows if r["kind"] == "key_result"]
     assert refs == ["K1", None]
+
+
+# ------------------------------------------------- criticality and capital shares
+
+def _departments(rows):
+    return {r["title"]: r for r in rows if r["kind"] == "department"}
+
+
+def test_the_capital_is_split_exactly_between_the_critical_departments():
+    """Claude says Sales 80 and Operations 40 (120 in all): scaled so the split is exactly 100."""
+    rows = _build(
+        _answer(
+            [
+                _dept("D1", "Sales", is_critical=True, revenue_allocation_pct=80),
+                _dept("D2", "Operations", is_critical=True, revenue_allocation_pct=40),
+            ]
+        )
+    )
+
+    depts = _departments(rows)
+    assert depts["Sales"]["is_critical"] is True
+    assert (depts["Sales"]["revenue_allocation_pct"], depts["Operations"]["revenue_allocation_pct"]) == (
+        Decimal("66.67"), Decimal("33.33"),
+    )
+    assert sum(d["revenue_allocation_pct"] for d in depts.values()) == Decimal("100.00")
+
+
+def test_a_split_that_came_to_less_than_100_is_scaled_up():
+    """30 + 20 = 50 proposed: the whole capital must still be allocated, so 60 and 40."""
+    rows = _build(
+        _answer(
+            [
+                _dept("D1", "Sales", is_critical=True, revenue_allocation_pct=30),
+                _dept("D2", "Operations", is_critical=True, revenue_allocation_pct=20),
+            ]
+        )
+    )
+
+    shares = [d["revenue_allocation_pct"] for d in _departments(rows).values()]
+    assert shares == [Decimal("60.00"), Decimal("40.00")]
+
+
+def test_a_profit_margin_is_kept_for_a_critical_department_only_and_only_in_range():
+    """25% kept; a margin on a non-critical department or above 100 is dropped."""
+    rows = _build(
+        _answer(
+            [
+                _dept("D1", "Sales", is_critical=True, revenue_allocation_pct=100, profit_margin_pct=25),
+                _dept("D2", "Admin", is_critical=False, profit_margin_pct=40),
+                _dept("D3", "Ops", is_critical=True, revenue_allocation_pct=100, profit_margin_pct=140),
+            ]
+        )
+    )
+
+    margins = {d["title"]: d["profit_margin_pct"] for d in _departments(rows).values()}
+    assert margins == {"Sales": Decimal("25"), "Admin": None, "Ops": None}
+
+
+def test_a_department_that_is_not_critical_carries_no_share():
+    """A share on a non-critical department is dropped: the rest of the app only reads it when critical."""
+    rows = _build(_answer([_dept("D1", "Admin", is_critical=False, revenue_allocation_pct=30)]))
+
+    assert (_departments(rows)["Admin"]["is_critical"], _departments(rows)["Admin"]["revenue_allocation_pct"]) == (
+        False, None,
+    )
+
+
+def test_a_share_outside_zero_to_one_hundred_is_dropped_but_the_department_stays_critical():
+    """250% or -5% make no sense as a share of the capital: no share, still critical."""
+    rows = _build(
+        _answer(
+            [
+                _dept("D1", "Sales", is_critical=True, revenue_allocation_pct=250),
+                _dept("D2", "Ops", is_critical=True, revenue_allocation_pct=-5),
+                _dept("D3", "Legal", is_critical=True, revenue_allocation_pct=float("nan")),
+            ]
+        )
+    )
+
+    for department in _departments(rows).values():
+        assert (department["is_critical"], department["revenue_allocation_pct"]) == (True, None)
+
+
+def test_a_critical_position_needs_both_its_kind_and_its_risk():
+    """Only the one with both a type and a risk level is kept critical."""
+    rows = _build(
+        _answer(
+            [_dept("D1", "Operations")],
+            [
+                _pos("P1", "Director", "D1", is_critical=True, criticality_type="operational", risk_level="high"),
+                _pos("P2", "Missing risk", "D1", is_critical=True, criticality_type="operational"),
+                _pos("P3", "Missing type", "D1", is_critical=True, risk_level="high"),
+                _pos("P4", "Plain", "D1"),
+            ],
+        )
+    )
+
+    positions = {r["title"]: r for r in rows if r["kind"] == "position"}
+    assert (positions["Director"]["is_critical"], positions["Director"]["criticality_type"],
+            positions["Director"]["risk_level"]) == (True, "operational", "high")
+    for title in ("Missing risk", "Missing type", "Plain"):
+        assert (positions[title]["is_critical"], positions[title]["criticality_type"],
+                positions[title]["risk_level"]) == (False, None, None)
+
+
+def test_at_most_three_critical_positions_per_department():
+    """Five proposed as critical in one department: the first three stay critical."""
+    positions = [
+        _pos("P" + str(n), "Role " + str(n), "D1", is_critical=True, criticality_type="strategic", risk_level="high")
+        for n in range(1, 6)
+    ]
+
+    rows = _build(_answer([_dept("D1", "Operations")], positions))
+
+    flags = [r["is_critical"] for r in rows if r["kind"] == "position"]
+    assert flags == [True, True, True, False, False]

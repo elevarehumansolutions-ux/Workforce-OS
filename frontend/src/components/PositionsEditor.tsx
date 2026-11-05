@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
+import OrgChartPicker from "@/components/OrgChartPicker";
 
 // Positions are the org chart of ROLES (the CTO role reports to the CEO role,
 // whoever holds them) — not a person's own manager, which is the "Reporting
@@ -94,6 +95,8 @@ export default function PositionsEditor(props: { departments: PositionsEditorDep
   const [newDepartmentId, setNewDepartmentId] = useState("");
   const [newParentId, setNewParentId] = useState("");
   const [adding, setAdding] = useState(false);
+  // The chart window: choosing the boss of the role being added ("new") or of an existing role.
+  const [picking, setPicking] = useState<{ kind: "new" } | { kind: "existing"; positionId: string } | null>(null);
 
   useEffect(function () {
     let cancelled = false;
@@ -297,6 +300,47 @@ export default function PositionsEditor(props: { departments: PositionsEditorDep
       ) : null}
 
       {/* Add a position */}
+      {picking !== null ? (
+        <OrgChartPicker
+          mode="position"
+          title={picking.kind === "new" ? "Which role will it report to?" : "Which role does this one report to?"}
+          positions={positions}
+          employees={[]}
+          departments={departments}
+          selectedId={
+            picking.kind === "new"
+              ? newParentId
+              : (function () {
+                  const current = positions.find(function (p) { return p.id === picking.positionId; });
+                  return current && current.reports_to_position_id ? current.reports_to_position_id : "";
+                })()
+          }
+          // A role cannot report to itself or to a role under it (that would be a loop).
+          disabledPositionIds={
+            picking.kind === "new"
+              ? []
+              : (function () {
+                  const target = positions.find(function (p) { return p.id === picking.positionId; });
+                  if (!target) return [];
+                  const allowed = parentOptionsFor(target).map(function (o) { return o.id; });
+                  return positions
+                    .map(function (p) { return p.id; })
+                    .filter(function (id) { return allowed.indexOf(id) === -1; });
+                })()
+          }
+          onSelect={function (id) {
+            if (picking.kind === "new") {
+              setNewParentId(id);
+            } else {
+              const target = positions.find(function (p) { return p.id === picking.positionId; });
+              if (target) changeParent(target, id);
+            }
+            setPicking(null);
+          }}
+          onClose={function () { setPicking(null); }}
+        />
+      ) : null}
+
       <div className="mt-5 grid grid-cols-1 gap-3 rounded-lg border border-white/10 bg-[#0a0e1a] p-4 sm:grid-cols-4">
         <input
           type="text"
@@ -331,22 +375,31 @@ export default function PositionsEditor(props: { departments: PositionsEditorDep
             );
           })}
         </select>
-        <select
-          value={newParentId}
-          onChange={function (e) {
-            setNewParentId(e.target.value);
-          }}
-          className={selectClass + " py-2"}
-        >
-          <option value="">Reports to: nobody (top)</option>
-          {positions.map(function (p) {
-            return (
-              <option key={p.id} value={p.id}>
-                {"Reports to: " + p.title}
-              </option>
-            );
-          })}
-        </select>
+        <div>
+          <select
+            value={newParentId}
+            onChange={function (e) {
+              setNewParentId(e.target.value);
+            }}
+            className={selectClass + " w-full py-2"}
+          >
+            <option value="">Reports to: nobody (top)</option>
+            {positions.map(function (p) {
+              return (
+                <option key={p.id} value={p.id}>
+                  {"Reports to: " + p.title}
+                </option>
+              );
+            })}
+          </select>
+          <button
+            type="button"
+            onClick={function () { setPicking({ kind: "new" }); }}
+            className="mt-1 text-xs font-medium text-indigo-400 hover:text-indigo-300"
+          >
+            Choose on chart
+          </button>
+        </div>
         <button
           type="button"
           onClick={addPosition}
@@ -415,6 +468,14 @@ export default function PositionsEditor(props: { departments: PositionsEditorDep
                       );
                     })}
                   </select>
+                  <button
+                    type="button"
+                    onClick={function () { setPicking({ kind: "existing", positionId: position.id }); }}
+                    disabled={isBusy}
+                    className="text-xs font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
+                  >
+                    Chart
+                  </button>
                   <button
                     type="button"
                     onClick={function () {

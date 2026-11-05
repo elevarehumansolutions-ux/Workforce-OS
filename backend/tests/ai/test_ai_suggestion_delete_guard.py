@@ -61,7 +61,7 @@ async def test_a_department_with_a_pending_suggestion_cannot_be_deleted(client, 
 
     blocked = await client.delete(f"{DEPARTMENTS}/{ops_id}", headers=h)
     assert blocked.status_code == 409
-    assert "pending AI suggestion" in blocked.json()["message"]
+    assert "pending recommendation" in blocked.json()["message"]
 
     await client.post(f"{SUGGESTIONS}/{allocation_id}/reject", headers=h)
 
@@ -75,7 +75,7 @@ async def test_a_position_with_a_pending_suggestion_cannot_be_deleted(client, db
 
     blocked = await client.delete(f"{POSITIONS}/{gm_id}", headers=h)
     assert blocked.status_code == 409
-    assert "pending AI suggestion" in blocked.json()["message"]
+    assert "pending recommendation" in blocked.json()["message"]
 
     await client.post(f"{SUGGESTIONS}/{critical_id}/approve", headers=h)
 
@@ -92,7 +92,7 @@ async def test_reasons_are_reported_together(client, db_session):
 
     assert resp.status_code == 409
     message = resp.json()["message"]
-    assert "active position" in message and "pending AI suggestion" in message
+    assert "active position" in message and "pending recommendation" in message
 
 
 @pytest.mark.asyncio

@@ -44,6 +44,31 @@ export async function loadObjectives(): Promise<Objective[]> {
   return out;
 }
 
+// A KPI that measures a key result, as the Strategy screen describes it.
+export interface MeasuringKpi {
+  name: string;
+  weight: string;
+  target_value: string | null;
+  unit: string | null;
+  is_inverse: boolean;
+}
+
+interface KpiRow extends MeasuringKpi {
+  key_result_id: string | null;
+}
+
+// Key result id -> the KPIs that measure it (only KPIs that are linked to one).
+export async function loadMeasuringKpis(): Promise<Record<string, MeasuringKpi[]>> {
+  const rows = await fetchAllPages<KpiRow>("/kpis");
+  const byKeyResult: Record<string, MeasuringKpi[]> = {};
+  for (const row of rows) {
+    if (row.key_result_id === null) continue;
+    if (!byKeyResult[row.key_result_id]) byKeyResult[row.key_result_id] = [];
+    byKeyResult[row.key_result_id].push(row);
+  }
+  return byKeyResult;
+}
+
 export async function addObjective(title: string, departmentId: string | null): Promise<void> {
   await apiFetch("/okrs", { method: "POST", body: { title: title, department_id: departmentId } });
 }

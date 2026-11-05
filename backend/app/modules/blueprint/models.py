@@ -128,6 +128,22 @@ class BlueprintItem(BaseModel):
         String(20), nullable=True, doc="The key result a proposed KPI measures, if any"
     )
 
+    # Criticality, proposed by the AI instead of asked of the user. For a department:
+    # is_critical and revenue_allocation_pct (its share of the capital investment as an
+    # expected-return target; the shares of different departments may add up to more
+    # than 100). For a position: is_critical with criticality_type and risk_level.
+    is_critical: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    revenue_allocation_pct: Mapped[decimal.Decimal | None] = mapped_column(
+        DECIMAL(6, 2), nullable=True
+    )
+    criticality_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    risk_level: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    profit_margin_pct: Mapped[decimal.Decimal | None] = mapped_column(
+        DECIMAL(5, 2),
+        nullable=True,
+        doc="A department's estimated profit margin (0-100), proposed with its capital share",
+    )
+
     # Only for kind 'kpi' (title is the KPI's name, department_* its department).
     kpi_weight: Mapped[decimal.Decimal | None] = mapped_column(
         DECIMAL(5, 2), nullable=True, doc="Share of its department's KPIs, in percent"

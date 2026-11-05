@@ -124,7 +124,7 @@ export default function CriticalRolesPage() {
           <Link href="/employees/critical-roles/ai-suggestions" className="text-sm font-medium text-indigo-400 hover:text-indigo-300">
             {data && data.pendingSuggestions > 0
               ? "Review " + data.pendingSuggestions + (data.pendingSuggestions === 1 ? " new suggestion" : " new suggestions") + " →"
-              : "Review AI suggestions →"}
+              : "Review recommendations →"}
           </Link>
         </div>
 
@@ -132,7 +132,7 @@ export default function CriticalRolesPage() {
           <p className="mt-4 text-sm text-gray-500">Loading…</p>
         ) : rows.length === 0 && !state.error ? (
           <p className="mt-4 text-sm text-gray-500">
-            No roles are marked critical yet. They appear here once you approve a critical-role suggestion from the AI.
+            No roles are marked critical yet. They appear here once you approve a critical-role recommendation.
           </p>
         ) : rows.length > 0 ? (
           <div className="mt-4 overflow-x-auto rounded-xl border border-white/10">

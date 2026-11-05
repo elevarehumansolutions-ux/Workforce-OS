@@ -9,6 +9,7 @@ import { useLoad } from "@/lib/useLoad";
 import {
   createKpi,
   deleteKpi,
+  loadDepartmentReturn,
   loadKpisOfDepartment,
   loadLatestScore,
   loadTaskProgress,
@@ -16,7 +17,8 @@ import {
   updateKpi,
   weightTotal,
 } from "@/lib/kpis";
-import type { KpiForm, KpiFull } from "@/lib/kpis";
+import type { DepartmentReturn, KpiForm, KpiFull } from "@/lib/kpis";
+import { formatMoney } from "@/lib/blueprint";
 
 const INPUT = "w-full rounded-lg border border-white/10 bg-[#05070f] px-3 py-2 text-sm text-white outline-none focus:border-indigo-400";
 const BUTTON = "rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-50";
@@ -252,7 +254,16 @@ function DeleteKpiPanel(props: { kpi: KpiFull; siblings: KpiFull[]; onDone: () =
 
 // ---- one KPI row
 
-function KpiRow(props: { kpi: KpiFull; siblings: KpiFull[]; canEdit: boolean; canRecord: boolean; reloadKey: number; onChanged: () => void }) {
+function KpiRow(props: {
+  kpi: KpiFull;
+  siblings: KpiFull[];
+  // The department's expected yearly return, or null when not known.
+  departmentReturn: number | null;
+  canEdit: boolean;
+  canRecord: boolean;
+  reloadKey: number;
+  onChanged: () => void;
+}) {
   const k = props.kpi;
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -288,16 +299,15 @@ function KpiRow(props: { kpi: KpiFull; siblings: KpiFull[]; canEdit: boolean; ca
     );
   }
 
-  const target = k.target_value !== null ? Number(k.target_value) + (k.unit ? " " + k.unit : "") : "no target set";
+  const target = k.target_value !== null ? Number(k.target_value) + (k.unit ? " " + k.unit : "") : "Not set";
+  const kpiReturn = props.departmentReturn !== null ? (props.departmentReturn * Number(k.weight)) / 100 : null;
+  const label = "text-[11px] uppercase tracking-wide text-gray-500";
   return (
     <div className="rounded-xl border border-white/10 bg-[#0d1220]/80 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-white">{k.name}</p>
-          <p className="text-xs text-gray-400">
-            Weight {Number(k.weight)}% · Target: {target} · {k.is_inverse ? "lower is better" : "higher is better"} ·{" "}
-            {k.tracking_mode === "task_count" ? "counted from tasks" : "typed in"}
-          </p>
+          {k.description ? <p className="mt-0.5 text-xs text-gray-400">{k.description}</p> : null}
         </div>
         {props.canEdit ? (
           <div className="flex gap-2">
@@ -306,7 +316,40 @@ function KpiRow(props: { kpi: KpiFull; siblings: KpiFull[]; canEdit: boolean; ca
           </div>
         ) : null}
       </div>
-      <div className="mt-2">
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div>
+          <p className={label}>Share of score</p>
+          <p className="text-sm text-gray-200">{Number(k.weight)}%</p>
+        </div>
+        <div>
+          <p className={label}>Target</p>
+          <p className="text-sm text-gray-200">{target}</p>
+        </div>
+        <div>
+          <p className={label}>What is good</p>
+          <p className="text-xs text-gray-300">
+            {k.is_inverse ? "A lower result is better (for example fewer days, fewer complaints)" : "A higher result is better"}
+          </p>
+        </div>
+        <div>
+          <p className={label}>Expected contribution</p>
+          {kpiReturn !== null ? (
+            <p className="text-sm text-gray-200">
+              {formatMoney(kpiReturn)}
+              <span className="text-xs text-gray-500"> a year</span>
+            </p>
+          ) : (
+            <p className="text-xs text-gray-500">Shown once the department has a capital share</p>
+          )}
+        </div>
+        <div>
+          <p className={label}>How it is measured</p>
+          <p className="text-xs text-gray-300">
+            {k.tracking_mode === "task_count" ? "Counted from completed tasks" : "Result typed in each quarter"}
+          </p>
+        </div>
+      </div>
+      <div className="mt-3">
         <KpiStanding kpi={k} reloadKey={props.reloadKey} />
       </div>
       {props.canRecord && k.tracking_mode === "manual" ? <RecordResult kpi={k} onSaved={props.onChanged} /> : null}
@@ -343,6 +386,16 @@ export default function KpisPage() {
     "Could not load the KPIs."
   );
 
+  const departmentReturn = useLoad<DepartmentReturn | null>(
+    "return|" + departmentId,
+    function () {
+      if (departmentId === "") return Promise.resolve(null);
+      return loadDepartmentReturn(departmentId);
+    },
+    "Could not load the department's expected return."
+  );
+  const annualReturn = departmentReturn.data ? departmentReturn.data.annualReturn : null;
+
   const canEdit = ctx ? isHr(ctx) : false;
   const canRecord = ctx ? isHr(ctx) || ctx.role === "business_executive" : false;
   const list = kpis.data ? kpis.data : [];
@@ -376,6 +429,37 @@ export default function KpisPage() {
         ) : null}
       </div>
 
+      {departmentReturn.data ? (
+        <div className="rounded-xl border border-white/10 bg-[#0d1220]/80 p-4 text-sm">
+          {departmentReturn.data.sharePct === null ? (
+            <p className="text-gray-400">
+              This department has no share of the capital investment yet, so no expected return is set.
+            </p>
+          ) : (
+            <p className="text-gray-200">
+              Revenue target:{" "}
+              <span className="font-semibold text-white">{Number(departmentReturn.data.sharePct)}% of capital</span>
+              {annualReturn !== null ? (
+                <span>
+                  {" "}= <span className="font-semibold text-white">{formatMoney(annualReturn)}</span> a year (
+                  {formatMoney(annualReturn / 4)} each quarter)
+                  {departmentReturn.data.annualProfit !== null && departmentReturn.data.marginPct !== null ? (
+                    <span>
+                      , with an estimated profit of{" "}
+                      <span className="font-semibold text-emerald-300">{formatMoney(departmentReturn.data.annualProfit)}</span> (
+                      {Number(departmentReturn.data.marginPct)}% margin)
+                    </span>
+                  ) : null}
+                  . Each KPI below carries its weight&apos;s share of it.
+                </span>
+              ) : (
+                <span className="text-gray-400"> (the naira amount shows once a capital investment is set in Business DNA)</span>
+              )}
+            </p>
+          )}
+        </div>
+      ) : null}
+
       {adding ? (
         <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-5">
           <KpiFormFields
@@ -398,7 +482,7 @@ export default function KpisPage() {
 
       <div className="space-y-3">
         {list.map(function (k) {
-          return <KpiRow key={k.id + reloads} kpi={k} siblings={list} canEdit={canEdit} canRecord={canRecord} reloadKey={reloads} onChanged={reload} />;
+          return <KpiRow key={k.id + reloads} kpi={k} siblings={list} departmentReturn={annualReturn} canEdit={canEdit} canRecord={canRecord} reloadKey={reloads} onChanged={reload} />;
         })}
       </div>
     </AppShell>

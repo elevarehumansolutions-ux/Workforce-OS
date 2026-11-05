@@ -23,6 +23,7 @@ from app.modules.okrs.repository import OKRRepository
 from .enums import BlueprintKind
 from .models import BlueprintItem
 from .prompts import (
+    MAX_CRITICAL_POSITIONS_PER_DEPARTMENT,
     MAX_DEPARTMENTS,
     MAX_KEY_RESULTS_PER_OBJECTIVE,
     MAX_KPIS,
@@ -136,6 +137,45 @@ def normalize_weights(raw: list[float], budget: Decimal) -> list[Decimal]:
     return scaled
 
 
+def _percent(value: float | None) -> Decimal | None:
+    """A percentage between 0 and 100 as a Decimal; anything else (missing, NaN, out of range) is None."""
+    if value is None or value != value or value < 0 or value > 100:
+        return None
+    return Decimal(str(round(value, 2)))
+
+
+def _department_criticality(proposed) -> tuple[bool, Decimal | None, Decimal | None]:
+    """Whether a proposed department is critical, its share of the capital, and its profit margin.
+
+    Only a critical department carries a share or a margin. A critical department with
+    no usable share is kept critical without one. The shares are rescaled to add up to
+    exactly 100 afterwards (see ``_split_capital``).
+    """
+    if not proposed.is_critical:
+        return False, None, None
+    return True, _percent(proposed.revenue_allocation_pct), _percent(proposed.profit_margin_pct)
+
+
+def _split_capital(rows: list[dict]) -> None:
+    """Rescale the critical departments' shares so the capital is split exactly 100%.
+
+    The capital investment is split BETWEEN the critical departments, so whatever
+    Claude proposed (it may add up to 90 or 130) is scaled to 100. A department with
+    no share stays without one and takes no part in the split.
+    """
+    sharing = [r for r in rows if r["kind"] == BlueprintKind.DEPARTMENT.value and r.get("revenue_allocation_pct") is not None]
+    if not sharing:
+        return
+    shares = normalize_weights([float(r["revenue_allocation_pct"]) for r in sharing], Decimal(100))
+    for row, share in zip(sharing, shares):
+        row["revenue_allocation_pct"] = share
+
+
+def _position_is_critical(proposed) -> bool:
+    """A position is critical only if Claude gave BOTH its kind of criticality and its risk."""
+    return bool(proposed.is_critical and proposed.criticality_type and proposed.risk_level)
+
+
 def _target_value(value: float | None) -> Decimal | None:
     """A KPI target as a Decimal that fits the column; None if missing or absurd."""
     if value is None or value != value or abs(value) >= 1e11:
@@ -202,12 +242,17 @@ def build_item_rows(
             continue
         known.new_department_refs.add(ref)
         used_refs.add(ref)
+        is_critical, allocation, margin = _department_criticality(proposed)
         add_row(
             BlueprintKind.DEPARTMENT.value,
             name,
             clean_text(proposed.rationale, _RATIONALE_LIMIT),
             ref=ref,
+            is_critical=is_critical,
+            revenue_allocation_pct=allocation,
+            profit_margin_pct=margin,
         )
+    _split_capital(rows)
 
     # --- positions, pass 1: which ones are kept and where they sit ----------
     existing_position_by_key = {
@@ -248,7 +293,16 @@ def build_item_rows(
             boss_ref_of[ref] = boss_ref
     _cut_reporting_loops(boss_ref_of)
 
+    critical_count_by_department: dict[str, int] = {}
     for proposed, ref, title, department_id, department_ref in kept_positions:
+        department_key = str(department_id) if department_id is not None else "ref:" + str(department_ref)
+        is_critical = _position_is_critical(proposed)
+        # Keep the cap on critical roles per department: the first few stay, the rest do not.
+        if is_critical:
+            if critical_count_by_department.get(department_key, 0) >= MAX_CRITICAL_POSITIONS_PER_DEPARTMENT:
+                is_critical = False
+            else:
+                critical_count_by_department[department_key] = critical_count_by_department.get(department_key, 0) + 1
         add_row(
             BlueprintKind.POSITION.value,
             title,
@@ -258,6 +312,9 @@ def build_item_rows(
             department_ref=department_ref,
             reports_to_position_id=boss_id_of.get(ref),
             reports_to_ref=boss_ref_of.get(ref),
+            is_critical=is_critical,
+            criticality_type=proposed.criticality_type.value if is_critical else None,
+            risk_level=proposed.risk_level.value if is_critical else None,
         )
 
     # --- objectives and their key results ------------------------------------
@@ -392,6 +449,7 @@ async def generate_blueprint(
         revenue_drivers=dna.revenue_drivers,
         operational_drivers=dna.operational_drivers,
         customer_value_drivers=dna.customer_value_drivers,
+        capital_investment_amount=dna.capital_investment_amount,
     )
 
     departments = await repo.list_existing_departments()

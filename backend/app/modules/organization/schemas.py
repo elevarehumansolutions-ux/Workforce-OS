@@ -59,6 +59,7 @@ class DepartmentCreateRequest(BaseModel):
     name: str
     is_critical: bool = False
     revenue_allocation_percentage: decimal.Decimal | None = None
+    profit_margin_percentage: decimal.Decimal | None = None
 
 
 class DepartmentUpdateRequest(BaseModel):
@@ -74,6 +75,7 @@ class DepartmentUpdateRequest(BaseModel):
     name: str | None = None
     is_critical: bool | None = None
     revenue_allocation_percentage: decimal.Decimal | None = None
+    profit_margin_percentage: decimal.Decimal | None = None
     head_employee_id: uuid.UUID | None = None
 
     def has_updates(self) -> bool:
@@ -91,6 +93,7 @@ class DepartmentResponse(BaseModel):
     name: str
     is_critical: bool
     revenue_allocation_percentage: decimal.Decimal | None
+    profit_margin_percentage: decimal.Decimal | None
     head_employee_id: uuid.UUID | None
     deleted_at: datetime | None
     created_at: datetime

@@ -165,7 +165,7 @@ export default function CriticalRolesSuggestionsPage() {
     <AppShell
       activeLabel="Employees"
       title="Critical Role Suggestions"
-      breadcrumb="Employees > Critical Roles > AI Suggestions"
+      breadcrumb="Employees > Critical Roles > Recommendations"
       userName={data ? data.me.fullName : undefined}
       userRole={data ? roleLabel(data.me.role) : undefined}
     >
@@ -221,9 +221,9 @@ export default function CriticalRolesSuggestionsPage() {
                         <span className="font-normal text-gray-400">{departmentOf(s)}</span>
                       </>
                     ) : null}
-                    <span className="ml-2 rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-xs font-medium text-indigo-300">AI SUGGESTED</span>
+                    <span className="ml-2 rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-xs font-medium text-indigo-300">RECOMMENDED</span>
                   </p>
-                  <p className="mt-1 text-sm text-gray-500">AI rationale: {s.rationale}</p>
+                  <p className="mt-1 text-sm text-gray-500">Why: {s.rationale}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="rounded-full bg-indigo-500/15 px-2.5 py-1 text-xs font-medium text-indigo-300">
                       {optionLabel(CRITICALITY_OPTIONS, s.suggested_criticality_type)}

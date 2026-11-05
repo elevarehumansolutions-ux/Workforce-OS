@@ -10,7 +10,7 @@ const FEATURES = [
     description: "Clock in and out across locations, manage shifts, and track attendance in real time.",
   },
   {
-    title: "AI-Powered Insights",
+    title: "Intelligent Insights",
     description: "Surface critical-role suggestions and clear executive summaries from live workforce data.",
   },
   {
@@ -155,7 +155,7 @@ function HeroMockup() {
           </div>
         </div>
         <div className="rounded-lg border border-white/10 bg-[#05070f] p-3">
-          <p className="text-[10px] uppercase tracking-wide text-gray-500">AI Priorities</p>
+          <p className="text-[10px] uppercase tracking-wide text-gray-500">Priorities</p>
           <p className="mt-1 text-[11px] text-gray-400">3 critical roles need coverage this quarter</p>
           <div className="mt-3 rounded bg-indigo-500/15 px-2 py-1.5 text-[10px] font-medium text-indigo-300">
             Operations Lead is the highest-risk gap
@@ -485,7 +485,7 @@ function FinalCtaSection() {
 
 function SiteFooter() {
   const columns = [
-    { title: "Product", links: ["Platform", "Attendance", "Payroll", "AI insights"] },
+    { title: "Product", links: ["Platform", "Attendance", "Payroll", "Insights"] },
     { title: "Company", links: ["About", "Pricing", "Contact", "Careers"] },
     { title: "Legal", links: ["Privacy", "Terms", "Security", "Compliance"] },
   ];
