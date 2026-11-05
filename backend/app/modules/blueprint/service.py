@@ -120,14 +120,29 @@ class BlueprintService:
         text = item.reviewed_title
 
         if item.kind == BlueprintKind.DEPARTMENT.value:
-            created = await self._departments.create_department(org_id, actor_user_id, {"name": text})
+            created = await self._departments.create_department(
+                org_id,
+                actor_user_id,
+                {
+                    "name": text,
+                    "is_critical": bool(item.is_critical),
+                    "revenue_allocation_percentage": item.revenue_allocation_pct,
+                },
+            )
         elif item.kind == BlueprintKind.POSITION.value:
             department_id = await self._department_for(item, actor_user_id)
             boss_id = await self._boss_position_for(item, actor_user_id)
             created = await self._positions.create_position(
                 org_id,
                 actor_user_id,
-                {"title": text, "department_id": department_id, "reports_to_position_id": boss_id},
+                {
+                    "title": text,
+                    "department_id": department_id,
+                    "reports_to_position_id": boss_id,
+                    "is_critical": bool(item.is_critical),
+                    "criticality_type": item.criticality_type,
+                    "risk_level": item.risk_level,
+                },
             )
         elif item.kind == BlueprintKind.OBJECTIVE.value:
             department_id = await self._department_for(item, actor_user_id)

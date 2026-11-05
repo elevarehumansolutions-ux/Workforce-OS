@@ -11,6 +11,7 @@ MAX_OBJECTIVES = 6
 MAX_KEY_RESULTS_PER_OBJECTIVE = 4
 MAX_KPIS_PER_DEPARTMENT = 4
 MAX_KPIS = 30
+MAX_CRITICAL_POSITIONS_PER_DEPARTMENT = 3
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,17 @@ def blueprint_system_prompt() -> str:
         "unit (for example '%', 'days', 'NGN'); set lower_is_better true when a smaller figure is "
         "better (for example days to deliver, complaints). A department listed as already "
         "having a full set of KPIs must get none.\n"
+        "Criticality is YOUR decision, not the user's. Mark a NEW department is_critical true when "
+        "it generates revenue or the business cannot run without it, and give it "
+        "revenue_allocation_pct: its share (0 to 100) of the company's capital investment that it "
+        "is expected to return, for example 80 for sales and 40 for operations. These shares are "
+        "independent expected-return targets, NOT slices of one budget, so they may add up to more "
+        "than 100. Leave non-critical departments without a share. Mark at most "
+        f"{MAX_CRITICAL_POSITIONS_PER_DEPARTMENT} positions per department is_critical true (the "
+        "roles the business would be hurt most by losing), and for each give criticality_type "
+        "(revenue_generating, revenue_enabling, operational, customer, compliance, strategic, "
+        "financial or legal) and risk_level (very_low, low, medium, high or very_high). A position "
+        "without both is not critical.\n"
         "If the company already has a structure, tidy it: use a cleanup with action 'rename' and "
         "new_name when an existing name is non-standard or misspelt; use action 'review' with a "
         "note when two existing items look like duplicates or something looks wrong. "

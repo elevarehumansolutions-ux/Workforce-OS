@@ -11,6 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.modules.organization.enums import CriticalityType, RiskLevel
+
 
 # ---------------------------------------------------------------------------
 # What Claude answers with
@@ -22,20 +24,34 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProposedDepartment(BaseModel):
-    """A department the company should have."""
+    """A department the company should have.
+
+    ``is_critical`` and ``revenue_allocation_pct`` are the AI's call, not the user's:
+    a critical department gets a share of the capital investment as its expected-return
+    target (0 to 100). Different departments' shares are independent targets and may
+    add up to more than 100.
+    """
 
     ref: str
     name: str
+    is_critical: bool = False
+    revenue_allocation_pct: float | None = None
     rationale: str
 
 
 class ProposedPosition(BaseModel):
-    """A position inside a department, and who it reports to (the org chart)."""
+    """A position inside a department, and who it reports to (the org chart).
+
+    A critical position needs both its kind of criticality and its risk level.
+    """
 
     ref: str
     title: str
     department: str
     reports_to: str | None = None
+    is_critical: bool = False
+    criticality_type: CriticalityType | None = None
+    risk_level: RiskLevel | None = None
     rationale: str
 
 
@@ -112,6 +128,10 @@ class BlueprintItemResponse(BaseModel):
     reports_to_ref: str | None
     objective_ref: str | None
     key_result_ref: str | None
+    is_critical: bool | None
+    revenue_allocation_pct: decimal.Decimal | None
+    criticality_type: str | None
+    risk_level: str | None
     kpi_weight: decimal.Decimal | None
     kpi_target_value: decimal.Decimal | None
     kpi_unit: str | None

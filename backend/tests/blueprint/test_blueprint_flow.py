@@ -38,9 +38,17 @@ def _auth(login: dict) -> dict:
 def _logistics_answer(extra_cleanups=()) -> BlueprintAnswer:
     """Operations (Director <- Manager), one objective with two key results, two KPIs."""
     return BlueprintAnswer(
-        departments=[ProposedDepartment(ref="D1", name="Operations", rationale="Moves the goods.")],
+        departments=[
+            ProposedDepartment(
+                ref="D1", name="Operations", is_critical=True, revenue_allocation_pct=40,
+                rationale="Moves the goods.",
+            )
+        ],
         positions=[
-            ProposedPosition(ref="P1", title="Operations Director", department="D1", rationale="Leads."),
+            ProposedPosition(
+                ref="P1", title="Operations Director", department="D1", is_critical=True,
+                criticality_type="operational", risk_level="high", rationale="Leads.",
+            ),
             ProposedPosition(
                 ref="P2", title="Dispatch Manager", department="D1", reports_to="P1", rationale="Routes."
             ),
@@ -369,6 +377,43 @@ async def test_a_company_with_its_own_wrong_structure_is_cleaned_up(client, db_s
 
     names = sorted(d["name"] for d in (await client.get(DEPARTMENTS, headers=headers)).json()["data"])
     assert names == ["Human Resources"]
+
+
+# ------------------------------------------------- criticality and capital share
+
+@pytest.mark.asyncio
+async def test_approved_items_carry_the_ais_critical_flags_and_capital_share(client, db_session, monkeypatch):
+    """The user is never asked: Operations is created critical with 40%, the Director critical (operational, high)."""
+    _, headers, _, _ = await _generate(client, db_session, monkeypatch, "bp_crit1@example.com")
+
+    await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
+
+    department = (await client.get(DEPARTMENTS, headers=headers)).json()["data"][0]
+    assert department["is_critical"] is True
+    assert float(department["revenue_allocation_percentage"]) == 40
+    positions = {p["title"]: p for p in (await client.get(POSITIONS, headers=headers)).json()["data"]}
+    director = positions["Operations Director"]
+    assert (director["is_critical"], director["criticality_type"], director["risk_level"]) == (
+        True, "operational", "high",
+    )
+    assert positions["Dispatch Manager"]["is_critical"] is False
+
+
+@pytest.mark.asyncio
+async def test_the_proposal_lists_show_the_critical_flags_before_anything_is_approved(
+    client, db_session, monkeypatch
+):
+    """The review screen can show the AI's decision: GET /blueprint carries it on the pending items."""
+    _, headers, _, _ = await _generate(client, db_session, monkeypatch, "bp_crit2@example.com")
+
+    items = (await client.get(f"{BLUEPRINT}?status=pending", headers=headers)).json()["data"]
+
+    department = next(i for i in items if i["kind"] == "department")
+    assert (department["is_critical"], float(department["revenue_allocation_pct"])) == (True, 40)
+    director = next(i for i in items if i["title"] == "Operations Director")
+    assert (director["is_critical"], director["criticality_type"], director["risk_level"]) == (
+        True, "operational", "high",
+    )
 
 
 # ------------------------------------------------------------------------- KPIs
