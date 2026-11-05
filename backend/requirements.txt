@@ -5,7 +5,11 @@ sqlalchemy==2.0.36
 psycopg[binary]==3.2.10
 alembic==1.14.0
 celery==5.4.0
-redis==5.2.1
+# kombu was not pinned, so a fresh image build pulled kombu 5.7.0, which refuses
+# redis-py older than 6.1 ("VersionMismatch") and made every Celery publish fail
+# (register returned 500). Both are pinned to the pair tested together (2026-11-04).
+kombu==5.7.0
+redis==6.4.0
 pydantic-settings==2.7.0
 # Direct dependency of alembic/env.py (loads MIGRATION_DATABASE_URL outside
 # Settings) — was already present transitively via pydantic-settings, now

@@ -131,8 +131,8 @@ Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (
   `/employees/{employee_id}` would swallow `/employees/leaderboard`). **Slice E is complete.** The user decided on 2026-11-04 that
   Claude builds the frontend for M12 itself instead of writing Trello notes, so the three reads have their screens
   (`/performance`, `/performance/department`, `/performance/leaderboard`, `/performance/person/[id]`); lint and
-  build pass, browser check still to do. Later slices get their screens in the same slice. **Open for the user:** the `redis`/`kombu`
-  version clash in `requirements.txt` (see `08_DECISIONS.md` 2026-10-22, slice E part 2 entry).
+  build pass, browser check still to do. Later slices get their screens in the same slice. The `redis`/`kombu` version clash is
+  fixed (pinned in `requirements.txt`, 2026-11-05).
 - **F. The company view:** `GET /company-performance-summary` (revenue-weighted headline with "N of M counted", saved
   quarterly trend, live custom range up to 12 months, Most Improved top three with context).
   **Part 1 BUILT 2026-11-04:** the endpoint with headline, pooled company punctuality, departments and a 4-quarter
@@ -148,7 +148,11 @@ Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (
   number check with one retry and the plain-fact fallback, a weekly job that skips an unchanged week, a final
   frozen summary for a closed quarter. **No real Anthropic call has been made yet**; run one against a real company
   before the demo (see `08_DECISIONS.md` 2026-10-22, slice G entry).
-- **H. Close-out:** Trello cards for Uche, docs, the full suite, the study guide if wanted.
+- **H. Close-out: DONE 2026-11-05** except the items only the user can do. Full suite **938 passed** on an image rebuilt from
+  the pinned `requirements.txt`; the redis/kombu pin; the deploy checklist (below); the handoff. **Left for the user:**
+  push the branch and open the PR (nothing is pushed), try the screens in a browser, one real Anthropic call to read the
+  summary, and a study guide only if wanted. No Trello cards were written: the screens exist instead, and Trello was
+  unreachable.
 
 1. **(SETTLED, see above) How is one employee's score for one KPI worked out from their tasks?** This was the central question.
    Options to put to the user with a real example: completion only; on time against late with partial credit;
@@ -191,6 +195,34 @@ Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (
 - Frontend (Uche's track): the dashboards, drill-down, leaderboard, Most Improved callout and the summary
   block. When an endpoint changes what a screen needs, update the Trello board in the same session
   (`CLAUDE.md`, "Frontend impact").
+
+## Deploy checklist for M12 (the user's, when `m12-scoring` is pushed and merged)
+
+Written 2026-11-05. Nothing on `m12-scoring` is pushed yet. In this order:
+
+1. **Merge conflicts are already resolved.** `main` was merged INTO `m12-scoring` on 2026-11-04 (merge commit `bcea0d6`),
+   including a new Alembic merge migration `b22d246c2eb3` joining the blueprint and scoring heads. If `main` moves again
+   before the PR, merge it in again and run `alembic heads`: it must print ONE head.
+2. **Build the image with the new pins.** `requirements.txt` now pins `kombu==5.7.0` and `redis==6.4.0`. Without them a fresh
+   image build pulled kombu 5.7 with redis-py 5.2 and every Celery publish failed (register returned 500). The server was
+   built earlier so it is fine until the next rebuild; this fixes that rebuild. Verified by a clean `docker-compose build api`.
+3. **Run migrations in order** (one `alembic upgrade head` does it): `f208d4e04adc` and `e3de7830b474` (blueprint, from
+   `main`), `c84e1d5d299f` (scoring tables and the frozen-row trigger), `fc24c1890470` (the cross-tenant lookup
+   function), `b22d246c2eb3` (merge, empty). Then `alembic current` must show `b22d246c2eb3 (head)`.
+4. **Restart the worker AND Beat containers.** M12 adds two task files' worth of tasks (`scoring_nightly`,
+   `score_organization`, `summary_weekly`, `summarize_organization`) and two Beat entries (nightly 02:00 UTC, Mondays
+   03:00 UTC). Beat only reads its schedule at start.
+5. **The executive summary needs a working Anthropic key and credit** on the server (the same key the AI suggestions
+   use). Without it the weekly job logs an error and no summary appears; the screen then shows "Not enough data yet".
+   **No real model call has been made yet**: after deploying, wait for the first Monday or run the job once from the
+   worker, and READ what it wrote before showing anyone.
+6. **First nights.** The nightly job scores every company on its first run (it will not close a quarter a company did not
+   exist for). Expect "No data yet" screens until KPIs have task or typed-in results.
+7. **Frontend:** the new screens are `/performance`, `/performance/company`, `/performance/department`,
+   `/performance/leaderboard`, `/performance/person/[id]`, plus a "Performance" sidebar item. Not yet tried in a browser
+   against a live backend; try each as an HR administrator, an executive, a head, a manager and an ordinary employee.
+8. **Older SECURITY DEFINER functions** (three, from earlier milestones) are still executable by `PUBLIC`; the new one is not.
+   Open decision recorded in `07_SECURITY.md`.
 
 ## Deploy and hand-off items from M11 (the user's, alongside)
 
