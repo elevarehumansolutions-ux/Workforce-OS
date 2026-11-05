@@ -57,6 +57,11 @@ from app.modules.workflow.models import (
     WorkflowInstance,
 )
 from app.modules.blueprint.models import BlueprintItem
+from app.modules.scoring.models import (
+    EmployeeKPIScore,
+    DepartmentScore,
+    ExecutiveSummary,
+)
 
 __all__ = [
     "Organization",
@@ -87,4 +92,7 @@ __all__ = [
     "WorkflowStep",
     "WorkflowInstance",
     "BlueprintItem",
+    "EmployeeKPIScore",
+    "DepartmentScore",
+    "ExecutiveSummary",
 ]

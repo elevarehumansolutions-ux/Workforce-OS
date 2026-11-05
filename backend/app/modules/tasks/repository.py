@@ -14,6 +14,7 @@ from app.modules.organization.models import Employee
 from .enums import OPEN_STATUSES, ReviewStatus, TaskStatus
 from .models import Task, TaskBlock
 from .overdue import overdue_clause
+from .scoring_rows import TaskForScoring
 
 # The atomic complete relies on RETURNING for the truth about what changed.
 # synchronize_session=False stops SQLAlchemy guessing in Python which loaded
@@ -156,6 +157,37 @@ class TaskRepository:
         stmt = stmt.order_by(Task.created_at.desc(), Task.id)
         return await paginate(stmt, page, limit, self._db)
 
+    async def count_approved_blocks_by_category(
+        self, period_start: datetime, period_end: datetime
+    ) -> list[tuple[uuid.UUID, str, int]]:
+        """Per department and category: how many tasks were held back by an APPROVED block in a period.
+
+        A block counts when it began within the period. Only approved blocks
+        count (a rejected or still-pending one is not an accepted reason). Counts
+        only: the free-text reason is never read. Used by the Scoring module's
+        executive summary; RLS keeps it inside the caller's organization.
+
+        Args:
+            period_start: The first moment counted.
+            period_end: The first moment NOT counted.
+
+        Returns:
+            ``(department_id, category, number_of_tasks)`` rows.
+        """
+        stmt = (
+            select(Task.department_id, TaskBlock.category, func.count(func.distinct(TaskBlock.task_id)))
+            .join(Task, Task.id == TaskBlock.task_id)
+            .where(
+                Task.deleted_at.is_(None),
+                TaskBlock.review_status == ReviewStatus.APPROVED.value,
+                TaskBlock.blocked_at >= period_start,
+                TaskBlock.blocked_at < period_end,
+            )
+            .group_by(Task.department_id, TaskBlock.category)
+        )
+        result = await self._db.execute(stmt)
+        return [(row[0], row[1], row[2]) for row in result.all()]
+
     async def count_completed_tasks_for_kpi(
         self, kpi_id: uuid.UUID, period_start: datetime, period_end: datetime
     ) -> int:
@@ -206,6 +238,67 @@ class TaskRepository:
         )
         result = await self._db.execute(stmt)
         return result.scalar_one()
+
+    async def list_tasks_for_scoring(
+        self, period_start: datetime, period_end: datetime
+    ) -> list[TaskForScoring]:
+        """The tasks that could be marked in a scoring period, with their block facts.
+
+        Narrows the table down; the exact marking is done by the Scoring module.
+        A task is returned when it has a deadline, is not cancelled, and its real
+        deadline (written deadline plus approved blocked time, the same formula as
+        ``tasks/overdue.py``) is before ``period_end``, and either that real
+        deadline is inside the period or one of its blocks was reviewed inside it
+        (a review that came after the deadline moves the task into the period in
+        which it was decided).
+
+        Not limited to what any caller may see: it is an internal question for
+        the Scoring module, and RLS still keeps it inside the organization.
+
+        Args:
+            period_start: The first moment of the period.
+            period_end: The first moment AFTER the period.
+
+        Returns:
+            One row per task, with whether any of its blocks is still waiting for
+            review and when its latest block was reviewed.
+        """
+        real_deadline = Task.due_at + func.make_interval(0, 0, 0, 0, 0, 0, Task.approved_blocked_seconds)
+        has_pending_block = func.coalesce(
+            func.bool_or(TaskBlock.review_status == ReviewStatus.PENDING.value), False
+        )
+        last_review = func.max(TaskBlock.reviewed_at)
+        stmt = (
+            select(Task, has_pending_block, last_review)
+            .outerjoin(TaskBlock, TaskBlock.task_id == Task.id)  # a task with no blocks still comes back
+            .where(
+                Task.deleted_at.is_(None),
+                Task.due_at.is_not(None),
+                Task.status != TaskStatus.CANCELLED.value,
+                real_deadline < period_end,
+            )
+            .group_by(Task.id)
+            .having(or_(real_deadline >= period_start, last_review >= period_start))
+        )
+        result = await self._db.execute(stmt)
+
+        rows = []
+        for task, pending, reviewed_at in result.all():
+            rows.append(
+                TaskForScoring(
+                    task_id=task.id,
+                    department_id=task.department_id,
+                    kpi_id=task.kpi_id,
+                    assigned_to_employee_id=task.assigned_to_employee_id,
+                    status=task.status,
+                    due_at=task.due_at,
+                    completed_at=task.completed_at,
+                    approved_blocked_seconds=task.approved_blocked_seconds,
+                    has_pending_block=pending,
+                    last_block_reviewed_at=reviewed_at,
+                )
+            )
+        return rows
 
     async def list_workflow_instance_ids_for_assignee(
         self, employee_id: uuid.UUID

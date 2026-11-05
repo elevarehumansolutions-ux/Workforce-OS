@@ -54,6 +54,7 @@ from .enums import OPEN_STATUSES, BlockCategory, ReviewStatus, TaskStatus
 from .models import Task, TaskBlock
 from .periods import current_fiscal_quarter
 from .repository import TaskRepository, TaskScope
+from .scoring_rows import TaskForScoring
 from .schemas import KPITaskProgressResponse, TaskBlockResponse, TaskBlockReviewItem
 
 # Roles that can see every task in the organization.
@@ -1298,6 +1299,55 @@ class TaskService:
             Its tasks in creation order, whatever their status.
         """
         return await self._repo.list_tasks_for_workflow_instance(workflow_instance_id)
+
+    async def list_tasks_for_scoring(
+        self, period_start: datetime, period_end: datetime
+    ) -> list[TaskForScoring]:
+        """The tasks that could be marked in a scoring period, with their block facts.
+
+        For the Scoring module (M12), which marks each task on time, late or not
+        done. An internal question: no caller and no visibility check, because the
+        Scoring module applies its own access rules to what it shows. RLS keeps the
+        result inside the organization.
+
+        Args:
+            period_start: The first moment of the period.
+            period_end: The first moment AFTER the period.
+
+        Returns:
+            One row per candidate task (see ``TaskRepository.list_tasks_for_scoring``).
+        """
+        return await self._repo.list_tasks_for_scoring(period_start, period_end)
+
+    async def count_approved_blocks_by_category(
+        self, period_start: datetime, period_end: datetime
+    ) -> list[tuple[uuid.UUID, str, int]]:
+        """Per department and category: tasks held back by an approved block in a period (counts only).
+
+        A read-only pass-through for the Scoring module's executive summary.
+        """
+        return await self._repo.count_approved_blocks_by_category(period_start, period_end)
+
+    async def count_completed_tasks_for_kpi(
+        self, kpi_id: uuid.UUID, period_start: datetime, period_end: datetime
+    ) -> int:
+        """How many tasks linked to a KPI were completed within a period.
+
+        For the Scoring module's nightly job, which turns a task-count KPI into
+        a number. An internal question: no caller and no visibility check (it is
+        the KPI's total, like ``get_kpi_task_progress``), and RLS keeps it inside
+        the organization. Only ``completed`` tasks count; the period includes
+        ``period_start`` and excludes ``period_end``.
+
+        Args:
+            kpi_id: The KPI.
+            period_start: The first moment counted.
+            period_end: The first moment NOT counted.
+
+        Returns:
+            How many tasks.
+        """
+        return await self._repo.count_completed_tasks_for_kpi(kpi_id, period_start, period_end)
 
     async def release_orphaned_tasks(self, organization_id: uuid.UUID) -> int:
         """Hand over the open tasks of employees who have been offboarded.

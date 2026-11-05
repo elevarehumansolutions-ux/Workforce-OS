@@ -357,6 +357,7 @@ CREATE TABLE kpi_scores (
 - **`kpi_scores` has no `deleted_at`, a deliberate exception to the top-level Conventions rule** that names "performance history" as needing soft delete. This applies once the row's period has actually closed (`period_end` has passed): a scoring record for a closed period is a historical fact, not something that should ever disappear, even softly, and any correction after that point is a new period's record, not hiding or editing the old one. **Before that point — while `period_end` is still in the future — the same row is meant to be updated repeatedly** (`POST /kpis/{id}/scores` upserts it), by `hr_administrator` or `business_executive`, as real-world numbers come in over the course of the quarter, so progress is visible before the period closes, not only after (08_DECISIONS.md 2026-09-29). Same "permanent once closed" reasoning as `workflow_instances` having no `deleted_at`, decided during the 2026-09-04 consistency pass.
 
 ```sql
+-- AS BUILT 2026-10-22 (M12 slice A, migration c84e1d5d299f, module `scoring`). Constraint names are in the model.
 CREATE TABLE employee_kpi_scores (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
@@ -364,9 +365,35 @@ CREATE TABLE employee_kpi_scores (
     kpi_id UUID NOT NULL REFERENCES kpis(id),
     period_start DATE NOT NULL,
     period_end DATE NOT NULL,
-    score_percentage NUMERIC(5,2),
+    tasks_on_time INTEGER NOT NULL DEFAULT 0,   -- valid tasks done on time (100 each)
+    tasks_late INTEGER NOT NULL DEFAULT 0,      -- done late (50 each)
+    tasks_not_done INTEGER NOT NULL DEFAULT 0,  -- never done (0 each)
+    score_percentage NUMERIC(5,2),              -- 0-100; NULL exactly when the three counts are all 0 ("no data", never 0)
+    weight_used NUMERIC(5,2) NOT NULL,          -- the KPI's weight when the row was last written; frozen with the row
+    finalized_at TIMESTAMPTZ,                   -- NULL = running figure refreshed nightly; set = frozen at period close
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (employee_id, kpi_id, period_start, period_end)
+);
+
+CREATE TABLE department_scores (   -- NEW in M12 (not in the original design), see the note below
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    department_id UUID NOT NULL REFERENCES departments(id),
+    period_start DATE NOT NULL,
+    period_end DATE NOT NULL,
+    kpi_results_score NUMERIC(6,2),             -- headline: weighted KPI results against target, may exceed 100; NULL when kpis_counted = 0
+    kpis_counted INTEGER NOT NULL DEFAULT 0,    -- the N of "N of M"
+    kpis_expected INTEGER NOT NULL DEFAULT 0,   -- the M (CHECK counted <= expected)
+    punctuality_on_time INTEGER NOT NULL DEFAULT 0,
+    punctuality_late INTEGER NOT NULL DEFAULT 0,
+    punctuality_not_done INTEGER NOT NULL DEFAULT 0,   -- includes tasks nobody holds
+    punctuality_score NUMERIC(5,2),             -- 0-100; NULL when the three counts are all 0
+    revenue_allocation_percentage NUMERIC(6,2), -- the department's revenue share when written; frozen with the row
+    finalized_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (department_id, period_start, period_end)
 );
 
 CREATE TABLE executive_summaries (
@@ -374,11 +401,18 @@ CREATE TABLE executive_summaries (
     organization_id UUID NOT NULL REFERENCES organizations(id),
     period_start DATE NOT NULL,
     period_end DATE NOT NULL,
-    summary_text TEXT NOT NULL,
-    generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    summary_text TEXT NOT NULL,                 -- CHECK: not blank
+    source VARCHAR(10) NOT NULL DEFAULT 'ai',   -- 'ai' (model wrote it, numbers checked) or 'plain' (fact-only fallback)
+    facts_fingerprint VARCHAR(64) NOT NULL,     -- hash of the fact sheet; an unchanged hash skips the week's model call
+    generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),   -- when the text was last written (the weekly job replaces it)
+    finalized_at TIMESTAMPTZ,                   -- set at period close: frozen
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (organization_id, period_start, period_end)
 );
 ```
+
+**Built 2026-10-22 (M12 slice A, `08_DECISIONS.md` 2026-10-21 and 2026-10-22), in the NEW module `scoring/` (not folded into `kpis/`, so no studied code changed):** all three tables have RLS `tenant_isolation`, no `deleted_at` (a closed period is permanent history), and CHECK rules that stop "no data" from being stored as a fake zero. **Why `department_scores` was added:** the department headline is built from the KPIs' weights and the company score from each department's revenue share; if a closed quarter were recalculated on read from TODAY's weights and shares, editing a weight in January would silently change Q3's final card. So the result is saved when the row is written, with the revenue share it used, and `employee_kpi_scores.weight_used` does the same for a person's overall score. **How a row is frozen:** `finalized_at` is empty while the period is open (the nightly job refreshes the row) and is set at period close; a row with `finalized_at` set must never be written again. **ENFORCED BY A DATABASE TRIGGER (built 2026-10-22, M12 slice A, migration `c84e1d5d299f`; the user chose to add it):** the function `refuse_change_to_finalized_row()` and a trigger `freeze_finalized_rows` (`BEFORE UPDATE OR DELETE ... FOR EACH ROW`) on each of the three tables refuse any change or delete of a row whose `finalized_at` is already set, with a check-violation error (an `IntegrityError` in the application). Freezing itself (filling `finalized_at` for the first time) is allowed, because the row it replaces is not frozen yet; clearing it again is refused. Tested in `tests/scoring/test_scoring_tables.py` for all three tables, and the test was proven able to fail by dropping a trigger on purpose. To lift the lock for a genuine correction someone must drop the trigger deliberately. The code that writes the rows (slices C and D) will additionally update only rows whose `finalized_at` is empty, so normal flows never hit the lock.
 
 **Added 2026-09-07, closing a real gap, not new scope:** `01_REQUIREMENTS.md` §11 (confirmed with Jennifer, 2026-09-02) already required that clicking a department drill down to "how each person's performance rolls up into the department's overall score." That was written down but never modeled, `kpi_scores` only ever captured a department's score, nothing captured an individual's. `employee_kpi_scores` is that missing piece, same shape as `kpi_scores`, computed from that employee's own tasks linked to each KPI (`tasks.kpi_id`, their `due_at`/`completed_at` timeliness), one row per employee per KPI per period. This is also what a leaderboard/"high performing employees" view reads from, and what "Most Improved" compares period over period, neither needs its own stored table, both are cheap aggregate/comparison queries over data already sitting here.
 - **`executive_summaries` is genuinely new scope, added 2026-09-07** for the investor-facing dashboard: a short LLM-generated narrative of a period's performance ("Operations exceeded target by 12%..."). Stored, not generated on every dashboard load, an LLM call is too slow and too costly to run per page view. Generated periodically by Celery Beat (same pattern as the Overdue check in Cluster 6), triggered whenever a period's `kpi_scores`/`employee_kpi_scores` are recalculated, not on every request.

@@ -34,6 +34,7 @@ from app.modules.blueprint.router import router as blueprint_router
 from app.modules.attendance.router import router as attendance_router
 from app.modules.tasks.router import router as tasks_router
 from app.modules.workflow.listeners import register_listeners as register_workflow_listeners
+from app.modules.scoring.router import router as scoring_router
 from app.modules.workflow.router import router as workflow_router
 
 # Initialise Sentry before anything else
@@ -179,6 +180,8 @@ async def health_check():
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(tenancy_identity_router, prefix="/api/v1", tags=["memberships"])
 app.include_router(audit_and_notification_router, prefix="/api/v1", tags=["audit-log", "notifications"])
+# Before the organization router: /employees/leaderboard must not be read as /employees/{employee_id}.
+app.include_router(scoring_router, prefix="/api/v1", tags=["scoring"])
 app.include_router(organization_router, prefix="/api/v1", tags=["org-structure"])
 app.include_router(business_dna_router, prefix="/api/v1", tags=["business-dna"])
 app.include_router(okrs_router, prefix="/api/v1", tags=["okrs"])

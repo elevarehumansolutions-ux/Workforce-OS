@@ -10,6 +10,7 @@ const SIDEBAR_ITEMS: { label: string; href: string }[] = [
   { label: "Leave Management", href: "/leave" },
   { label: "Workflow", href: "/workflow/templates" },
   { label: "Tasks", href: "/tasks" },
+  { label: "Performance", href: "/performance" },
   { label: "Payroll", href: "/payroll" },
   { label: "Reports", href: "/reports" },
   { label: "Settings", href: "/settings" },
