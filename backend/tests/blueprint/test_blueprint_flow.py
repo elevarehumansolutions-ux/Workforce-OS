@@ -41,7 +41,7 @@ def _logistics_answer(extra_cleanups=()) -> BlueprintAnswer:
         departments=[
             ProposedDepartment(
                 ref="D1", name="Operations", is_critical=True, revenue_allocation_pct=40,
-                rationale="Moves the goods.",
+                profit_margin_pct=25, rationale="Moves the goods.",
             )
         ],
         positions=[
@@ -383,14 +383,19 @@ async def test_a_company_with_its_own_wrong_structure_is_cleaned_up(client, db_s
 
 @pytest.mark.asyncio
 async def test_approved_items_carry_the_ais_critical_flags_and_capital_share(client, db_session, monkeypatch):
-    """The user is never asked: Operations is created critical with 40%, the Director critical (operational, high)."""
+    """The user is never asked: Operations is created critical with all the capital and a margin.
+
+    It is the only critical department, so it gets 100%, with a 25% margin; the Director is
+    critical (operational, high).
+    """
     _, headers, _, _ = await _generate(client, db_session, monkeypatch, "bp_crit1@example.com")
 
     await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
 
     department = (await client.get(DEPARTMENTS, headers=headers)).json()["data"][0]
     assert department["is_critical"] is True
-    assert float(department["revenue_allocation_percentage"]) == 40
+    assert float(department["revenue_allocation_percentage"]) == 100
+    assert float(department["profit_margin_percentage"]) == 25
     positions = {p["title"]: p for p in (await client.get(POSITIONS, headers=headers)).json()["data"]}
     director = positions["Operations Director"]
     assert (director["is_critical"], director["criticality_type"], director["risk_level"]) == (
@@ -409,11 +414,85 @@ async def test_the_proposal_lists_show_the_critical_flags_before_anything_is_app
     items = (await client.get(f"{BLUEPRINT}?status=pending", headers=headers)).json()["data"]
 
     department = next(i for i in items if i["kind"] == "department")
-    assert (department["is_critical"], float(department["revenue_allocation_pct"])) == (True, 40)
+    assert (department["is_critical"], float(department["revenue_allocation_pct"])) == (True, 100)
+    assert float(department["profit_margin_pct"]) == 25
     director = next(i for i in items if i["title"] == "Operations Director")
     assert (director["is_critical"], director["criticality_type"], director["risk_level"]) == (
         True, "operational", "high",
     )
+
+
+def _three_critical_departments() -> BlueprintAnswer:
+    """Sales 50, Operations 30, Marketing 20: the capital split as Claude proposed it."""
+    return BlueprintAnswer(
+        departments=[
+            ProposedDepartment(ref="D1", name="Sales", is_critical=True, revenue_allocation_pct=50,
+                               profit_margin_pct=30, rationale="Brings in revenue."),
+            ProposedDepartment(ref="D2", name="Operations", is_critical=True, revenue_allocation_pct=30,
+                               profit_margin_pct=20, rationale="Delivers."),
+            ProposedDepartment(ref="D3", name="Marketing", is_critical=True, revenue_allocation_pct=20,
+                               profit_margin_pct=15, rationale="Finds customers."),
+        ],
+        positions=[], objectives=[], kpis=[], cleanups=[],
+    )
+
+
+async def _shares(client, headers) -> dict:
+    rows = (await client.get(DEPARTMENTS, headers=headers)).json()["data"]
+    return {d["name"]: float(d["revenue_allocation_percentage"]) for d in rows}
+
+
+@pytest.mark.asyncio
+async def test_skipping_a_department_hands_its_capital_to_the_others(client, db_session, monkeypatch):
+    """Skipping Marketing re-balances: the capital is always split, never left partly unallocated.
+
+    Sales stays 50 while all three are in play; skip Marketing and Sales becomes 62.5;
+    approve Operations and it takes 37.5.
+    """
+    _, headers, _, items = await _generate(
+        client, db_session, monkeypatch, "bp_split1@example.com", answer=_three_critical_departments()
+    )
+
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'Sales').id}/approve", headers=headers)
+    assert await _shares(client, headers) == {"Sales": 50.0}
+
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'Marketing').id}/reject", headers=headers)
+    assert await _shares(client, headers) == {"Sales": 62.5}
+
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'Operations').id}/approve", headers=headers)
+    shares = await _shares(client, headers)
+    assert shares == {"Sales": 62.5, "Operations": 37.5}
+    assert sum(shares.values()) == 100
+
+
+@pytest.mark.asyncio
+async def test_accepting_all_after_skipping_one_still_splits_100(client, db_session, monkeypatch):
+    """Skip Operations, then accept the rest: Sales 71.43 and Marketing 28.57, adding up to 100."""
+    _, headers, _, items = await _generate(
+        client, db_session, monkeypatch, "bp_split2@example.com", answer=_three_critical_departments()
+    )
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'Operations').id}/reject", headers=headers)
+
+    await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
+
+    shares = await _shares(client, headers)
+    assert shares == {"Sales": 71.43, "Marketing": 28.57}
+    assert round(sum(shares.values()), 2) == 100
+
+
+@pytest.mark.asyncio
+async def test_each_department_keeps_its_own_profit_margin(client, db_session, monkeypatch):
+    """The estimated margins from the proposal land on the real departments."""
+    _, headers, _, _ = await _generate(
+        client, db_session, monkeypatch, "bp_split3@example.com", answer=_three_critical_departments()
+    )
+
+    await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
+
+    rows = (await client.get(DEPARTMENTS, headers=headers)).json()["data"]
+    assert {d["name"]: float(d["profit_margin_percentage"]) for d in rows} == {
+        "Sales": 30.0, "Operations": 20.0, "Marketing": 15.0,
+    }
 
 
 # ------------------------------------------------------------------------- KPIs

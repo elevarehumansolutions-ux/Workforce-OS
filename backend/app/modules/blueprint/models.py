@@ -138,6 +138,11 @@ class BlueprintItem(BaseModel):
     )
     criticality_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     risk_level: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    profit_margin_pct: Mapped[decimal.Decimal | None] = mapped_column(
+        DECIMAL(5, 2),
+        nullable=True,
+        doc="A department's estimated profit margin (0-100), proposed with its capital share",
+    )
 
     # Only for kind 'kpi' (title is the KPI's name, department_* its department).
     kpi_weight: Mapped[decimal.Decimal | None] = mapped_column(

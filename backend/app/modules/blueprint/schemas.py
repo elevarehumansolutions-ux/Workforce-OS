@@ -27,15 +27,17 @@ class ProposedDepartment(BaseModel):
     """A department the company should have.
 
     ``is_critical`` and ``revenue_allocation_pct`` are the AI's call, not the user's:
-    a critical department gets a share of the capital investment as its expected-return
-    target (0 to 100). Different departments' shares are independent targets and may
-    add up to more than 100.
+    the capital investment is SPLIT between the critical departments, so their shares
+    (0 to 100 each) should add up to 100 (the code rescales them to exactly 100).
+    ``profit_margin_pct`` is a typical profit margin (0 to 100) for that kind of
+    department, an estimate.
     """
 
     ref: str
     name: str
     is_critical: bool = False
     revenue_allocation_pct: float | None = None
+    profit_margin_pct: float | None = None
     rationale: str
 
 
@@ -130,6 +132,7 @@ class BlueprintItemResponse(BaseModel):
     key_result_ref: str | None
     is_critical: bool | None
     revenue_allocation_pct: decimal.Decimal | None
+    profit_margin_pct: decimal.Decimal | None
     criticality_type: str | None
     risk_level: str | None
     kpi_weight: decimal.Decimal | None

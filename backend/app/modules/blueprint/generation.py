@@ -137,20 +137,38 @@ def normalize_weights(raw: list[float], budget: Decimal) -> list[Decimal]:
     return scaled
 
 
-def _department_criticality(proposed) -> tuple[bool, Decimal | None]:
-    """Whether a proposed department is critical, and its share of the capital (0 to 100).
+def _percent(value: float | None) -> Decimal | None:
+    """A percentage between 0 and 100 as a Decimal; anything else (missing, NaN, out of range) is None."""
+    if value is None or value != value or value < 0 or value > 100:
+        return None
+    return Decimal(str(round(value, 2)))
 
-    Only a critical department carries a share (that is how the rest of the app reads it),
-    and a critical department with no usable share is kept critical without one. The
-    shares of different departments are independent targets, so they are NOT scaled to
-    add up to 100.
+
+def _department_criticality(proposed) -> tuple[bool, Decimal | None, Decimal | None]:
+    """Whether a proposed department is critical, its share of the capital, and its profit margin.
+
+    Only a critical department carries a share or a margin. A critical department with
+    no usable share is kept critical without one. The shares are rescaled to add up to
+    exactly 100 afterwards (see ``_split_capital``).
     """
     if not proposed.is_critical:
-        return False, None
-    share = proposed.revenue_allocation_pct
-    if share is None or share != share or share < 0 or share > 100:
-        return True, None
-    return True, Decimal(str(round(share, 2)))
+        return False, None, None
+    return True, _percent(proposed.revenue_allocation_pct), _percent(proposed.profit_margin_pct)
+
+
+def _split_capital(rows: list[dict]) -> None:
+    """Rescale the critical departments' shares so the capital is split exactly 100%.
+
+    The capital investment is split BETWEEN the critical departments, so whatever
+    Claude proposed (it may add up to 90 or 130) is scaled to 100. A department with
+    no share stays without one and takes no part in the split.
+    """
+    sharing = [r for r in rows if r["kind"] == BlueprintKind.DEPARTMENT.value and r.get("revenue_allocation_pct") is not None]
+    if not sharing:
+        return
+    shares = normalize_weights([float(r["revenue_allocation_pct"]) for r in sharing], Decimal(100))
+    for row, share in zip(sharing, shares):
+        row["revenue_allocation_pct"] = share
 
 
 def _position_is_critical(proposed) -> bool:
@@ -224,7 +242,7 @@ def build_item_rows(
             continue
         known.new_department_refs.add(ref)
         used_refs.add(ref)
-        is_critical, allocation = _department_criticality(proposed)
+        is_critical, allocation, margin = _department_criticality(proposed)
         add_row(
             BlueprintKind.DEPARTMENT.value,
             name,
@@ -232,7 +250,9 @@ def build_item_rows(
             ref=ref,
             is_critical=is_critical,
             revenue_allocation_pct=allocation,
+            profit_margin_pct=margin,
         )
+    _split_capital(rows)
 
     # --- positions, pass 1: which ones are kept and where they sit ----------
     existing_position_by_key = {

@@ -372,8 +372,8 @@ def _departments(rows):
     return {r["title"]: r for r in rows if r["kind"] == "department"}
 
 
-def test_a_critical_department_keeps_its_share_of_the_capital():
-    """Sales 80 and Operations 40: both kept as given. 120 in all is fine, they are independent targets."""
+def test_the_capital_is_split_exactly_between_the_critical_departments():
+    """Claude says Sales 80 and Operations 40 (120 in all): scaled so the split is exactly 100."""
     rows = _build(
         _answer(
             [
@@ -384,8 +384,42 @@ def test_a_critical_department_keeps_its_share_of_the_capital():
     )
 
     depts = _departments(rows)
-    assert (depts["Sales"]["is_critical"], depts["Sales"]["revenue_allocation_pct"]) == (True, Decimal("80"))
-    assert depts["Operations"]["revenue_allocation_pct"] == Decimal("40")
+    assert depts["Sales"]["is_critical"] is True
+    assert (depts["Sales"]["revenue_allocation_pct"], depts["Operations"]["revenue_allocation_pct"]) == (
+        Decimal("66.67"), Decimal("33.33"),
+    )
+    assert sum(d["revenue_allocation_pct"] for d in depts.values()) == Decimal("100.00")
+
+
+def test_a_split_that_came_to_less_than_100_is_scaled_up():
+    """30 + 20 = 50 proposed: the whole capital must still be allocated, so 60 and 40."""
+    rows = _build(
+        _answer(
+            [
+                _dept("D1", "Sales", is_critical=True, revenue_allocation_pct=30),
+                _dept("D2", "Operations", is_critical=True, revenue_allocation_pct=20),
+            ]
+        )
+    )
+
+    shares = [d["revenue_allocation_pct"] for d in _departments(rows).values()]
+    assert shares == [Decimal("60.00"), Decimal("40.00")]
+
+
+def test_a_profit_margin_is_kept_for_a_critical_department_only_and_only_in_range():
+    """25% kept; a margin on a non-critical department or above 100 is dropped."""
+    rows = _build(
+        _answer(
+            [
+                _dept("D1", "Sales", is_critical=True, revenue_allocation_pct=100, profit_margin_pct=25),
+                _dept("D2", "Admin", is_critical=False, profit_margin_pct=40),
+                _dept("D3", "Ops", is_critical=True, revenue_allocation_pct=100, profit_margin_pct=140),
+            ]
+        )
+    )
+
+    margins = {d["title"]: d["profit_margin_pct"] for d in _departments(rows).values()}
+    assert margins == {"Sales": Decimal("25"), "Admin": None, "Ops": None}
 
 
 def test_a_department_that_is_not_critical_carries_no_share():

@@ -7,6 +7,7 @@ rolls the review back too.
 """
 
 import uuid
+from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,7 @@ from app.modules.okrs.service import KeyResultService, OKRService
 from app.modules.organization.service import DepartmentService, PositionService
 
 from .enums import BlueprintKind, BlueprintStatus
+from .generation import normalize_weights
 from .models import BlueprintItem
 from .repository import KIND_ORDER, BlueprintRepository
 from .schemas import AcceptAllResponse, AcceptAllSkipped
@@ -127,6 +129,7 @@ class BlueprintService:
                     "name": text,
                     "is_critical": bool(item.is_critical),
                     "revenue_allocation_percentage": item.revenue_allocation_pct,
+                    "profit_margin_percentage": item.profit_margin_pct,
                 },
             )
         elif item.kind == BlueprintKind.POSITION.value:
@@ -212,6 +215,27 @@ class BlueprintService:
         )
         return claimed
 
+    async def _rebalance_capital(self, batch_id: uuid.UUID, actor_user_id: uuid.UUID) -> None:
+        """Keep the capital split exactly 100% between the departments HR has not skipped.
+
+        The shares Claude proposed are scaled again over the departments still in play
+        (approved or waiting), so skipping a department hands its share to the others
+        instead of leaving part of the capital unallocated. Departments already created
+        get their new share written onto the real row.
+        """
+        items = await self._repo.list_department_share_items(batch_id)
+        if not items:
+            return
+        shares = normalize_weights([float(i.revenue_allocation_pct) for i in items], Decimal(100))
+        for item, share in zip(items, shares):
+            if item.created_entity_id is None:
+                continue
+            department = await self._departments.get_department_by_id(item.created_entity_id)
+            if department.revenue_allocation_percentage != share:
+                await self._departments.update_department(
+                    department.id, actor_user_id, {"revenue_allocation_percentage": share}
+                )
+
     async def _get_pending_item(self, item_id: uuid.UUID) -> BlueprintItem:
         """The item, or 404 if unseen, or 409 if it was already reviewed."""
         item = await self._repo.get_item(item_id)
@@ -226,18 +250,24 @@ class BlueprintService:
     async def approve_item(self, item_id: uuid.UUID, actor_user_id: uuid.UUID) -> BlueprintItem:
         """Approve an item as the AI proposed it."""
         item = await self._get_pending_item(item_id)
-        return await self._claim_and_apply(
+        batch_id = item.batch_id
+        approved = await self._claim_and_apply(
             item.id, actor_user_id, BlueprintStatus.APPROVED.value, item.title
         )
+        await self._rebalance_capital(batch_id, actor_user_id)
+        return approved
 
     async def edit_item(
         self, item_id: uuid.UUID, actor_user_id: uuid.UUID, new_title: str
     ) -> BlueprintItem:
         """Approve an item with HR's own wording."""
         item = await self._get_pending_item(item_id)
-        return await self._claim_and_apply(
+        batch_id = item.batch_id
+        edited = await self._claim_and_apply(
             item.id, actor_user_id, BlueprintStatus.EDITED.value, new_title.strip()
         )
+        await self._rebalance_capital(batch_id, actor_user_id)
+        return edited
 
     async def reject_item(self, item_id: uuid.UUID, actor_user_id: uuid.UUID) -> BlueprintItem:
         """Reject an item. Items that depended on it will refuse to apply later."""
@@ -258,6 +288,8 @@ class BlueprintService:
                 "new": {"status": BlueprintStatus.REJECTED.value},
             },
         )
+        # A skipped department hands its share of the capital to the others.
+        await self._rebalance_capital(rejected.batch_id, actor_user_id)
         return rejected
 
     async def accept_all(
@@ -273,6 +305,7 @@ class BlueprintService:
         # Plain (id, title, kind) values: after a savepoint rolls back, the loaded
         # objects can be stale, and reading them in an async session would fail.
         pending = [(item.id, item.title, item.kind) for item in pending_items]
+        batch_ids = {item.batch_id for item in pending_items}
         pending.sort(key=lambda row: KIND_ORDER.index(row[2]))
         pending_before = len(pending)
 
@@ -290,6 +323,9 @@ class BlueprintService:
                 skipped.append(
                     AcceptAllSkipped(id=item_id, title=item_title, reason=error.message)
                 )
+
+        for batch_id in batch_ids:
+            await self._rebalance_capital(batch_id, actor_user_id)
 
         still_pending = await self._repo.list_pending_items(organization_id)
         return AcceptAllResponse(
