@@ -3,40 +3,13 @@
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
 import PositionsEditor from "@/components/PositionsEditor";
+import { isHrRole, loadMe } from "@/lib/settings";
 
-const SIDEBAR_ITEMS: { label: string; href: string }[] = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Employees", href: "/employees" },
-  { label: "Team Management", href: "/team-management" },
-  { label: "Organization Structure", href: "/organization-structure" },
-  { label: "Attendance", href: "/attendance" },
-  { label: "Leave Management", href: "/leave" },
-  { label: "Workflow", href: "/workflow/templates" },
-  { label: "Tasks", href: "/tasks" },
-  { label: "Payroll", href: "/payroll" },
-  { label: "Reports", href: "/reports" },
-  { label: "Settings", href: "/settings" },
-];
+import RoleSidebarNav from "@/components/SidebarNav";
 
+// The menu is shared (and filtered by role) in components/SidebarNav.tsx.
 function SidebarNav(activeLabel: string) {
-  return (
-    <nav className="flex flex-col gap-1 px-3">
-      {SIDEBAR_ITEMS.map(function (item) {
-        const isActive = item.label === activeLabel;
-        let linkClass = "rounded-lg px-3 py-2.5 text-sm transition ";
-        if (isActive) {
-          linkClass = linkClass + "bg-indigo-500/15 text-indigo-300 font-medium";
-        } else {
-          linkClass = linkClass + "text-gray-400 hover:bg-white/5 hover:text-gray-200";
-        }
-        return (
-          <a key={item.label} href={item.href} className={linkClass}>
-            {item.label}
-          </a>
-        );
-      })}
-    </nav>
-  );
+  return <RoleSidebarNav activeLabel={activeLabel} />;
 }
 
 function SidebarShell(activeLabel: string) {
@@ -115,17 +88,21 @@ export default function OrganizationStructurePage() {
   const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Only HR can change a department's head; everyone else sees it read-only.
+  const [canEdit, setCanEdit] = useState(false);
 
   useEffect(function () {
     let cancelled = false;
     Promise.all([
       fetchAllPages<Department>("/departments"),
       fetchAllPages<Employee>("/employees"),
+      loadMe(),
     ])
       .then(function (results) {
         if (cancelled) return;
         setDepartments(results[0]);
         setEmployees(results[1]);
+        setCanEdit(isHrRole(results[2].role));
       })
       .catch(function (err) {
         if (cancelled) return;
@@ -295,7 +272,7 @@ export default function OrganizationStructurePage() {
                           <label className="text-xs text-gray-500">Head</label>
                           <select
                             value={headId}
-                            disabled={isBusy}
+                            disabled={isBusy || !canEdit}
                             onChange={function (e) {
                               changeHead(department, e.target.value);
                             }}
@@ -327,7 +304,11 @@ export default function OrganizationStructurePage() {
                 </div>
               </div>
 
-              <PositionsEditor departments={departments} />
+              {canEdit ? (
+                <PositionsEditor departments={departments} />
+              ) : (
+                <p className="text-sm text-gray-400">The chart of roles is managed by HR administrators.</p>
+              )}
             </>
           )}
         </main>

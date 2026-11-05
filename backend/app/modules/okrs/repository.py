@@ -3,17 +3,19 @@
 Provides CRUD and lookup operations for OKRs and key results. Every
 repository operates within the caller's RLS-scoped session and only
 flushes (never commits) — commits are the service layer's responsibility.
-No delete operations exist here — ``DELETE`` is deferred to M8 (see
-``08_DECISIONS.md`` 2026-09-21).
+Deletes are soft (``deleted_at``), added 2026-11-05 once KPIs existed to
+guard against (see ``08_DECISIONS.md`` 2026-11-05).
 """
 
 import uuid
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import paginate
 from app.core.schemas import PaginationResponse
+from app.modules.kpis.models import KPI
 from .models import KeyResult, OKR
 
 
@@ -125,6 +127,20 @@ class OKRRepository:
         await self._db.refresh(okr)
         return okr
 
+    async def soft_delete_okr(self, okr: OKR) -> OKR:
+        """Mark an OKR as deleted by stamping ``deleted_at``.
+
+        Args:
+            okr: The ``OKR`` instance to soft-delete.
+
+        Returns:
+            The soft-deleted and refreshed ``OKR``.
+        """
+        okr.deleted_at = datetime.now(UTC)
+        await self._db.flush()
+        await self._db.refresh(okr)
+        return okr
+
 
 class KeyResultRepository:
     """Handles persistence for key results belonging to an OKR."""
@@ -204,3 +220,52 @@ class KeyResultRepository:
         await self._db.flush()
         await self._db.refresh(key_result)
         return key_result
+
+    async def soft_delete_key_result(self, key_result: KeyResult) -> KeyResult:
+        """Mark a key result as deleted by stamping ``deleted_at``.
+
+        Args:
+            key_result: The ``KeyResult`` instance to soft-delete.
+
+        Returns:
+            The soft-deleted and refreshed ``KeyResult``.
+        """
+        key_result.deleted_at = datetime.now(UTC)
+        await self._db.flush()
+        await self._db.refresh(key_result)
+        return key_result
+
+    async def count_active_kpis_on_key_results(self, key_result_ids: list[uuid.UUID]) -> int:
+        """Count live KPIs that measure any of the given key results.
+
+        Args:
+            key_result_ids: Key results to look for.
+
+        Returns:
+            How many non-deleted KPIs point at one of them (0 for an empty list).
+        """
+        if not key_result_ids:
+            return 0
+        stmt = select(func.count(KPI.id)).where(
+            KPI.key_result_id.in_(key_result_ids),
+            KPI.deleted_at.is_(None),
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one()
+
+    async def list_all_key_results_of_okr(self, okr_id: uuid.UUID) -> list[KeyResult]:
+        """All non-deleted key results of an OKR (not paged: needed whole to delete it).
+
+        Args:
+            okr_id: The OKR whose key results to fetch.
+
+        Returns:
+            The key results, oldest first.
+        """
+        stmt = (
+            select(KeyResult)
+            .where(KeyResult.okr_id == okr_id, KeyResult.deleted_at.is_(None))
+            .order_by(KeyResult.created_at.asc())
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())

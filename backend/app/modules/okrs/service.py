@@ -3,8 +3,9 @@
 Each service wraps its matching repository, adding not-found checks and
 audit logging around plain CRUD. Services flush via the repository but
 never commit — the router commits after a successful call, same convention
-as the organization and Business DNA modules. No delete operations exist
-here — ``DELETE`` is deferred to M8 (see ``08_DECISIONS.md`` 2026-09-21).
+as the organization and Business DNA modules. Deletes are soft and are
+refused while a KPI still measures the key result (``08_DECISIONS.md``
+2026-11-05).
 """
 
 import uuid
@@ -12,7 +13,7 @@ import uuid
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import KeyResultNotFoundException, OKRNotFoundException
+from app.core.exceptions import KeyResultNotFoundException, OKRNotFoundException, ResourceInUseException
 from app.core.schemas import PaginationResponse
 from app.modules.audit_and_notification.service import AuditService
 
@@ -42,6 +43,7 @@ class OKRService:
         """Initialize the service with a session and its collaborators."""
         self._db = db
         self._repo = OKRRepository(db)
+        self._key_result_repo = KeyResultRepository(db)
         self._audit = AuditService(db)
 
     async def create_okr(
@@ -140,6 +142,58 @@ class OKRService:
             entity_type="okr",
             entity_id=okr.id,
             changes={"old": old_data, "new": jsonable_encoder(data)},
+        )
+        return okr
+
+    async def delete_okr(self, okr_id: uuid.UUID, actor_user_id: uuid.UUID) -> OKR:
+        """Soft-delete an OKR together with its key results.
+
+        Blocked, not cascaded, while any KPI still measures one of its key
+        results: the KPI would be left pointing at something nobody can see.
+
+        Args:
+            okr_id: Id of the OKR to delete.
+            actor_user_id: User performing the deletion, for the audit log.
+
+        Returns:
+            The soft-deleted ``OKR``.
+
+        Raises:
+            OKRNotFoundException: If no non-deleted OKR with that id exists
+                in the caller's org.
+            ResourceInUseException: If a KPI still measures one of its key results.
+        """
+        okr = await self.get_okr_by_id(okr_id)
+        key_results = await self._key_result_repo.list_all_key_results_of_okr(okr_id)
+
+        kpi_count = await self._key_result_repo.count_active_kpis_on_key_results([kr.id for kr in key_results])
+        if kpi_count > 0:
+            raise ResourceInUseException(
+                message=f"Cannot delete objective: {kpi_count} KPI(s) still measure its key results "
+                "(remove or re-link them first)"
+            )
+
+        for key_result in key_results:
+            old_key_result = _snapshot(key_result, KeyResult.__table__.columns.keys())
+            await self._key_result_repo.soft_delete_key_result(key_result)
+            await self._audit.log_action(
+                organization_id=key_result.organization_id,
+                actor_user_id=actor_user_id,
+                action="delete",
+                entity_type="key_result",
+                entity_id=key_result.id,
+                changes={"old": old_key_result, "new": None},
+            )
+
+        old_data = _snapshot(okr, OKR.__table__.columns.keys())
+        okr = await self._repo.soft_delete_okr(okr)
+        await self._audit.log_action(
+            organization_id=okr.organization_id,
+            actor_user_id=actor_user_id,
+            action="delete",
+            entity_type="okr",
+            entity_id=okr.id,
+            changes={"old": old_data, "new": None},
         )
         return okr
 
@@ -256,5 +310,41 @@ class KeyResultService:
             entity_type="key_result",
             entity_id=key_result.id,
             changes={"old": old_data, "new": jsonable_encoder(data)},
+        )
+        return key_result
+
+    async def delete_key_result(self, key_result_id: uuid.UUID, actor_user_id: uuid.UUID) -> KeyResult:
+        """Soft-delete a key result unless a KPI still measures it.
+
+        Args:
+            key_result_id: Id of the key result to delete.
+            actor_user_id: User performing the deletion, for the audit log.
+
+        Returns:
+            The soft-deleted ``KeyResult``.
+
+        Raises:
+            KeyResultNotFoundException: If no non-deleted key result with
+                that id exists in the caller's org.
+            ResourceInUseException: If a KPI still measures it.
+        """
+        key_result = await self.get_key_result_by_id(key_result_id)
+
+        kpi_count = await self._repo.count_active_kpis_on_key_results([key_result.id])
+        if kpi_count > 0:
+            raise ResourceInUseException(
+                message=f"Cannot delete key result: {kpi_count} KPI(s) still measure it "
+                "(remove or re-link them first)"
+            )
+
+        old_data = _snapshot(key_result, KeyResult.__table__.columns.keys())
+        key_result = await self._repo.soft_delete_key_result(key_result)
+        await self._audit.log_action(
+            organization_id=key_result.organization_id,
+            actor_user_id=actor_user_id,
+            action="delete",
+            entity_type="key_result",
+            entity_id=key_result.id,
+            changes={"old": old_data, "new": None},
         )
         return key_result

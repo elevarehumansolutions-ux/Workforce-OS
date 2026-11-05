@@ -206,6 +206,33 @@ Most of Uche's screens are built but **not yet connected to the API**: they show
 
 Consequences seen while testing: **the server's `business_dna` table is empty even though Business DNA was "filled in" on the deployed app**, because that page never calls `PUT /business-dna`; with no Business DNA, departments or OKRs, the AI correctly answers "none" (see the Quarterly Review runs in `ai_usage_log`, 2026-10-01/02, 10 to 36 output tokens each). The Setup Organization page's five sample departments (which the page itself does not label as AI-suggested) are five hard-coded names (Engineering, HR, Sales & Marketing, Finance, Operations) with hard-coded Critical flags; its locations are three hard-coded places; its "Reporting Hierarchy" is two hard-coded roles reporting to "CEO"; "Save & Continue" only logs to the console and moves on, so **nothing is saved**. The backend for all of these has existed since M4 to M8. To do (Uche): wire each page, then open "wire to API" cards, because the existing ones are already Done.
 
+## Frontend coverage audit, M1 to M12 (2026-11-05, by comparing every backend route with `frontend/src`)
+
+**Method:** listed all 115 backend routes, listed every API path the frontend calls, and checked which pages call nothing. Branch checked: `m12-scoring`. 56 pages exist. The earlier claim that "no pages exist for employees, managers, workflows, templates" is not true on this branch: `/employees` (+ add, invite, directory, `[id]`, critical-roles), `/team-management`, `/workflow/templates` (+ `[id]`, new-template), `/workflow/start`, `/workflow/tracker`, `/workflow/case-detail`, `/tasks` (+ `[id]`, assign-task, blocks), `/attendance`, `/notifications` and the eight Settings sections all exist and call the API.
+
+**Real gaps (required for completeness):**
+1. **Sidebar is the same for every role.** `AppShell.SIDEBAR_ITEMS` has no role filter, so an employee sees Team Management, Organization Structure, Payroll, Reports. Role checks exist only inside some pages. Fix: filter the items by role (employee: Dashboard, Attendance, Tasks, Performance, Workflow cases they started; manager adds Team; HR/executive see all).
+2. **Static pages with hard-coded data (no API call):** `dashboard/executive-overview` (a const `DEPARTMENTS` list), `dashboard/departments/engineering`, `strategy-performance`. The backend for all three exists (M12 company/department performance, M6 OKRs). The CEO has no real executive screen except `/performance/company`.
+3. **Sidebar links to pages with no backend at all (Phase 2, decided):** `leave`, `payroll` (3 pages), `reports` show invented data. Either hide them from the sidebar until built, or label them "Coming soon". They must not look real in an investor demo.
+4. **Backend with no screen after onboarding:** KPI management (create/edit KPI, set department weights, enter KPI scores, `GET /kpis/{id}/task-progress`) exists only inside `onboarding/kpis`; OKR and key-result editing exists only in `onboarding/okrs`; Business DNA and core values editing only through Settings > Company Profile (check it covers core values). A manager or HR cannot change a KPI or an OKR once onboarding is finished.
+5. **Unverified:** the M12 screens and the onboarding pages have not been exercised in a browser against a live backend.
+
+**Fixed the same day (lint, type check and `next build` pass; not yet tried in a browser):**
+1. Sidebar now filtered by role: `lib/navigation.ts` holds the rules, `AppShell` fetches the role once (cached) so all 25 pages get it without edits. Unknown role = smallest (employee) menu. The backend still enforces the real permissions.
+2. `dashboard/executive-overview` redirects to `/performance/company`, `dashboard/departments/engineering` to `/performance/department`. `strategy-performance` is now a real **Strategy** screen (objectives and key results from `/okrs`; HR can add objectives, rename, add and edit key results; everyone else reads).
+3. Leave, Payroll (3 routes) and Reports render a shared `ComingSoon` notice; the sidebar shows them greyed with a "Soon" badge to HR and executives only.
+4. New **KPIs** screen `/performance/kpis` (`lib/kpis.ts`): pick a department, see weights ("N of 100% used"), target, mode and the live standing; HR adds and edits KPIs; HR and executives type in this quarter's result for manual KPIs (period dates come from the server).
+
+**Closed later the same day:** KPI delete on `/performance/kpis` (re-balance weights to 100, then delete) and OKR / key-result delete (new backend endpoints with an in-use guard, 6 tests, see `08_DECISIONS.md` 2026-11-05; Delete buttons on `/strategy-performance`).
+
+**Role sweep (same day):** every page that makes an HR-only write was checked against the backend's role map. Fixed: Team Management is HR-only (was shown to managers); Organization Structure department-head picker and positions editor, the Employees hub "Add" and "Invite" cards, the directory's login column and the employee profile's Offboard / Reinstate / invite / link controls are now shown to HR only; critical-role suggestion review also opens for executives (the server allows it). Five older pages drew their own stale sidebar; they now use the shared `components/SidebarNav.tsx`. Checked and already correct: Settings sections, Attendance, Dashboard, Tasks, Workflow. Onboarding screens are the HR owner's flow and were left alone.
+
+**Still open from the audit:** the browser check of every screen, one login per role.
+
+**Nice-to-have (not built unasked):** a manager "My team" dashboard, a landing page (`app/page.tsx`, static, 548 lines) review.
+
+---
+
 ## Engineering hygiene — Ruff docstring compliance pass (2026-09-21)
 
 Cross-cutting, not tied to one milestone. Full write-up in `08_DECISIONS.md` 2026-09-21. `backend/pyproject.toml` added (ruff `D`/pydocstyle rules, Google convention); every `.py` file under `backend/app/`, `backend/alembic/`, `backend/tests/` brought to zero ruff errors. 115/115 tests still passing.

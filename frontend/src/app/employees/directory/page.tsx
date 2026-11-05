@@ -4,39 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 
-const SIDEBAR_ITEMS: { label: string; href: string }[] = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Employees", href: "/employees" },
-  { label: "Team Management", href: "/team-management" },
-  { label: "Organization Structure", href: "/organization-structure" },
-  { label: "Attendance", href: "/attendance" },
-  { label: "Leave Management", href: "/leave" },
-  { label: "Workflow", href: "/workflow/templates" },
-  { label: "Tasks", href: "/tasks" },
-  { label: "Payroll", href: "/payroll" },
-  { label: "Reports", href: "/reports" },
-  { label: "Settings", href: "/settings" },
-];
+import RoleSidebarNav from "@/components/SidebarNav";
+import { isHrRole, loadMe } from "@/lib/settings";
 
+// The menu is shared (and filtered by role) in components/SidebarNav.tsx.
 function SidebarNav(activeLabel: string) {
-  return (
-    <nav className="flex flex-col gap-1 px-3">
-      {SIDEBAR_ITEMS.map(function (item) {
-        const isActive = item.label === activeLabel;
-        let linkClass = "rounded-lg px-3 py-2.5 text-sm transition ";
-        if (isActive) {
-          linkClass = linkClass + "bg-indigo-500/15 text-indigo-300 font-medium";
-        } else {
-          linkClass = linkClass + "text-gray-400 hover:bg-white/5 hover:text-gray-200";
-        }
-        return (
-          <a key={item.label} href={item.href} className={linkClass}>
-            {item.label}
-          </a>
-        );
-      })}
-    </nav>
-  );
+  return <RoleSidebarNav activeLabel={activeLabel} />;
 }
 
 function SidebarShell(activeLabel: string) {
@@ -139,6 +112,8 @@ export default function EmployeeDirectoryPage() {
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteError, setInviteError] = useState("");
   const [rowNotice, setRowNotice] = useState<{ id: string; text: string } | null>(null);
+  // Giving someone a login is HR-only on the server; others just see who has one.
+  const [canManage, setCanManage] = useState(false);
 
   function load() {
     setLoading(true);
@@ -148,8 +123,10 @@ export default function EmployeeDirectoryPage() {
       apiFetch<PaginatedResponse<Department>>("/departments?limit=100", { method: "GET" }),
       apiFetch<PaginatedResponse<Position>>("/positions?limit=100", { method: "GET" }),
       apiFetch<PaginatedResponse<Location>>("/locations?limit=100", { method: "GET" }),
+      loadMe(),
     ])
-      .then(function ([employeesRes, departmentsRes, positionsRes, locationsRes]) {
+      .then(function ([employeesRes, departmentsRes, positionsRes, locationsRes, me]) {
+        setCanManage(isHrRole(me.role));
         setEmployees(employeesRes.data);
         setPagination(employeesRes.pagination);
         setDepartments(departmentsRes.data);
@@ -367,7 +344,9 @@ export default function EmployeeDirectoryPage() {
                           <span className={statusBadgeClass}>{employee.status === "active" ? "Active" : "Offboarded"}</span>
                         </td>
                         <td className="px-6 py-4">
-                          {rowNotice && rowNotice.id === employee.id ? (
+                          {!canManage ? (
+                            <span className="text-xs text-gray-400">{employee.user_id ? "Has login" : "No login"}</span>
+                          ) : rowNotice && rowNotice.id === employee.id ? (
                             <p className="text-xs text-emerald-300">{rowNotice.text}</p>
                           ) : employee.user_id ? (
                             <span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300">

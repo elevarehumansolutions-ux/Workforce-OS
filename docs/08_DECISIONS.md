@@ -1230,3 +1230,13 @@ Three things outside the `scoring/` folder were shown to the user first and **ap
 - **Known limits (not built):** merging two duplicate departments or positions is NOT done by the AI (it flags them, HR merges by hand, because merging has to move employees); cleaning up an existing REPORTING LINE is not proposed (only names); a company that already has a structure gets additions and renames, never deletions.
 - **Outside the module (additive wiring, approved by the user's go-ahead):** `core/model_registry.py`, `core/exceptions.py` (3 classes), `core/task_names.py` and `core/triggers.py` (`trigger_blueprint_generation`), `core/celery_app.py` (include), `main.py` (router), `business_dna/router.py` (one call after the commit in `PUT /business-dna`).
 - **Deploy:** run migration `f208d4e04adc`; RESTART the worker (a new task file). **Merge note:** `m12-scoring` also descends from `fee24085f70f`, so whichever merges second needs an Alembic merge migration (two heads).
+
+## 2026-11-05 — OKRs and key results can now be deleted (closes the M6 "DELETE deferred to M8" gap)
+
+M6 (2026-09-21) deliberately shipped no `DELETE` for `okrs` / `key_results` because the guard it needed, `kpis.key_result_id`, did not exist yet. M8 then built KPIs but nobody came back for the delete, so a wrongly created objective could only be renamed. Found in the 2026-11-05 frontend audit; the user chose the rule below.
+
+- **Rule:** `DELETE /okrs/{id}` and `DELETE /key-results/{id}`, HR administrator only, soft delete (`deleted_at`), returns the deleted row. **Blocked, not cascaded** (same as departments and positions): 409 `RESOURCE_IN_USE` with the count while a live KPI points at a key result. Deleting an objective soft-deletes its key results too, but only if none of them has a KPI; otherwise nothing changes. One audit entry per row removed.
+- **Outside the OKR folder:** none. The OKR repository imports the `KPI` model to count (read only), the same way the Organization repository already reads other modules.
+- **Tests:** `tests/okrs/test_okr_delete.py` (6). Mutation check done: guard weakened, the KPI test failed, restored.
+- **Frontend:** Delete buttons with an inline confirm on `/strategy-performance`; the server's 409 message is shown as is.
+- **KPI delete (no backend change):** the screen `/performance/kpis` deletes through the existing group `PUT /departments/{id}/kpis`, so HR must re-share the removed KPI's weight to total exactly 100 before the button enables. The last KPI of a department cannot be deleted (a group must total 100); add the replacement first.
