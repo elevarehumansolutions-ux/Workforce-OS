@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
+import OrgChartPicker from "@/components/OrgChartPicker";
 
 import RoleSidebarNav from "@/components/SidebarNav";
 
@@ -62,6 +63,7 @@ interface Position {
   id: string;
   department_id: string;
   title: string;
+  reports_to_position_id: string | null;
 }
 
 interface Location {
@@ -74,6 +76,8 @@ interface EmployeeSummary {
   first_name: string;
   last_name: string;
   work_email: string;
+  position_id?: string | null;
+  status?: string | null;
 }
 
 interface UnlinkedMember {
@@ -140,6 +144,8 @@ export default function AddEmployeePage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [existingEmployees, setExistingEmployees] = useState<EmployeeSummary[]>([]);
+  // Which chart window is open: choosing the role, or choosing the manager.
+  const [picker, setPicker] = useState<"position" | "manager" | null>(null);
   const [unlinkedMembers, setUnlinkedMembers] = useState<UnlinkedMember[]>([]);
 
   useEffect(function () {
@@ -169,6 +175,20 @@ export default function AddEmployeePage() {
     setForm(function (prev) {
       return { ...prev, [field]: value };
     });
+  }
+
+  // The person who holds the role directly above the chosen one: the likely manager.
+  // Only offered when exactly one active person holds it, so it is never a guess.
+  let suggestedManager: { id: string; name: string } | null = null;
+  const chosenPosition = positions.find(function (p) { return p.id === form.positionId; });
+  if (chosenPosition && chosenPosition.reports_to_position_id) {
+    const bossRole = chosenPosition.reports_to_position_id;
+    const holders = existingEmployees.filter(function (e) {
+      return e.position_id === bossRole && e.status !== "offboarded";
+    });
+    if (holders.length === 1) {
+      suggestedManager = { id: holders[0].id, name: holders[0].first_name + " " + holders[0].last_name };
+    }
   }
 
   function departmentNameFor(position: Position): string {
@@ -448,9 +468,18 @@ export default function AddEmployeePage() {
 
                   <div className="space-y-5">
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                        Position
-                      </label>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
+                          Position
+                        </label>
+                        <button
+                          type="button"
+                          onClick={function () { setPicker("position"); }}
+                          className="text-xs font-medium text-indigo-400 hover:text-indigo-300"
+                        >
+                          Choose on chart
+                        </button>
+                      </div>
                       <select
                         value={form.positionId}
                         onChange={function (e) {
@@ -470,9 +499,18 @@ export default function AddEmployeePage() {
                     </div>
 
                     <div>
-                      <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-500">
-                        Reporting Manager
-                      </label>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <label className="block text-xs font-medium uppercase tracking-wide text-gray-500">
+                          Reporting Manager
+                        </label>
+                        <button
+                          type="button"
+                          onClick={function () { setPicker("manager"); }}
+                          className="text-xs font-medium text-indigo-400 hover:text-indigo-300"
+                        >
+                          Choose on chart
+                        </button>
+                      </div>
                       <select
                         value={form.managerId}
                         onChange={function (e) {
@@ -489,7 +527,45 @@ export default function AddEmployeePage() {
                           );
                         })}
                       </select>
+                      {suggestedManager && form.managerId === "" ? (
+                        <p className="mt-1.5 text-xs text-gray-400">
+                          Usually reports to {suggestedManager.name}, who holds the role above this one.{" "}
+                          <button
+                            type="button"
+                            onClick={function () { updateField("managerId", suggestedManager.id); }}
+                            className="font-medium text-indigo-400 hover:text-indigo-300"
+                          >
+                            Use {suggestedManager.name}
+                          </button>
+                        </p>
+                      ) : null}
                     </div>
+
+                    {picker !== null ? (
+                      <OrgChartPicker
+                        mode={picker}
+                        title={picker === "position" ? "Where does this person sit?" : "Who does this person report to?"}
+                        positions={positions}
+                        employees={existingEmployees}
+                        departments={departments}
+                        selectedId={picker === "position" ? form.positionId : form.managerId}
+                        newHire={
+                          form.positionId
+                            ? { positionId: form.positionId, name: (form.firstName + " " + form.lastName).trim() }
+                            : null
+                        }
+                        onSelect={function (id) {
+                          if (picker === "position") {
+                            updateField("positionId", id);
+                            setPicker(null);
+                          } else {
+                            updateField("managerId", id);
+                            setPicker(null);
+                          }
+                        }}
+                        onClose={function () { setPicker(null); }}
+                      />
+                    ) : null}
 
                     <div>
                       <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-gray-500">
