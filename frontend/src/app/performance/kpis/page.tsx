@@ -332,7 +332,7 @@ function KpiRow(props: {
           </p>
         </div>
         <div>
-          <p className={label}>Expected return</p>
+          <p className={label}>Expected contribution</p>
           {kpiReturn !== null ? (
             <p className="text-sm text-gray-200">
               {formatMoney(kpiReturn)}
@@ -437,12 +437,20 @@ export default function KpisPage() {
             </p>
           ) : (
             <p className="text-gray-200">
-              Expected return target:{" "}
+              Revenue target:{" "}
               <span className="font-semibold text-white">{Number(departmentReturn.data.sharePct)}% of capital</span>
               {annualReturn !== null ? (
                 <span>
                   {" "}= <span className="font-semibold text-white">{formatMoney(annualReturn)}</span> a year (
-                  {formatMoney(annualReturn / 4)} each quarter). Each KPI below carries its weight&apos;s share of it.
+                  {formatMoney(annualReturn / 4)} each quarter)
+                  {departmentReturn.data.annualProfit !== null && departmentReturn.data.marginPct !== null ? (
+                    <span>
+                      , with an estimated profit of{" "}
+                      <span className="font-semibold text-emerald-300">{formatMoney(departmentReturn.data.annualProfit)}</span> (
+                      {Number(departmentReturn.data.marginPct)}% margin)
+                    </span>
+                  ) : null}
+                  . Each KPI below carries its weight&apos;s share of it.
                 </span>
               ) : (
                 <span className="text-gray-400"> (the naira amount shows once a capital investment is set in Business DNA)</span>

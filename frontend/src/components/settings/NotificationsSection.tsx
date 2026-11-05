@@ -17,7 +17,7 @@ interface NotificationItem {
 const KINDS: { name: string; text: string }[] = [
   { name: "Tasks", text: "A task is assigned to you, reassigned, or its deadline is close. Also the prompt asking if something is holding a task up." },
   { name: "Approvals", text: "Something is waiting for your decision, such as a block on a task or a skipped workflow step." },
-  { name: "AI suggestions", text: "The AI has new suggestions for critical roles or KPIs to review." },
+  { name: "Recommendations", text: "There are new recommendations for critical roles or KPIs to review." },
   { name: "System", text: "Account and organization notices." },
 ];
 

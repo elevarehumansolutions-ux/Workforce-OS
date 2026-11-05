@@ -48,11 +48,18 @@ export interface KpiForm {
 export interface DepartmentReturn {
   sharePct: number | null;
   capital: number | null;
+  // The department's revenue target for a year (share x capital).
   annualReturn: number | null;
+  // Estimated profit margin in percent, and revenue target x margin.
+  marginPct: number | null;
+  annualProfit: number | null;
 }
 
 export async function loadDepartmentReturn(departmentId: string): Promise<DepartmentReturn> {
-  const department = await apiFetch<{ revenue_allocation_percentage: string | number | null }>(
+  const department = await apiFetch<{
+    revenue_allocation_percentage: string | number | null;
+    profit_margin_percentage: string | number | null;
+  }>(
     "/departments/" + departmentId,
     { method: "GET" }
   );
@@ -67,7 +74,10 @@ export async function loadDepartmentReturn(departmentId: string): Promise<Depart
   const raw = department.revenue_allocation_percentage;
   const sharePct = raw === null || raw === undefined ? null : Number(raw);
   const annual = capital !== null && sharePct !== null ? (capital * sharePct) / 100 : null;
-  return { sharePct: sharePct, capital: capital, annualReturn: annual };
+  const marginRaw = department.profit_margin_percentage;
+  const marginPct = marginRaw === null || marginRaw === undefined ? null : Number(marginRaw);
+  const profit = annual !== null && marginPct !== null ? (annual * marginPct) / 100 : null;
+  return { sharePct: sharePct, capital: capital, annualReturn: annual, marginPct: marginPct, annualProfit: profit };
 }
 
 export function loadKpisOfDepartment(departmentId: string): Promise<KpiFull[]> {

@@ -47,6 +47,8 @@ export interface BlueprintItem {
   // with the kind of criticality and its risk level.
   is_critical: boolean | null;
   revenue_allocation_pct: string | number | null;
+  // A department's estimated profit margin in percent (an estimate that HR can change).
+  profit_margin_pct: string | number | null;
   criticality_type: string | null;
   risk_level: string | null;
   kpi_weight: string | number | null;
@@ -144,11 +146,31 @@ export interface DepartmentCard {
   color: string;
   item: BlueprintItem | null;
   isCritical: boolean;
-  // Its share of the capital in percent, or null when it has none.
+  // Its share of the capital in percent, or null when it has none. The capital is split
+  // between the departments that have not been skipped, so these add up to 100.
   sharePct: number | null;
-  // Share x capital: what this department is expected to return in a year. Null when
-  // there is no share or no capital amount was entered.
+  // Share x capital: the revenue this department is expected to bring in a year (its
+  // revenue target). Null when there is no share or no capital amount was entered.
   annualReturn: number | null;
+  // Estimated profit margin in percent, and revenue target x margin.
+  marginPct: number | null;
+  annualProfit: number | null;
+  // Its roles, top first, each with how far down its own department's chart it sits.
+  roles: DepartmentRole[];
+}
+
+export interface DepartmentRole {
+  node: ChartNode;
+  depth: number;
+}
+
+// One box of the department-level chart: a department with its money, joined to the
+// department it reports into (the department of its top role's boss).
+export interface DepartmentChartNode {
+  key: string;
+  virtual: boolean;
+  card: DepartmentCard | null;
+  children: DepartmentChartNode[];
 }
 
 // One box in the organization chart: a proposed position (item set) or one the
@@ -160,8 +182,10 @@ export interface ChartNode {
   virtual: boolean;
   title: string;
   departmentName: string;
+  // "ref:D1" or "id:<uuid>" for the department it belongs to, "" when unknown.
+  departmentKey: string;
   color: string;
-  // Set by the AI. For a critical role: what kind and how risky, in words.
+  // Decided in the plan, not asked of the user. For a critical role: what kind and how risky, in words.
   isCritical: boolean;
   criticalLabel: string | null;
   children: ChartNode[];
@@ -187,6 +211,8 @@ export interface BlueprintView {
   // Sum of the departments' shares. Can be above 100: the shares are independent targets.
   totalSharePct: number;
   departments: DepartmentCard[];
+  // The chart of departments (with their money), and the chart of roles.
+  departmentChart: DepartmentChartNode | null;
   chart: ChartNode | null;
   objectiveSections: ObjectiveSection[];
   kpiSections: KpiSection[];
@@ -283,12 +309,26 @@ export function buildBlueprintView(
   const colorOf: Record<string, string> = {};
   const nameOf: Record<string, string> = {};
 
+  // The capital is SPLIT between the departments that have not been skipped, so their
+  // shares are scaled to add up to 100. The server does exactly the same when HR approves
+  // or skips a department, so what is shown here is what gets saved.
+  let rawShareTotal = 0;
+  departmentItems.forEach(function (d) {
+    if (d.status !== "rejected" && d.revenue_allocation_pct !== null) rawShareTotal += Number(d.revenue_allocation_pct);
+  });
+  function effectiveShare(item: BlueprintItem | null): number | null {
+    if (!item || item.status === "rejected" || item.revenue_allocation_pct === null || rawShareTotal <= 0) return null;
+    return Math.round((Number(item.revenue_allocation_pct) / rawShareTotal) * 10000) / 100;
+  }
+
   function addDepartment(key: string, name: string, item: BlueprintItem | null) {
     if (colorOf[key]) return;
     colorOf[key] = DEPARTMENT_COLORS[departments.length % DEPARTMENT_COLORS.length];
     nameOf[key] = name;
-    const shareText = item ? item.revenue_allocation_pct : null;
-    const sharePct = shareText === null || shareText === undefined ? null : Number(shareText);
+    const sharePct = effectiveShare(item);
+    const revenue = annualReturn(capital, sharePct);
+    const marginText = item ? item.profit_margin_pct : null;
+    const marginPct = marginText === null || marginText === undefined ? null : Number(marginText);
     const card: DepartmentCard = {
       key: key,
       name: name,
@@ -296,7 +336,10 @@ export function buildBlueprintView(
       item: item,
       isCritical: item ? item.is_critical === true : false,
       sharePct: sharePct,
-      annualReturn: annualReturn(capital, sharePct),
+      annualReturn: revenue,
+      marginPct: marginPct,
+      annualProfit: revenue !== null && marginPct !== null ? (revenue * marginPct) / 100 : null,
+      roles: [],
     };
     departments.push(card);
   }
@@ -337,6 +380,7 @@ export function buildBlueprintView(
       virtual: false,
       title: shownTitle(p),
       departmentName: nameOf[dKey] || "",
+      departmentKey: dKey,
       color: colorOf[dKey] || NEUTRAL_COLOR,
       isCritical: p.is_critical === true,
       criticalLabel: criticalLabelOf(p),
@@ -361,6 +405,7 @@ export function buildBlueprintView(
       virtual: false,
       title: p.title,
       departmentName: nameOf[dKey] || existingDepartmentName[p.department_id] || "",
+      departmentKey: dKey,
       color: colorOf[dKey] || NEUTRAL_COLOR,
       isCritical: false,
       criticalLabel: null,
@@ -404,11 +449,69 @@ export function buildBlueprintView(
       virtual: true,
       title: "Company",
       departmentName: "",
+      departmentKey: "",
       color: NEUTRAL_COLOR,
       isCritical: false,
       criticalLabel: null,
       children: roots,
     };
+  }
+
+  // --- the department chart ---------------------------------------------------
+  // Walk the role chart. A role in the same department as the role above it sits one step
+  // deeper in that department's list; a role whose boss is in ANOTHER department makes its
+  // department a child of the boss's department (the first time this is seen).
+  const cardOf: Record<string, DepartmentCard> = {};
+  departments.forEach(function (d) { cardOf[d.key] = d; });
+  const parentDepartment: Record<string, string> = {};
+
+  function walk(node: ChartNode, parent: ChartNode | null, depthInDepartment: number) {
+    let depth = 0;
+    if (!node.virtual) {
+      const sameAsParent = parent !== null && !parent.virtual && parent.departmentKey === node.departmentKey;
+      depth = sameAsParent ? depthInDepartment : 0;
+      if (cardOf[node.departmentKey]) cardOf[node.departmentKey].roles.push({ node: node, depth: depth });
+      if (
+        parent !== null && !parent.virtual && node.departmentKey !== "" &&
+        parent.departmentKey !== "" && parent.departmentKey !== node.departmentKey &&
+        parentDepartment[node.departmentKey] === undefined
+      ) {
+        parentDepartment[node.departmentKey] = parent.departmentKey;
+      }
+    }
+    node.children.forEach(function (child) { walk(child, node, node.virtual ? 0 : depth + 1); });
+  }
+  if (chart) walk(chart, null, 0);
+
+  // A department that would end up under itself (a loop of departments) is made a top.
+  function climbsToItself(start: string): boolean {
+    let current: string | undefined = parentDepartment[start];
+    for (let steps = 0; current !== undefined && steps < 50; steps += 1) {
+      if (current === start) return true;
+      current = parentDepartment[current];
+    }
+    return false;
+  }
+
+  const departmentNodes: Record<string, DepartmentChartNode> = {};
+  departments.forEach(function (d) {
+    if (d.item && d.item.status === "rejected") return;
+    departmentNodes[d.key] = { key: d.key, virtual: false, card: d, children: [] };
+  });
+  const departmentRoots: DepartmentChartNode[] = [];
+  Object.keys(departmentNodes).forEach(function (key) {
+    const parentKey = parentDepartment[key];
+    if (parentKey !== undefined && departmentNodes[parentKey] && !climbsToItself(key)) {
+      departmentNodes[parentKey].children.push(departmentNodes[key]);
+    } else {
+      departmentRoots.push(departmentNodes[key]);
+    }
+  });
+  let departmentChart: DepartmentChartNode | null = null;
+  if (departmentRoots.length === 1) {
+    departmentChart = departmentRoots[0];
+  } else if (departmentRoots.length > 1) {
+    departmentChart = { key: "company", virtual: true, card: null, children: departmentRoots };
   }
 
   // --- objectives, grouped by department (company-wide first) ----------------
@@ -451,6 +554,7 @@ export function buildBlueprintView(
     capital: capital,
     totalSharePct: totalSharePct,
     departments: departments,
+    departmentChart: departmentChart,
     chart: chart,
     objectiveSections: objectiveSections,
     kpiSections: kpiSections,

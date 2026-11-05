@@ -71,7 +71,7 @@ export default function SettingsPage() {
             })}
             {isHrRole(me.role) ? (
               <Link href="/settings/billing-ai-usage" className="whitespace-nowrap rounded-lg px-4 py-2.5 text-sm text-gray-400 hover:bg-white/5 hover:text-gray-200">
-                Billing &amp; AI Usage
+                Billing &amp; Usage
               </Link>
             ) : null}
           </nav>

@@ -6,7 +6,7 @@ import type { SectionProps } from "./types";
 const ITEMS: { name: string; text: string; badge: string; planned: boolean }[] = [
   { name: "Payments (Paystack or Flutterwave)", text: "Subscription payments are handled by the Elevare team. Nothing to set up here.", badge: "Managed by Elevare", planned: false },
   { name: "Email delivery", text: "Password reset and invitation emails are sent by Elevare on your behalf.", badge: "Managed by Elevare", planned: false },
-  { name: "AI assistant (Claude)", text: "Powers the role, KPI and suggestion features. Your usage is shown under Billing and AI usage.", badge: "Managed by Elevare", planned: false },
+  { name: "Planning assistant", text: "Powers the role, KPI and recommendation features. Your usage is shown under Billing and usage.", badge: "Managed by Elevare", planned: false },
   { name: "Elevare Recruitment Platform", text: "Connecting hiring to your organization structure is planned for a later phase.", badge: "Planned", planned: true },
 ];
 
@@ -32,7 +32,7 @@ export default function IntegrationsSection(props: SectionProps) {
         })}
       </div>
       <Link href="/settings/billing-ai-usage" className="mt-6 inline-block text-sm font-medium text-indigo-400 hover:text-indigo-300">
-        Open Billing and AI usage
+        Open Billing and usage
       </Link>
     </div>
   );

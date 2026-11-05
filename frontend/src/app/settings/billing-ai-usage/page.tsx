@@ -117,7 +117,7 @@ function providerLabel(provider: string | null): string {
 }
 
 function purposeLabel(purpose: string): string {
-  if (purpose === "ai_suggestion_generation") return "AI Suggestions";
+  if (purpose === "ai_suggestion_generation") return "Recommendations";
   if (purpose === "executive_summary_generation") return "Executive summary";
   return purpose;
 }
@@ -227,7 +227,7 @@ export default function BillingAiUsagePage() {
             rows: [],
             totalPages: 1,
             total: 0,
-            error: messageOf(err, "Couldn't load AI usage. Check your connection and try again."),
+            error: messageOf(err, "Couldn't load usage. Check your connection and try again."),
           });
         });
       return function () {
@@ -296,7 +296,7 @@ export default function BillingAiUsagePage() {
   } else if (allowed === false) {
     body = (
       <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-10 text-center text-sm text-gray-400">
-        Billing and AI usage can only be seen by HR Administrators.
+        Billing and usage can only be seen by HR Administrators.
       </div>
     );
   } else {
@@ -365,8 +365,8 @@ export default function BillingAiUsagePage() {
         </section>
 
         <section className="mt-10">
-          <h2 className="text-base font-semibold">AI usage</h2>
-          <p className="text-sm text-gray-500">Each time Elevare asked the AI for something on your behalf. Costs are estimates.</p>
+          <h2 className="text-base font-semibold">Usage</h2>
+          <p className="text-sm text-gray-500">Each time Elevare prepared a recommendation or summary on your behalf. Costs are estimates.</p>
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-indigo-500/30 bg-indigo-500/5 p-5">
             <div>
@@ -378,7 +378,7 @@ export default function BillingAiUsagePage() {
             </div>
             <div className="flex items-center gap-8 text-sm">
               <div>
-                <p className="text-xs text-gray-500">AI requests</p>
+                <p className="text-xs text-gray-500">Requests</p>
                 <p className="font-semibold">{summaryLoading || !summaryResult ? "…" : summaryResult.calls.toLocaleString()}</p>
               </div>
               <div>
@@ -416,7 +416,7 @@ export default function BillingAiUsagePage() {
                 ) : usageRows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-5 py-8 text-center text-gray-500">
-                      No AI usage has been recorded yet.
+                      No usage has been recorded yet.
                     </td>
                   </tr>
                 ) : (
@@ -473,8 +473,8 @@ export default function BillingAiUsagePage() {
   return (
     <AppShell
       activeLabel="Settings"
-      title="Billing & AI Usage"
-      breadcrumb="Dashboard > Settings > Billing & AI Usage"
+      title="Billing & Usage"
+      breadcrumb="Dashboard > Settings > Billing & Usage"
       userName={userName || undefined}
       userRole={allowed ? "HR Administrator" : undefined}
       actions={

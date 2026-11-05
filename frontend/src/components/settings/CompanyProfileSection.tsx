@@ -149,7 +149,7 @@ export default function CompanyProfileSection(props: SectionProps) {
     <div>
       <h3 className="text-base font-semibold text-white">Company profile</h3>
       <p className="mt-1 text-sm text-gray-500">
-        What the company does and stands for. This is the &quot;Business DNA&quot; the AI uses to suggest critical roles and KPIs, so the clearer it is, the better the suggestions.
+        What the company does and stands for. This is the &quot;Business DNA&quot; we use to recommend critical roles and KPIs, so the clearer it is, the better the recommendations.
       </p>
 
       {state.loading ? <p className="mt-6 text-sm text-gray-400">Loading…</p> : null}

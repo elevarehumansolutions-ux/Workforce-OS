@@ -192,7 +192,7 @@ export default function AiSuggestionsPage() {
       })
       .catch(function (err) {
         if (cancelled) return;
-        setLoadError(err instanceof ApiError ? err.message : "Couldn't load your AI suggestions.");
+        setLoadError(err instanceof ApiError ? err.message : "Couldn't load your recommendations.");
       })
       .finally(function () {
         if (!cancelled) setLoading(false);
@@ -211,7 +211,7 @@ export default function AiSuggestionsPage() {
       const data = await loadData();
       applyLoaded(data);
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : "Couldn't load your AI suggestions.");
+      setLoadError(err instanceof ApiError ? err.message : "Couldn't load your recommendations.");
     } finally {
       setLoading(false);
     }
@@ -453,9 +453,9 @@ export default function AiSuggestionsPage() {
 
       <div className="mx-auto max-w-4xl px-6 py-12">
         <div className="text-center">
-          <h1 className="text-3xl font-bold sm:text-4xl">Review AI suggestions</h1>
+          <h1 className="text-3xl font-bold sm:text-4xl">Review recommendations</h1>
           <p className="mt-2 text-gray-400">
-            Our AI looks at your departments, roles and goals and suggests what to flag or adjust. Nothing changes
+            We look at your departments, roles and goals and recommend what to flag or adjust. Nothing changes
             until you approve it.
           </p>
         </div>
@@ -464,10 +464,10 @@ export default function AiSuggestionsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="rounded-full bg-indigo-500/15 px-3 py-1 text-xs font-medium text-indigo-300">
-                AI Engine Active
+                Recommendations
               </span>
               <span className="text-sm text-gray-300">
-                {loading ? "Loading…" : pendingCount + (pendingCount === 1 ? " suggestion" : " suggestions") + " waiting for review"}
+                {loading ? "Loading…" : pendingCount + (pendingCount === 1 ? " recommendation" : " recommendations") + " waiting for review"}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -531,7 +531,7 @@ export default function AiSuggestionsPage() {
                         <h3 className="text-base font-semibold">{heading.title}</h3>
                         {heading.where ? <span className="text-sm text-gray-500">• {heading.where}</span> : null}
                         <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-medium text-gray-300">
-                          AI SUGGESTED
+                          RECOMMENDED
                         </span>
                         {isDecided ? (
                           <span
@@ -546,7 +546,7 @@ export default function AiSuggestionsPage() {
                       </div>
 
                       <p className="mt-2 text-sm text-gray-400">
-                        <span className="italic text-gray-500">AI Rationale:</span> {s.rationale}
+                        <span className="italic text-gray-500">Why:</span> {s.rationale}
                       </p>
 
                       <div className="mt-3 flex flex-wrap items-center gap-2">

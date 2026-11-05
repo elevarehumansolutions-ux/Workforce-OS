@@ -19,7 +19,7 @@ interface SentInvite {
   status: SentStatus;
 }
 
-const ONBOARDING_STEPS = ["Business DNA", "Your AI plan", "Invite Team"];
+const ONBOARDING_STEPS = ["Business DNA", "Your business plan", "Invite Team"];
 
 // Matches MembershipRole on the backend exactly — these are sent as-is in
 // the request body, so the value must be the real enum string, not a label.
