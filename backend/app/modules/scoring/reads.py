@@ -30,6 +30,7 @@ from .access import load_performance_scope
 from .company import CompanyNumbers, check_custom_range, previous_quarter_dates, range_moments
 from .improvement import HOW_MANY_LISTED, MIN_VALID_TASKS, Candidate, most_improved
 from .marking import score_from_counts
+from .summary_facts import MIN_VALID_TASKS_FOR_SUMMARY
 from .repository import ScoringRepository
 from .rollup import weighted_average
 from .schemas import (
@@ -39,6 +40,7 @@ from .schemas import (
     CustomRangeDepartment,
     CustomRangeResponse,
     DepartmentPerformanceResponse,
+    ExecutiveSummaryResponse,
     KPIScoreLine,
     LeaderboardEntry,
     LeaderboardResponse,
@@ -523,6 +525,49 @@ class PerformanceReadService:
             min_valid_tasks=MIN_VALID_TASKS,
             people=people,
             departments=departments,
+        )
+
+    async def get_executive_summary(
+        self,
+        caller: Membership,
+        period_start: date | None,
+        period_end: date | None,
+    ) -> ExecutiveSummaryResponse:
+        """The saved summary of a period, or a "not enough data yet" answer when there is none.
+
+        Only HR and executives may see it.
+
+        Raises:
+            OrganizationNotFoundException: The caller may not see the company view.
+            ValidationException: The dates are half given or back to front.
+        """
+        scope = await load_performance_scope(self._db, caller)
+        if not scope.can_see_company():
+            raise OrganizationNotFoundException("Company performance is not available to you.")
+
+        first_day, last_day = await self._period_for(caller, period_start, period_end)
+        saved = await self._repo.get_executive_summary(caller.organization_id, first_day, last_day)
+        if saved is None:
+            return ExecutiveSummaryResponse(
+                period_start=first_day,
+                period_end=last_day,
+                summary_text=None,
+                source=None,
+                generated_at=None,
+                is_final=False,
+                no_data_reason=(
+                    "Not enough data yet to write a summary. It is written weekly, once there are at least "
+                    f"{MIN_VALID_TASKS_FOR_SUMMARY} valid tasks in the period."
+                ),
+            )
+        return ExecutiveSummaryResponse(
+            period_start=first_day,
+            period_end=last_day,
+            summary_text=saved.summary_text,
+            source=saved.source,
+            generated_at=saved.generated_at,
+            is_final=saved.finalized_at is not None,
+            no_data_reason=None,
         )
 
     async def get_custom_range(

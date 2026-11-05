@@ -18,6 +18,7 @@ from .schemas import (
     CompanyPerformanceResponse,
     CustomRangeResponse,
     DepartmentPerformanceResponse,
+    ExecutiveSummaryResponse,
     LeaderboardResponse,
     MostImprovedResponse,
     PersonPerformanceResponse,
@@ -52,6 +53,27 @@ async def get_company_performance(
     """
     service = PerformanceReadService(db)
     return await service.get_company_performance(caller, period_start, period_end)
+
+
+@router.get("/company-performance-summary/executive-summary", status_code=200)
+async def get_executive_summary(
+    period_start: date | None = Query(None, description="First day of the period; with period_end, or neither"),
+    period_end: date | None = Query(None, description="Last day of the period"),
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> ExecutiveSummaryResponse:
+    """The short written summary of a period (current quarter if no dates are given).
+
+    Written weekly from a fact sheet with no names, with every number checked by our code,
+    and frozen when the quarter closes. ``summary_text`` is null with a reason when there
+    is not enough data yet. HR administrators and business executives only.
+
+    Raises:
+        OrganizationNotFoundException: The caller may not see the company view (404).
+        ValidationException: Only one date given, or the end is before the start (422).
+    """
+    service = PerformanceReadService(db)
+    return await service.get_executive_summary(caller, period_start, period_end)
 
 
 @router.get("/company-performance-summary/custom-range", status_code=200)

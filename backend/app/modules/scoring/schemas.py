@@ -2,7 +2,7 @@
 
 import decimal
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -155,6 +155,25 @@ class CompanyPerformanceResponse(BaseModel):
     punctuality_no_data_reason: str | None
     departments: list[CompanyDepartmentLine]
     trend: list[CompanyTrendPoint]
+
+
+class ExecutiveSummaryResponse(BaseModel):
+    """The written summary of a period for the executive dashboard.
+
+    ``summary_text`` is empty (with ``no_data_reason``) when no summary exists yet:
+    there are fewer than 10 valid tasks in the period, or this week's job has not
+    run. ``source`` is ``ai`` (written by the model, every number checked) or
+    ``plain`` (facts only, saved when the model's numbers could not be trusted).
+    It never names an individual employee.
+    """
+
+    period_start: date
+    period_end: date
+    summary_text: str | None
+    source: str | None
+    generated_at: datetime | None
+    is_final: bool
+    no_data_reason: str | None
 
 
 class CustomRangeDepartment(BaseModel):

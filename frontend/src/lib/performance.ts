@@ -142,6 +142,17 @@ export interface MostImproved {
   departments: MostImprovedEntry[];
 }
 
+export interface ExecutiveSummary {
+  period_start: string;
+  period_end: string;
+  summary_text: string | null;
+  // "ai" = written by the model with every number checked; "plain" = facts only.
+  source: string | null;
+  generated_at: string | null;
+  is_final: boolean;
+  no_data_reason: string | null;
+}
+
 export interface CustomRangeDepartment {
   department_id: string;
   department_name: string;
@@ -247,6 +258,10 @@ export function personPath(employeeId: string, period: Period): string {
 
 export function companyPath(period: Period): string {
   return "/company-performance-summary" + query(period, []);
+}
+
+export function executiveSummaryPath(period: Period): string {
+  return "/company-performance-summary/executive-summary" + query(period, []);
 }
 
 export function customRangePath(firstDay: string, lastDay: string): string {

@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.organization.enums import EmployeeStatus
 from app.modules.organization.models import Employee, Position
 
-from .models import DepartmentScore, EmployeeKPIScore
+from .models import DepartmentScore, EmployeeKPIScore, ExecutiveSummary
 
 
 class ScoringRepository:
@@ -342,6 +342,49 @@ class ScoringRepository:
             set_={**refreshed, "updated_at": func.now()},
             where=DepartmentScore.finalized_at.is_(None),  # a frozen row is never rewritten
         ).returning(DepartmentScore)
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_executive_summary(
+        self, organization_id: uuid.UUID, period_start: date, period_end: date
+    ) -> ExecutiveSummary | None:
+        """The organization's saved summary for one period, or ``None`` if none was written yet."""
+        stmt = (
+            select(ExecutiveSummary)
+            .where(
+                ExecutiveSummary.organization_id == organization_id,
+                ExecutiveSummary.period_start == period_start,
+                ExecutiveSummary.period_end == period_end,
+            )
+            .execution_options(populate_existing=True)
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def save_executive_summary(self, fields: dict) -> ExecutiveSummary | None:
+        """Insert the period's summary, or replace the running one; a frozen one is never rewritten.
+
+        Passing ``finalized_at`` in ``fields`` writes AND freezes it in one statement
+        (the period's last summary). Same atomic guard as the score rows.
+
+        Args:
+            fields: ``organization_id``, ``period_start``, ``period_end``,
+                ``summary_text``, ``source``, ``facts_fingerprint``, ``generated_at``
+                and optionally ``finalized_at``.
+
+        Returns:
+            The saved row, or ``None`` if the summary was frozen and left alone.
+        """
+        stmt = insert(ExecutiveSummary).values(**fields)
+        refreshed = {
+            name: stmt.excluded[name]
+            for name in ("summary_text", "source", "facts_fingerprint", "generated_at", "finalized_at")
+        }
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_executive_summaries_one_per_period",
+            set_={**refreshed, "updated_at": func.now()},
+            where=ExecutiveSummary.finalized_at.is_(None),
+        ).returning(ExecutiveSummary)
         result = await self._db.execute(stmt)
         return result.scalar_one_or_none()
 

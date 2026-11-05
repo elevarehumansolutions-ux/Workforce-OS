@@ -89,5 +89,11 @@ celery.conf.update(
             "task": "app.modules.scoring.tasks.scoring_nightly",
             "schedule": crontab(hour=2, minute=0),
         },
+        # Once a week, Monday 03:00 UTC: writes each organization's executive summary
+        # (scoring/tasks.py). A week with unchanged facts makes no model call.
+        "scoring-summary-weekly": {
+            "task": "app.modules.scoring.tasks.summary_weekly",
+            "schedule": crontab(day_of_week="monday", hour=3, minute=0),
+        },
     },
 )

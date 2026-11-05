@@ -11,6 +11,7 @@ import {
   CURRENT_QUARTER,
   companyPath,
   customRangePath,
+  executiveSummaryPath,
   mostImprovedPath,
   periodLabel,
   scoreClasses,
@@ -20,6 +21,7 @@ import type {
   CompanyPerformance,
   CompanyTrendPoint,
   CustomRange,
+  ExecutiveSummary,
   MostImproved,
   MostImprovedEntry,
   Period,
@@ -57,6 +59,36 @@ function TrendBars(props: { points: CompanyTrendPoint[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// The short written summary. It never names a person; every number in it was checked by the server.
+function SummaryBox(props: { period: Period }) {
+  const load = useLoad<ExecutiveSummary>(
+    "summary|" + props.period.start + "|" + props.period.end,
+    function () {
+      return apiFetch<ExecutiveSummary>(executiveSummaryPath(props.period), { method: "GET" });
+    },
+    "Could not load the summary."
+  );
+  const data = load.data;
+
+  return (
+    <div className="mb-4 rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs uppercase tracking-wide text-indigo-200">Summary</p>
+        {data && data.summary_text !== null ? (
+          <p className="text-xs text-indigo-200/70">
+            {data.is_final ? "Final for this quarter" : "Updated weekly, so far this quarter"}
+            {data.source === "plain" ? " · facts only" : ""}
+          </p>
+        ) : null}
+      </div>
+      {load.loading ? <p className="mt-2 text-sm text-gray-400">Loading…</p> : null}
+      {load.error ? <p className="mt-2 text-sm text-red-300">{load.error}</p> : null}
+      {data && data.summary_text !== null ? <p className="mt-2 text-sm leading-relaxed text-white">{data.summary_text}</p> : null}
+      {data && data.summary_text === null ? <p className="mt-2 text-sm text-gray-300">{data.no_data_reason}</p> : null}
     </div>
   );
 }
@@ -298,6 +330,8 @@ export default function CompanyPerformancePage() {
 
         {data ? (
           <div className="mt-6">
+            <SummaryBox period={period} />
+
             {/* Two different questions, so two numbers; they are never blended into one. */}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="rounded-xl border border-white/10 bg-white/5 p-5">

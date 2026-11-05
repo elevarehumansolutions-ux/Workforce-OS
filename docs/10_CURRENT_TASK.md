@@ -140,9 +140,14 @@ Neither `employee_kpi_scores` nor `executive_summaries` exists in the code yet (
   `/performance/company`. **Part 2 BUILT 2026-11-04:** `GET /company-performance-summary/most-improved`
   (`scoring/improvement.py`; 9 tests; a section on the company screen). **Part 3 BUILT 2026-11-04:**
   `GET /company-performance-summary/custom-range` (live, punctuality only, up to 12 months; 7 tests; a section on
-  the company screen). **Slice F is complete.** Next: slice G, the executive summary.
-- **G. The executive summary:** fact sheet with no names, the AI call, the number check with one retry and the plain-fact
-  fallback, the weekly job that skips an unchanged week, the read endpoint for HR and executives.
+  the company screen). **Slice F is complete.** Slice G (the executive summary) is built too; slice H is next.
+- **G. The executive summary: BUILT 2026-11-04** (`scoring/summary_facts.py`, `summary_generation.py`,
+  `summary_service.py`, weekly tasks in `scoring/tasks.py`, an eighth Task-module helper
+  `count_approved_blocks_by_category`, one Beat entry, `GET /company-performance-summary/executive-summary`, a
+  "Summary" box on `/performance/company`; 37 new tests, model faked in all of them). Fact sheet with no names, the
+  number check with one retry and the plain-fact fallback, a weekly job that skips an unchanged week, a final
+  frozen summary for a closed quarter. **No real Anthropic call has been made yet**; run one against a real company
+  before the demo (see `08_DECISIONS.md` 2026-10-22, slice G entry).
 - **H. Close-out:** Trello cards for Uche, docs, the full suite, the study guide if wanted.
 
 1. **(SETTLED, see above) How is one employee's score for one KPI worked out from their tasks?** This was the central question.

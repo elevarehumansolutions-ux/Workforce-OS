@@ -1319,6 +1319,15 @@ class TaskService:
         """
         return await self._repo.list_tasks_for_scoring(period_start, period_end)
 
+    async def count_approved_blocks_by_category(
+        self, period_start: datetime, period_end: datetime
+    ) -> list[tuple[uuid.UUID, str, int]]:
+        """Per department and category: tasks held back by an approved block in a period (counts only).
+
+        A read-only pass-through for the Scoring module's executive summary.
+        """
+        return await self._repo.count_approved_blocks_by_category(period_start, period_end)
+
     async def count_completed_tasks_for_kpi(
         self, kpi_id: uuid.UUID, period_start: datetime, period_end: datetime
     ) -> int:

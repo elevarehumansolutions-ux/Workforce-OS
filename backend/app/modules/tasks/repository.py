@@ -157,6 +157,37 @@ class TaskRepository:
         stmt = stmt.order_by(Task.created_at.desc(), Task.id)
         return await paginate(stmt, page, limit, self._db)
 
+    async def count_approved_blocks_by_category(
+        self, period_start: datetime, period_end: datetime
+    ) -> list[tuple[uuid.UUID, str, int]]:
+        """Per department and category: how many tasks were held back by an APPROVED block in a period.
+
+        A block counts when it began within the period. Only approved blocks
+        count (a rejected or still-pending one is not an accepted reason). Counts
+        only: the free-text reason is never read. Used by the Scoring module's
+        executive summary; RLS keeps it inside the caller's organization.
+
+        Args:
+            period_start: The first moment counted.
+            period_end: The first moment NOT counted.
+
+        Returns:
+            ``(department_id, category, number_of_tasks)`` rows.
+        """
+        stmt = (
+            select(Task.department_id, TaskBlock.category, func.count(func.distinct(TaskBlock.task_id)))
+            .join(Task, Task.id == TaskBlock.task_id)
+            .where(
+                Task.deleted_at.is_(None),
+                TaskBlock.review_status == ReviewStatus.APPROVED.value,
+                TaskBlock.blocked_at >= period_start,
+                TaskBlock.blocked_at < period_end,
+            )
+            .group_by(Task.department_id, TaskBlock.category)
+        )
+        result = await self._db.execute(stmt)
+        return [(row[0], row[1], row[2]) for row in result.all()]
+
     async def count_completed_tasks_for_kpi(
         self, kpi_id: uuid.UUID, period_start: datetime, period_end: datetime
     ) -> int:
