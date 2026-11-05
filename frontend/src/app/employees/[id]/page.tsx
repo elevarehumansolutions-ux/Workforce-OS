@@ -4,39 +4,12 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 
-const SIDEBAR_ITEMS: { label: string; href: string }[] = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Employees", href: "/employees" },
-  { label: "Team Management", href: "/team-management" },
-  { label: "Organization Structure", href: "/organization-structure" },
-  { label: "Attendance", href: "/attendance" },
-  { label: "Leave Management", href: "/leave" },
-  { label: "Workflow", href: "/workflow/templates" },
-  { label: "Tasks", href: "/tasks" },
-  { label: "Payroll", href: "/payroll" },
-  { label: "Reports", href: "/reports" },
-  { label: "Settings", href: "/settings" },
-];
+import RoleSidebarNav from "@/components/SidebarNav";
+import { isHrRole, loadMe } from "@/lib/settings";
 
+// The menu is shared (and filtered by role) in components/SidebarNav.tsx.
 function SidebarNav(activeLabel: string) {
-  return (
-    <nav className="flex flex-col gap-1 px-3">
-      {SIDEBAR_ITEMS.map(function (item) {
-        const isActive = item.label === activeLabel;
-        let linkClass = "rounded-lg px-3 py-2.5 text-sm transition ";
-        if (isActive) {
-          linkClass = linkClass + "bg-indigo-500/15 text-indigo-300 font-medium";
-        } else {
-          linkClass = linkClass + "text-gray-400 hover:bg-white/5 hover:text-gray-200";
-        }
-        return (
-          <a key={item.label} href={item.href} className={linkClass}>
-            {item.label}
-          </a>
-        );
-      })}
-    </nav>
-  );
+  return <RoleSidebarNav activeLabel={activeLabel} />;
 }
 
 function SidebarShell(activeLabel: string) {
@@ -134,6 +107,9 @@ export default function EmployeeDetailsPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [manager, setManager] = useState<Employee | null>(null);
 
+  // Offboarding, reinstating and giving logins are HR-only on the server.
+  const [canManage, setCanManage] = useState(false);
+
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
@@ -154,8 +130,10 @@ export default function EmployeeDetailsPage() {
       apiFetch<{ data: Position[] }>("/positions?limit=100", { method: "GET" }),
       apiFetch<{ data: Department[] }>("/departments?limit=100", { method: "GET" }),
       apiFetch<{ data: Location[] }>("/locations?limit=100", { method: "GET" }),
+      loadMe(),
     ])
-      .then(function ([employeeRes, positionsRes, departmentsRes, locationsRes]) {
+      .then(function ([employeeRes, positionsRes, departmentsRes, locationsRes, me]) {
+        setCanManage(isHrRole(me.role));
         setEmployee(employeeRes);
         setPositions(positionsRes.data);
         setDepartments(departmentsRes.data);
@@ -377,7 +355,7 @@ export default function EmployeeDetailsPage() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
-            {employee.status === "active" ? (
+            {!canManage ? null : employee.status === "active" ? (
               <button
                 type="button"
                 onClick={handleOffboard}
@@ -536,7 +514,7 @@ export default function EmployeeDetailsPage() {
                           </button>
                         </div>
                       </div>
-                    ) : (
+                    ) : !canManage ? null : (
                       <div className="flex flex-col gap-2">
                         <button
                           type="button"

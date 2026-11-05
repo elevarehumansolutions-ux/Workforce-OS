@@ -63,7 +63,8 @@ export default function CriticalRolesSuggestionsPage() {
   const [editRisk, setEditRisk] = useState("");
   const [editError, setEditError] = useState("");
 
-  const canReview = data !== null && isHrRole(data.me.role);
+  // The server lets HR administrators and business executives review suggestions.
+  const canReview = data !== null && (isHrRole(data.me.role) || data.me.role === "business_executive");
   const suggestions = data ? data.suggestions : [];
   const pending = suggestions.filter(function (s) {
     return !decisions[s.id];

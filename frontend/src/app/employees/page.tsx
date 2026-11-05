@@ -92,18 +92,22 @@ export default function EmployeesPage() {
             {data ? " (" + data.total + (data.total === 1 ? " employee)" : " employees)") : ""}
           </p>
         </Link>
-        <Link href="/employees/add" className={CARD}>
-          <h3 className="text-base font-semibold text-white">Add Employee</h3>
-          <p className="mt-1 text-sm text-gray-500">Onboard a new team member</p>
-        </Link>
+        {data && data.me.role === "hr_administrator" ? (
+          <Link href="/employees/add" className={CARD}>
+            <h3 className="text-base font-semibold text-white">Add Employee</h3>
+            <p className="mt-1 text-sm text-gray-500">Onboard a new team member</p>
+          </Link>
+        ) : null}
         <Link href="/employees/critical-roles" className={CARD}>
           <h3 className="text-base font-semibold text-white">Critical Roles</h3>
           <p className="mt-1 text-sm text-gray-500">Roles flagged as critical to your business</p>
         </Link>
-        <Link href="/employees/invite" className={CARD}>
-          <h3 className="text-base font-semibold text-white">Invite a teammate</h3>
-          <p className="mt-1 text-sm text-gray-500">Send a login invite by email</p>
-        </Link>
+        {data && data.me.role === "hr_administrator" ? (
+          <Link href="/employees/invite" className={CARD}>
+            <h3 className="text-base font-semibold text-white">Invite a teammate</h3>
+            <p className="mt-1 text-sm text-gray-500">Send a login invite by email</p>
+          </Link>
+        ) : null}
       </div>
 
       <div className="mt-8 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-6 shadow-xl">

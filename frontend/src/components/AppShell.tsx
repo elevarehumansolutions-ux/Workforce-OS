@@ -1,20 +1,7 @@
-﻿import type { ReactNode } from "react";
-import Link from "next/link";
+﻿"use client";
 
-const SIDEBAR_ITEMS: { label: string; href: string }[] = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Employees", href: "/employees" },
-  { label: "Team Management", href: "/team-management" },
-  { label: "Organization Structure", href: "/organization-structure" },
-  { label: "Attendance", href: "/attendance" },
-  { label: "Leave Management", href: "/leave" },
-  { label: "Workflow", href: "/workflow/templates" },
-  { label: "Tasks", href: "/tasks" },
-  { label: "Performance", href: "/performance" },
-  { label: "Payroll", href: "/payroll" },
-  { label: "Reports", href: "/reports" },
-  { label: "Settings", href: "/settings" },
-];
+import type { ReactNode } from "react";
+import SidebarNav from "@/components/SidebarNav";
 
 interface AppShellProps {
   activeLabel: string;
@@ -50,22 +37,7 @@ export default function AppShell(props: AppShellProps) {
             </div>
             <span className="text-base font-bold text-white">Elevare</span>
           </div>
-          <nav className="flex flex-col gap-1 px-3">
-            {SIDEBAR_ITEMS.map(function (item) {
-              const isActive = item.label === props.activeLabel;
-              let linkClass = "rounded-lg px-3 py-2.5 text-sm transition ";
-              if (isActive) {
-                linkClass = linkClass + "bg-indigo-500/15 text-indigo-300 font-medium";
-              } else {
-                linkClass = linkClass + "text-gray-400 hover:bg-white/5 hover:text-gray-200";
-              }
-              return (
-                <Link key={item.label} href={item.href} className={linkClass}>
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
+          <SidebarNav activeLabel={props.activeLabel} />
         </div>
         {props.userName ? (
           <div className="flex items-center gap-3 border-t border-white/10 px-6 pt-4">
