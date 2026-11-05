@@ -14,15 +14,7 @@ interface BusinessDnaFormData {
   timezone: string;
 }
 
-const ONBOARDING_STEPS = [
-  "Business DNA",
-  "AI Structure",
-  "Organization",
-  "OKRs",
-  "AI Suggestions",
-  "KPIs",
-  "Invite Team",
-];
+const ONBOARDING_STEPS = ["Business DNA", "Your AI plan", "Invite Team"];
 
 const DEFAULT_TIMEZONE = "Africa/Lagos";
 

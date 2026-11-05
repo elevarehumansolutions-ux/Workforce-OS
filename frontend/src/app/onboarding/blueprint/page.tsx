@@ -10,9 +10,12 @@ import {
   editBlueprintItem,
   fetchLatestBlueprint,
   generateBlueprint,
+  directionText,
+  formatMoney,
   isPending,
-  kpiSummary,
+  kpiAnnualReturn,
   rejectBlueprintItem,
+  trimNumber,
   shownTitle,
 } from "@/lib/blueprint";
 import type {
@@ -24,15 +27,7 @@ import type {
   ObjectiveGroup,
 } from "@/lib/blueprint";
 
-const ONBOARDING_STEPS = [
-  "Business DNA",
-  "AI Structure",
-  "Organization",
-  "OKRs",
-  "AI Suggestions",
-  "KPIs",
-  "Invite Team",
-];
+const ONBOARDING_STEPS = ["Business DNA", "Your AI plan", "Invite Team"];
 
 // The backend drafts the blueprint in the background, normally in well under a
 // minute. Look every 4 seconds, for up to about 2 minutes, then offer a retry.
@@ -42,6 +37,20 @@ const MAX_POLLS = 30;
 interface Editing {
   id: string;
   text: string;
+}
+
+// The capital investment from the Business DNA (naira), or null when none was entered
+// or the caller may not read it. Used to turn each department's percentage into money.
+async function fetchCapital(): Promise<number | null> {
+  try {
+    const dna = await apiFetch<{ capital_investment_amount: string | number | null }>("/business-dna", { method: "GET" });
+    const amount = dna.capital_investment_amount;
+    if (amount === null || amount === undefined || amount === "") return null;
+    const n = Number(amount);
+    return n > 0 ? n : null;
+  } catch {
+    return null;
+  }
 }
 
 // The departments and positions the company already has. Only used for labels and
@@ -76,6 +85,17 @@ export default function BlueprintPage() {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [acceptingAll, setAcceptingAll] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [capital, setCapital] = useState<number | null>(null);
+
+  useEffect(function () {
+    let cancelled = false;
+    fetchCapital().then(function (amount) {
+      if (!cancelled) setCapital(amount);
+    });
+    return function () {
+      cancelled = true;
+    };
+  }, []);
 
   // What the company already has. The chart draws existing positions too, and the
   // tidy-ups ("rename Hr to Human Resources") need the current names.
@@ -227,7 +247,7 @@ export default function BlueprintPage() {
     }
   }
 
-  const view = buildBlueprintView(items, existingDepartments, existingPositions);
+  const view = buildBlueprintView(items, existingDepartments, existingPositions, capital);
   const pendingCount = items.filter(isPending).length;
   const showContent = !loading && !forbidden && items.length > 0;
 
@@ -389,6 +409,12 @@ export default function BlueprintPage() {
                 {node.departmentName}
               </p>
             ) : null}
+            {node.isCritical ? (
+              <div className="mt-1.5 rounded-md bg-amber-500/10 px-2 py-1">
+                <p className="text-xs font-semibold text-amber-300">★ Critical role</p>
+                {node.criticalLabel ? <p className="text-[11px] leading-tight text-amber-200/80">{node.criticalLabel}</p> : null}
+              </div>
+            ) : null}
             <div className="mt-2.5">
               {item ? (
                 renderActions(item)
@@ -411,12 +437,69 @@ export default function BlueprintPage() {
     );
   }
 
-  // "Weight 60% · Target 95 % · Higher is better", plus the key result it measures.
-  function kpiNote(kpi: BlueprintItem): string {
+  // One KPI as a card that says what it is: why it exists, its share of the department's
+  // score, the target, which way is good, the key result it measures, and what it is
+  // expected to return (its weight's share of the department's yearly return).
+  function renderKpi(kpi: BlueprintItem, departmentName: string, departmentReturn: number | null) {
+    const isEditing = editing !== null && editing.id === kpi.id;
     const keyResult = items.find(function (i) {
       return i.kind === "key_result" && i.ref !== null && i.ref === kpi.key_result_ref;
     });
-    return kpiSummary(kpi) + (keyResult ? " · Measures: " + shownTitle(keyResult) : "");
+    const target =
+      kpi.kpi_target_value !== null
+        ? trimNumber(kpi.kpi_target_value) + (kpi.kpi_unit ? " " + kpi.kpi_unit : "")
+        : "Not set";
+    const kpiReturn = kpiAnnualReturn(departmentReturn, kpi.kpi_weight);
+    const fact = "text-sm text-gray-200";
+    const label = "text-[11px] uppercase tracking-wide text-gray-500";
+    return (
+      <div key={kpi.id} className="rounded-lg border border-white/5 bg-[#0a0e1a] p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            {isEditing ? (
+              renderEditBox(kpi)
+            ) : (
+              <p className={"text-sm font-semibold " + (kpi.status === "rejected" ? "text-gray-500 line-through" : "text-white")}>
+                {shownTitle(kpi)}
+              </p>
+            )}
+            {!isEditing && kpi.rationale ? <p className="mt-0.5 text-xs text-gray-500">{kpi.rationale}</p> : null}
+          </div>
+          {isEditing ? null : renderActions(kpi)}
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <p className={label}>Share of score</p>
+            <p className={fact}>
+              {kpi.kpi_weight !== null ? trimNumber(kpi.kpi_weight) + "%" : "-"}
+              <span className="text-xs text-gray-500"> of {departmentName}</span>
+            </p>
+          </div>
+          <div>
+            <p className={label}>Target</p>
+            <p className={fact}>{target}</p>
+          </div>
+          <div>
+            <p className={label}>What is good</p>
+            <p className="text-xs text-gray-300">{directionText(kpi)}</p>
+          </div>
+          <div>
+            <p className={label}>Expected return</p>
+            {kpiReturn !== null ? (
+              <p className={fact}>
+                {formatMoney(kpiReturn)}
+                <span className="text-xs text-gray-500"> a year</span>
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500">Shown once a capital amount and a share are set</p>
+            )}
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          {keyResult ? "Measures the key result: " + shownTitle(keyResult) : "Not linked to a key result"}
+        </p>
+      </div>
+    );
   }
 
   function cleanupText(item: BlueprintItem): string {
@@ -603,7 +686,31 @@ export default function BlueprintPage() {
             {/* Departments */}
             {view.departments.length > 0 ? (
               <div className={card}>
-                <p className={sectionLabel}>Departments</p>
+                <p className={sectionLabel}>Capital and departments</p>
+                <div className="mb-4 rounded-lg border border-white/5 bg-[#0a0e1a] p-3 text-sm">
+                  {view.capital !== null ? (
+                    <p className="text-gray-200">
+                      Your capital investment is <span className="font-semibold text-white">{formatMoney(view.capital)}</span>.
+                      Each critical department is given a share of it as the return it is expected to bring back in a year.
+                    </p>
+                  ) : (
+                    <p className="text-amber-200">
+                      No capital investment amount was entered, so only percentages are shown. Add the amount in{" "}
+                      <button
+                        type="button"
+                        onClick={function () { router.push("/onboarding/business-dna"); }}
+                        className="underline hover:text-amber-100"
+                      >
+                        Business DNA
+                      </button>{" "}
+                      to see the naira figures.
+                    </p>
+                  )}
+                  <p className="mt-1 text-xs text-gray-500">
+                    The shares are separate return targets, not slices of one budget, so together they can come to
+                    more than 100%. They add up to {trimNumber(view.totalSharePct)}% here.
+                  </p>
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {view.departments.map(function (d) {
                     const item = d.item;
@@ -622,6 +729,23 @@ export default function BlueprintPage() {
                               {d.name}
                             </p>
                             {item && item.rationale ? <p className="mt-0.5 text-xs text-gray-500">{item.rationale}</p> : null}
+                            {d.isCritical ? (
+                              <p className="mt-2 inline-block rounded bg-amber-500/10 px-2 py-0.5 text-xs font-semibold text-amber-300">
+                                ★ Critical department
+                              </p>
+                            ) : null}
+                            {d.sharePct !== null ? (
+                              <div className="mt-2 space-y-0.5">
+                                <p className="text-xs text-gray-500">Expected return target</p>
+                                <p className="text-sm text-white">
+                                  {trimNumber(d.sharePct)}% of capital
+                                  {d.annualReturn !== null ? <span className="font-semibold"> = {formatMoney(d.annualReturn)} a year</span> : null}
+                                </p>
+                                {d.annualReturn !== null ? (
+                                  <p className="text-xs text-gray-400">{formatMoney(d.annualReturn / 4)} each quarter</p>
+                                ) : null}
+                              </div>
+                            ) : null}
                             <div className="mt-2">
                               {item ? (
                                 renderActions(item)
@@ -669,17 +793,23 @@ export default function BlueprintPage() {
                         <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: section.color }} />
                         {section.title}
                       </p>
-                      <div className="space-y-1.5">
+                      {section.departmentAnnualReturn !== null ? (
+                        <p className="mb-2 text-xs text-gray-400">
+                          {section.title} is expected to return {formatMoney(section.departmentAnnualReturn)} a year. Each KPI
+                          below carries its share of that.
+                        </p>
+                      ) : null}
+                      <div className="space-y-2">
                         {section.kpis.map(function (kpi) {
-                          return renderLine({ item: kpi, note: kpiNote(kpi) });
+                          return renderKpi(kpi, section.title, section.departmentAnnualReturn);
                         })}
                       </div>
                     </div>
                   );
                 })}
                 <p className="text-xs text-gray-500">
-                  Weights are each KPI&apos;s share of its department&apos;s score. Targets are a starting point:
-                  you can change them on the KPIs step.
+                  A KPI&apos;s share of score is how much it counts toward its department&apos;s score (a department&apos;s
+                  KPIs add up to 100%). Targets are a starting point: you can change any of these later in KPIs.
                 </p>
               </div>
             ) : null}
@@ -725,7 +855,7 @@ export default function BlueprintPage() {
           </button>
           <button
             type="button"
-            onClick={function () { router.push("/onboarding/org-setup"); }}
+            onClick={function () { router.push("/onboarding/invite-team"); }}
             className="flex items-center gap-2 rounded-lg bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
           >
             Continue

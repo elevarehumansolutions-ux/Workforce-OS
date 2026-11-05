@@ -41,6 +41,14 @@ export interface BlueprintItem {
   // the department's KPIs in percent, its target and unit, and whether a LOWER figure
   // is better (for example days to deliver). The API sends decimals as strings.
   key_result_ref: string | null;
+  // Decided by the AI, not asked of the user. A department: critical or not, and its
+  // share of the capital investment in percent (an independent expected-return target:
+  // different departments' shares may add up to more than 100). A position: critical,
+  // with the kind of criticality and its risk level.
+  is_critical: boolean | null;
+  revenue_allocation_pct: string | number | null;
+  criticality_type: string | null;
+  risk_level: string | null;
   kpi_weight: string | number | null;
   kpi_target_value: string | number | null;
   kpi_unit: string | null;
@@ -135,6 +143,12 @@ export interface DepartmentCard {
   name: string;
   color: string;
   item: BlueprintItem | null;
+  isCritical: boolean;
+  // Its share of the capital in percent, or null when it has none.
+  sharePct: number | null;
+  // Share x capital: what this department is expected to return in a year. Null when
+  // there is no share or no capital amount was entered.
+  annualReturn: number | null;
 }
 
 // One box in the organization chart: a proposed position (item set) or one the
@@ -147,6 +161,9 @@ export interface ChartNode {
   title: string;
   departmentName: string;
   color: string;
+  // Set by the AI. For a critical role: what kind and how risky, in words.
+  isCritical: boolean;
+  criticalLabel: string | null;
   children: ChartNode[];
 }
 
@@ -160,9 +177,15 @@ export interface KpiSection {
   title: string;
   color: string;
   kpis: BlueprintItem[];
+  // The department's yearly return target; each KPI's own return is its weight's share of it.
+  departmentAnnualReturn: number | null;
 }
 
 export interface BlueprintView {
+  // The capital investment from the Business DNA, or null when none was entered.
+  capital: number | null;
+  // Sum of the departments' shares. Can be above 100: the shares are independent targets.
+  totalSharePct: number;
   departments: DepartmentCard[];
   chart: ChartNode | null;
   objectiveSections: ObjectiveSection[];
@@ -170,20 +193,61 @@ export interface BlueprintView {
   cleanups: BlueprintItem[];
 }
 
-function trimNumber(value: string | number): string {
-  // "95.00" -> "95", "2.50" -> "2.5"
+// "95.00" -> "95", "2.50" -> "2.5". The API sends decimals as strings.
+export function trimNumber(value: string | number): string {
   return String(Number(value));
 }
 
-// One line describing a KPI: "Weight 60% · Target 95 % · Higher is better".
-export function kpiSummary(item: BlueprintItem): string {
-  const parts: string[] = [];
-  if (item.kpi_weight !== null) parts.push("Weight " + trimNumber(item.kpi_weight) + "%");
-  if (item.kpi_target_value !== null) {
-    parts.push("Target " + trimNumber(item.kpi_target_value) + (item.kpi_unit ? " " + item.kpi_unit : ""));
-  }
-  parts.push(item.kpi_is_inverse ? "Lower is better" : "Higher is better");
-  return parts.join(" · ");
+// Money is in naira: the Business DNA has no currency field (docs/04_DATABASE.md).
+export function formatMoney(amount: number): string {
+  return "₦" + Math.round(amount).toLocaleString("en-NG");
+}
+
+// Capital x share: what a department is expected to return in a year.
+export function annualReturn(capital: number | null, sharePct: number | null): number | null {
+  if (capital === null || sharePct === null) return null;
+  return (capital * sharePct) / 100;
+}
+
+// A KPI's own expected return: its weight's share of its department's yearly return,
+// so a department's KPIs add up to the department's total.
+export function kpiAnnualReturn(departmentReturn: number | null, weight: string | number | null): number | null {
+  if (departmentReturn === null || weight === null) return null;
+  return (departmentReturn * Number(weight)) / 100;
+}
+
+const CRITICALITY_LABELS: Record<string, string> = {
+  revenue_generating: "Brings in revenue",
+  revenue_enabling: "Enables revenue",
+  operational: "Keeps operations running",
+  customer: "Customer critical",
+  compliance: "Compliance critical",
+  strategic: "Strategically important",
+  financial: "Financially critical",
+  legal: "Legally critical",
+};
+
+const RISK_LABELS: Record<string, string> = {
+  very_low: "very low risk",
+  low: "low risk",
+  medium: "medium risk",
+  high: "high risk",
+  very_high: "very high risk",
+};
+
+// For a critical role: "Keeps operations running · high risk if unfilled".
+function criticalLabelOf(item: BlueprintItem): string | null {
+  if (!item.is_critical) return null;
+  const kind = item.criticality_type ? CRITICALITY_LABELS[item.criticality_type] || item.criticality_type : "Critical role";
+  const risk = item.risk_level ? RISK_LABELS[item.risk_level] || item.risk_level : "";
+  return risk ? kind + " · " + risk + " if unfilled" : kind;
+}
+
+// Plain words for the direction of a KPI (the database calls it "inverse").
+export function directionText(item: BlueprintItem): string {
+  return item.kpi_is_inverse
+    ? "A lower result is better (for example fewer days, fewer complaints)"
+    : "A higher result is better";
 }
 
 // Colours that tell departments apart in the chart. Used in order.
@@ -199,7 +263,8 @@ function departmentKeyOf(item: BlueprintItem): string {
 export function buildBlueprintView(
   items: BlueprintItem[],
   existingDepartments: ExistingDepartment[],
-  existingPositions: ExistingPosition[]
+  existingPositions: ExistingPosition[],
+  capital: number | null
 ): BlueprintView {
   const departmentItems = items.filter(function (i) { return i.kind === "department"; });
   const positionItems = items.filter(function (i) { return i.kind === "position" && i.status !== "rejected"; });
@@ -222,7 +287,18 @@ export function buildBlueprintView(
     if (colorOf[key]) return;
     colorOf[key] = DEPARTMENT_COLORS[departments.length % DEPARTMENT_COLORS.length];
     nameOf[key] = name;
-    departments.push({ key: key, name: name, color: colorOf[key], item: item });
+    const shareText = item ? item.revenue_allocation_pct : null;
+    const sharePct = shareText === null || shareText === undefined ? null : Number(shareText);
+    const card: DepartmentCard = {
+      key: key,
+      name: name,
+      color: colorOf[key],
+      item: item,
+      isCritical: item ? item.is_critical === true : false,
+      sharePct: sharePct,
+      annualReturn: annualReturn(capital, sharePct),
+    };
+    departments.push(card);
   }
 
   departmentItems.forEach(function (d) {
@@ -262,6 +338,8 @@ export function buildBlueprintView(
       title: shownTitle(p),
       departmentName: nameOf[dKey] || "",
       color: colorOf[dKey] || NEUTRAL_COLOR,
+      isCritical: p.is_critical === true,
+      criticalLabel: criticalLabelOf(p),
       children: [],
     };
     if (p.reports_to_ref) {
@@ -284,6 +362,8 @@ export function buildBlueprintView(
       title: p.title,
       departmentName: nameOf[dKey] || existingDepartmentName[p.department_id] || "",
       color: colorOf[dKey] || NEUTRAL_COLOR,
+      isCritical: false,
+      criticalLabel: null,
       children: [],
     };
     bossKey[key] = keyOfRealPosition(p.reports_to_position_id);
@@ -325,6 +405,8 @@ export function buildBlueprintView(
       title: "Company",
       departmentName: "",
       color: NEUTRAL_COLOR,
+      isCritical: false,
+      criticalLabel: null,
       children: roots,
     };
   }
@@ -355,10 +437,19 @@ export function buildBlueprintView(
   const kpiSections: KpiSection[] = [];
   departments.forEach(function (d) {
     const mine = kpiItems.filter(function (k) { return departmentKeyOf(k) === d.key; });
-    if (mine.length > 0) kpiSections.push({ title: d.name, color: d.color, kpis: mine });
+    if (mine.length > 0) {
+      kpiSections.push({ title: d.name, color: d.color, kpis: mine, departmentAnnualReturn: d.annualReturn });
+    }
+  });
+
+  let totalSharePct = 0;
+  departments.forEach(function (d) {
+    if (d.sharePct !== null && d.item && d.item.status !== "rejected") totalSharePct += d.sharePct;
   });
 
   return {
+    capital: capital,
+    totalSharePct: totalSharePct,
     departments: departments,
     chart: chart,
     objectiveSections: objectiveSections,

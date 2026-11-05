@@ -369,3 +369,59 @@ and beat only learn about new tasks and schedules on start-up.
 - **Rule to remember:** never read tenant data after `commit()` in a request. If a query must
   follow a commit, set `app.current_org_id` again first.
 - **Status:** fixed on the branch, awaiting merge and deploy.
+
+### 2026-10-22: the app says "Couldn't reach server" (the VPS bill was unpaid)
+
+- **Report:** right after merging the AI-blueprint work, the frontend showed "Couldn't reach
+  server". The first suspicion was the deploy that the merge triggers.
+- **Check from outside first (no server login needed).** From any laptop:
+  ```bash
+  curl -sS -m 15 -o /dev/null -w "http=%{http_code}\n" https://api.workforceos.online/health
+  getent hosts api.workforceos.online
+  ```
+  | Part | What it does |
+  |---|---|
+  | `-sS` | Silent, but still print an error if the request fails. |
+  | `-m 15` | Give up after 15 seconds, so a dead server does not hang the command. |
+  | `-o /dev/null` | Throw the response body away. |
+  | `-w "http=%{http_code}\n"` | Print only the HTTP status code (`000` means it never connected). |
+  | `getent hosts` | Shows which IP the domain points to (so you know which machine you are testing). |
+- **What the evidence said, and how to read it.** The frontend (Vercel, `workforceos.online`)
+  answered, so the problem was not the frontend. The API domain **refused** the connection on
+  ports 443 and 80 within 0.3 s, while SSH (port 22) was open. *Refused fast* is not the same
+  as *timed out*: a refusal means the machine answered but nothing listens on that port (here
+  Caddy, the only program on 80/443); a timeout means the machine or network is unreachable.
+  Pattern to remember: **"Couldn't reach server" in the app = the browser got no answer at
+  all**, so check the network path (DNS, ports, the VPS itself) before reading API logs.
+- **First guess and why it was only a guess:** "the deploy left Caddy down" (two merges close
+  together can make two deploys fight over the containers). It fitted the symptom but nothing
+  proved it; the user then reported the real cause.
+- **Cause:** the InterServer VPS had not been paid for, so the provider had stopped serving it
+  (SSH still answered, which a plain "powered off" server would not do: a partly suspended
+  account looks like this).
+- **Why it was missed:** nothing on the project warns when the hosting bill is due. The code,
+  CI and the deploy were all fine.
+- **Fix:** pay InterServer and make sure the VPS is on. Then re-check with the `curl` above.
+  If `ps` shows containers `Exited`, run `docker compose -f docker-compose.prod.yml up -d`
+  (starts what is stopped, rebuilds nothing). If the GitHub "CD" run after a merge failed
+  because the server was unreachable, re-run it once the server answers: it pulls the code,
+  rebuilds, applies migrations (including `e3de7830b474`) and restarts the worker.
+- **Second cause, found after paying (same day): the DEV stack was running instead of the
+  production one.** `docker compose ps` showed `api` published on `0.0.0.0:8000`, `db` on
+  `0.0.0.0:5432`, `redis` on `0.0.0.0:6380` and **no `caddy` row**. `docker-compose.prod.yml`
+  publishes only Caddy's 80 and 443 and nothing for api/db/redis, so containers with those
+  ports can only have been created from the dev file (`docker-compose.yml`), which is what a
+  plain `docker compose up -d` (no `-f docker-compose.prod.yml`) uses. A port check from
+  outside confirmed 8000, 5432 and 6380 were OPEN to the internet and 80/443 closed.
+  *How to read this:* the PORTS column of `ps` is the quickest way to tell which compose file
+  a container came from. In production only `caddy` may show `0.0.0.0:`.
+  Why it matters: Postgres and an **unauthenticated Redis** were reachable by anyone.
+  Fix: `docker compose -f docker-compose.prod.yml up -d --build --force-recreate` (the same
+  command the deploy runs), then check `ps` shows caddy and no `0.0.0.0:` on api/db/redis, and
+  that `curl https://api.workforceos.online/health` answers.
+- **Rule to remember (the `-f` rule):** on this server EVERY compose command needs
+  `-f docker-compose.prod.yml`. Forgetting it does not error: it quietly starts the dev stack.
+  Consider `alias dc='docker compose -f docker-compose.prod.yml'` in the deploy user's profile.
+- **Rule to remember:** when the whole API is unreachable, ask three questions in order before
+  touching code: (1) is the bill paid and the VPS on, (2) does the domain still point at the
+  right IP, (3) is Caddy running (`ps`). Also set a calendar reminder for the VPS renewal date.
