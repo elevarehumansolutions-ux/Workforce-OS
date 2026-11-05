@@ -172,6 +172,7 @@ CREATE TABLE business_dna (
     revenue_drivers TEXT,
     operational_drivers TEXT,
     customer_value_drivers TEXT,
+    business_priorities TEXT,  -- added 2026-11-05, PRD review gap, distinct from OKRs/strategic objectives (Cluster 4)
     capital_investment_amount NUMERIC(14,2),  -- feeds department revenue allocation, Cluster 4
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -189,6 +190,7 @@ CREATE TABLE business_dna_core_values (
 
 **Design notes:**
 - **No "strategic objectives" or "OKRs" field here, on purpose.** The original Business DNA screen had this, but it's a duplicate once the dedicated OKR step exists (Cluster 4), objectives belong there, not here, or they'd be captured twice.
+- **`business_priorities` added 2026-11-05, migration still to be written.** Found during a section-by-section review against the PRD (`01_REQUIREMENTS.md` §1): the PRD lists it as its own Business DNA Engine field, separate from "strategic objectives"/"OKRs", and it was missed in the 2026-09-21 field-set resolution. Kept distinct from the point above, this is business priorities as she described them (a plain descriptive field, same shape as `revenue_drivers`/`operational_drivers`), not OKRs restated. `business_dna` has been live since M1 (merged 2026-09-10), so this is an additive column on an existing table, needs its own migration, not a new build.
 - **Core values as a separate table, not a text field or JSONB column.** Either would have worked, JSONB (`core_values JSONB DEFAULT '[]'` directly on `business_dna`) is a completely valid alternative for a simple list like this, arguably the more common modern Postgres pattern when nothing extra needs attaching to each value. The table was chosen instead to leave room for querying or extending individual values later (e.g. Elevare, as the vendor, comparing which core values are common across customers), a judgment call, not a correctness issue.
 - **One `business_dna` row per organization**, editable in place, not versioned. Historical comparison (e.g. "what was our capital investment last year") is a future refinement, not something asked for yet.
 - **`business_dna_core_values` has `updated_at`, matching the top-level Conventions rule.** Editing a value updates its row in place, same as everywhere else in this schema, rather than modeling an edit as delete-and-reinsert.

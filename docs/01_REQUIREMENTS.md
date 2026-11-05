@@ -12,6 +12,7 @@ Capture how the organization operates and creates value. Field set resolved 2026
 - Vision, mission, core values, business model
 - Revenue drivers, operational drivers, customer value drivers
 - Performance philosophy, workforce rules
+- **Business priorities** (gap found and closed 2026-11-05, during the PRD section-by-section review — see `08_DECISIONS.md`): the PRD lists this as its own Business DNA Engine field, distinct from "strategic objectives"/"OKRs" (M6). It was missed in the 2026-09-21 field-set resolution, neither captured here nor explicitly deferred like the other PRD items were. Closed as its own field, same shape as the other descriptive fields above, not folded into OKRs.
 - **Capital investment amount** (added 2026-09-03) — e.g. ₦25,000,000. Feeds the revenue-target generation mechanism described in §4, unrelated to payroll.
 
 **Not asked again here, captured by their own modules instead:** organizational structure, departments, business units, reporting relationships, and job architecture are M4 (Org Structure); strategic objectives, annual goals, and OKRs are M6 (OKR). The PRD's original Business Foundation list named all of these as part of "Business DNA" narratively, but by the time each became its own schema/milestone, re-asking them in the Business DNA step would just be a duplicate data-entry step feeding nothing new.
