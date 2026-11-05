@@ -82,7 +82,7 @@ Mutations (`POST`/`PATCH`/`DELETE`, including offboard/reinstate) restricted to 
 
 ## OKR
 
-`POST`/`PATCH` on `okrs` and `key_results` restricted to `hr_administrator`; `GET` open to any authenticated org member. No `DELETE` yet — deferred to M8.
+`POST`/`PATCH` on `okrs` and `key_results` restricted to `hr_administrator`; `GET` open to any authenticated org member. `DELETE /okrs/{id}` and `DELETE /key-results/{id}` (HR only, added 2026-11-05): soft delete, returns the deleted row (200). Deleting an objective also soft-deletes its key results. Refused with **409 `RESOURCE_IN_USE`** while a live KPI still measures a key result (the message says how many: "Cannot delete key result: 1 KPI(s) still measure it (remove or re-link them first)"); nothing is changed when it refuses. 404 `OKR_NOT_FOUND` / `KEY_RESULT_NOT_FOUND` (also another company's); 403 for non-HR.
 
 - `POST|GET /okrs` (filter: `department_id`, `location_id`), `GET|PATCH /okrs/{id}`. **`POST /okrs` enqueues AI suggestion generation** (a new objective is prompt context for the `missing_department` suggestion type); editing an existing OKR does not.
 - `POST|GET /okrs/{id}/key-results`, `PATCH /key-results/{id}` — same role gate and pagination envelope as the parent resource.

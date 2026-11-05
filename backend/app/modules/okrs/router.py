@@ -3,8 +3,8 @@
 Exposes OKR and key-result CRUD. Reads are open to any authenticated org
 member; mutations are gated to HR Administrator (08_DECISIONS.md
 2026-09-21 — Business Executive and Manager both deliberately excluded,
-matching the Org Structure/Business DNA precedent). No DELETE endpoints —
-deferred to M8 alongside the ``kpis.key_result_id`` reference guard.
+matching the Org Structure/Business DNA precedent). DELETE (soft) was added
+2026-11-05 with the ``kpis.key_result_id`` reference guard.
 """
 
 import uuid
@@ -156,6 +156,36 @@ async def update_okr(
     return OKRResponse.model_validate(okr)
 
 
+@router.delete("/okrs/{okr_id}", status_code=200)
+async def delete_okr(
+    okr_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_WRITE_ROLES)),
+) -> OKRResponse:
+    """Soft-delete an OKR together with its key results.
+
+    Requires the HR Administrator role.
+
+    Args:
+        okr_id: Id of the OKR to delete.
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        The soft-deleted OKR.
+
+    Raises:
+        OKRNotFoundException: If no non-deleted OKR with that id exists in
+            the caller's org (translates to a 404 response).
+        ResourceInUseException: If a KPI still measures one of its key
+            results (translates to a 409 response).
+    """
+    service = OKRService(db)
+    okr = await service.delete_okr(okr_id, caller.user_id)
+    await db.commit()
+    return OKRResponse.model_validate(okr)
+
+
 # ---------------------------------------------------------------------------
 # Key results
 # ---------------------------------------------------------------------------
@@ -250,5 +280,34 @@ async def update_key_result(
     key_result = await service.update_key_result(
         key_result_id, caller.user_id, data.model_dump(exclude_unset=True)
     )
+    await db.commit()
+    return KeyResultResponse.model_validate(key_result)
+
+
+@router.delete("/key-results/{key_result_id}", status_code=200)
+async def delete_key_result(
+    key_result_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_WRITE_ROLES)),
+) -> KeyResultResponse:
+    """Soft-delete a key result.
+
+    Requires the HR Administrator role.
+
+    Args:
+        key_result_id: Id of the key result to delete.
+        db: Database session dependency.
+        caller: Caller's membership; must be an HR Administrator.
+
+    Returns:
+        The soft-deleted key result.
+
+    Raises:
+        KeyResultNotFoundException: If no non-deleted key result with that
+            id exists in the caller's org (translates to a 404 response).
+        ResourceInUseException: If a KPI still measures it (409 response).
+    """
+    service = KeyResultService(db)
+    key_result = await service.delete_key_result(key_result_id, caller.user_id)
     await db.commit()
     return KeyResultResponse.model_validate(key_result)
