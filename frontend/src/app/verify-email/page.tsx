@@ -137,7 +137,7 @@ function VerifyEmailContent() {
     const verified = await checkStatus();
     setChecking(false);
     if (!verified) {
-      setResendMessage("Still not verified — check your inbox (and spam folder) for the link.");
+      setResendMessage("Still not verified. Check your inbox (and spam folder) for the link.");
     }
   }
 
@@ -288,7 +288,7 @@ function VerifyEmailContent() {
       <p className="mt-2 text-sm text-gray-400">
         We sent a verification link to{" "}
         <span className="font-medium text-gray-200">{email || "your email address"}</span>. Click it to
-        activate your account — this page will move on automatically once it&apos;s confirmed.
+        activate your account. This page will move on automatically once it&apos;s confirmed.
       </p>
 
       {resendMessage ? (
@@ -302,7 +302,7 @@ function VerifyEmailContent() {
         disabled={checking}
         className="mt-6 w-full rounded-lg bg-indigo-500 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {checking ? "Checking…" : "I've verified — Continue"}
+        {checking ? "Checking…" : "I've verified, continue"}
       </button>
 
       <button

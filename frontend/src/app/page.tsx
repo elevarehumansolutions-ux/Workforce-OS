@@ -1,4 +1,5 @@
 ﻿import Link from "next/link";
+import Logo, { LogoMark } from "@/components/Logo";
 
 const NAV_LINKS = ["Product", "Pricing", "About"];
 
@@ -64,24 +65,12 @@ const LOCAL_REALITY_ITEMS = [
   },
 ];
 
-function LogoMark() {
-  return (
-    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="3" y="8" width="4" height="9" rx="1" fill="white" />
-        <rect x="13" y="3" width="4" height="14" rx="1" fill="white" />
-      </svg>
-    </div>
-  );
-}
-
 function SiteHeader() {
   return (
     <header className="relative z-20 border-b border-white/5">
       <div className="mx-auto flex max-w-[1280px] items-center justify-between px-8 py-5">
         <div className="flex items-center gap-3">
-          <LogoMark />
-          <span className="text-base font-bold">Elevare</span>
+          <Logo size={36} textClassName="text-base font-bold" />
         </div>
 
         <nav className="hidden items-center gap-8 md:flex">
@@ -114,12 +103,7 @@ function HeroMockup() {
   return (
     <div className="relative rounded-2xl border border-white/10 bg-[#0d1220] p-4 shadow-2xl shadow-indigo-500/10">
       <div className="mb-4 flex items-center gap-2">
-        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-indigo-500">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="3" y="8" width="4" height="9" rx="1" fill="white" />
-            <rect x="13" y="3" width="4" height="14" rx="1" fill="white" />
-          </svg>
-        </span>
+        <LogoMark size={24} />
         <span className="text-sm font-bold">
           Elevare<span className="font-normal text-gray-500"> Executive Overview</span>
         </span>
@@ -204,7 +188,7 @@ function HeroSection() {
             </button>
           </div>
 
-          <p className="mt-4 text-xs text-gray-600">14-day trial - No credit card - Guided onboarding</p>
+          <p className="mt-4 text-xs text-gray-600">14-day trial, no credit card, guided onboarding</p>
         </div>
 
         <HeroMockup />
@@ -270,7 +254,7 @@ function SignalPanel() {
   return (
     <div className="rounded-2xl border border-white/10 bg-[#0d1220] p-6 shadow-xl">
       <h3 className="text-base font-semibold">People operations</h3>
-      <p className="text-xs text-gray-500">Live organization health - This month</p>
+      <p className="text-xs text-gray-500">Live organization health, this month</p>
 
       <div className="mt-5 grid grid-cols-2 gap-4">
         <div>
@@ -298,11 +282,11 @@ function SignalPanel() {
           <span className="text-emerald-400">On track</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-gray-300">Lagos HQ - 142 people</span>
+          <span className="text-gray-300">Lagos HQ, 142 people</span>
           <span className="text-emerald-400">Ready</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-gray-300">Abuja Operations - 64 people</span>
+          <span className="text-gray-300">Abuja Operations, 64 people</span>
           <span className="text-amber-400">Review</span>
         </div>
         <div className="flex items-center justify-between">
@@ -405,7 +389,7 @@ function LocalRealitySection() {
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-indigo-400">Built for Here</p>
           <h2 className="mt-3 text-3xl font-bold sm:text-4xl">
-            Local operational reality is the starting point - not an afterthought.
+            Local operational reality is the starting point, not an afterthought.
           </h2>
           <p className="mt-4 text-gray-400">
             Elevare reflects local labour structures, distributed operations, and the pace of scaling teams across Nigeria and the
@@ -456,7 +440,7 @@ function StatTestimonialSection() {
           </p>
           <div className="mt-6">
             <p className="text-sm font-semibold">Amaka Nwosu</p>
-            <p className="text-xs text-gray-500">COO, Meridian Commerce - Lagos</p>
+            <p className="text-xs text-gray-500">COO, Meridian Commerce, Lagos</p>
           </div>
         </div>
       </div>
@@ -495,8 +479,7 @@ function SiteFooter() {
       <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <div className="flex items-center gap-3">
-            <LogoMark />
-            <span className="text-base font-bold">Elevare</span>
+            <Logo size={36} textClassName="text-base font-bold" />
           </div>
           <p className="mt-4 max-w-xs text-sm text-gray-500">
             The workforce operating system built for ambitious West African companies.
@@ -524,7 +507,7 @@ function SiteFooter() {
 
       <div className="mt-12 border-t border-white/10 pt-8 text-xs text-gray-600">
         <p>Elevare Workforce OS © 2026</p>
-        <p className="mt-1">Built for Nigeria - Ready for West Africa</p>
+        <p className="mt-1">Built for Nigeria, ready for West Africa</p>
       </div>
     </footer>
   );

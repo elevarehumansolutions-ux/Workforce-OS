@@ -25,7 +25,7 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Organization chart (onboarding "AI Structure" step).
+/* Organization chart (onboarding "OS Structure" step).
    Markup: <div class="org-tree"><ul><li><box/><ul><li>...</li></ul></li></ul></div>.
    Each li draws its own half of the horizontal bar (::before left, ::after right)
    plus a stem down to its box; the ul above it draws the stem coming down. */

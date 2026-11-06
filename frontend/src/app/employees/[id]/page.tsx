@@ -6,6 +6,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 
 import RoleSidebarNav from "@/components/SidebarNav";
 import { isHrRole, loadMe } from "@/lib/settings";
+import Logo from "@/components/Logo";
 
 // The menu is shared (and filtered by role) in components/SidebarNav.tsx.
 function SidebarNav(activeLabel: string) {
@@ -17,13 +18,7 @@ function SidebarShell(activeLabel: string) {
     <aside className="hidden w-64 flex-col justify-between border-r border-white/10 bg-[#0a0e1a] py-6 lg:flex">
       <div>
         <div className="mb-8 flex items-center gap-3 px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="8" width="4" height="9" rx="1" fill="white" />
-              <rect x="13" y="3" width="4" height="14" rx="1" fill="white" />
-            </svg>
-          </div>
-          <span className="text-base font-bold text-white">Elevare</span>
+          <Logo size={36} textClassName="text-base font-bold text-white" />
         </div>
         {SidebarNav(activeLabel)}
       </div>
@@ -216,13 +211,13 @@ export default function EmployeeDetailsPage() {
       });
       setEmployee(result.employee);
       let notice = "Invite sent to " + result.employee.work_email + ".";
-      if (result.outcome === "added") notice = "They already had an account — added and linked instantly.";
-      if (result.outcome === "linked") notice = "Linked instantly — they were already an active member.";
+      if (result.outcome === "added") notice = "They already had an account, added and linked instantly.";
+      if (result.outcome === "linked") notice = "Linked instantly. They were already an active member.";
       setActionNotice(notice);
       setShowInvitePicker(false);
     } catch (err) {
       if (err instanceof ApiError && err.code === "MEMBERSHIP_DEACTIVATED") {
-        setActionError("Their membership is deactivated — reactivate them from Team Management first.");
+        setActionError("Their membership is deactivated. Reactivate them from Team Management first.");
       } else if (err instanceof ApiError && err.code === "EMPLOYEE_ALREADY_HAS_LOGIN") {
         setActionError("This employee already has a login.");
       } else if (err instanceof ApiError) {
@@ -258,7 +253,7 @@ export default function EmployeeDetailsPage() {
         body: { user_id: linkUserId },
       });
       setEmployee(updated);
-      setActionNotice("Linked — this login now belongs to this employee record.");
+      setActionNotice("Linked. This login now belongs to this employee record.");
       setShowLinkPicker(false);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -296,7 +291,7 @@ export default function EmployeeDetailsPage() {
     try {
       const updated = await apiFetch<Employee>("/employees/" + employee.id + "/reinstate", { method: "POST" });
       setEmployee(updated);
-      setActionNotice("Reinstated — login access is restored if they had any.");
+      setActionNotice("Reinstated. Login access is restored if they had any.");
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Couldn't reinstate this employee.");
     } finally {

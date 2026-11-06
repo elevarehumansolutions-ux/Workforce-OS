@@ -91,7 +91,7 @@ function formatMoney(value: string | number | null | undefined, currency: string
   }
 }
 
-// AI costs are tiny amounts, so show up to 4 decimals instead of rounding to 0.00.
+// OS costs are tiny amounts, so show up to 4 decimals instead of rounding to 0.00.
 function formatUsd(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return "$" + toNumber(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
@@ -153,7 +153,7 @@ export default function BillingAiUsagePage() {
   const usageLoading = allowed !== true || usageResult === null || usageResult.key !== usageKey;
   const summaryLoading = allowed !== true || summaryResult === null || summaryResult.key !== summaryKey;
 
-  // Billing and AI usage are for HR Administrators only.
+  // Billing and OS usage are for HR Administrators only.
   useEffect(function () {
     let cancelled = false;
     apiFetch<MeResponse>("/auth/me", { method: "GET" })

@@ -113,7 +113,7 @@ export default function CriticalRolesSuggestionsPage() {
   }
 
   async function saveEdit(s: Suggestion) {
-    // Send only what changed: the server refuses an edit identical to the AI's own values.
+    // Send only what changed: the server refuses an edit identical to the OS's own values.
     const body: Record<string, string> = {};
     if (editCriticality && editCriticality !== s.suggested_criticality_type) body.criticality_type = editCriticality;
     if (editRisk && editRisk !== s.suggested_risk_level) body.risk_level = editRisk;

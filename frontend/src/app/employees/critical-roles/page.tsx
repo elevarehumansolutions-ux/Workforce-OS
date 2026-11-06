@@ -59,7 +59,7 @@ async function loadPage(): Promise<PageData> {
       return { position: p, department: departmentName[p.department_id] || "Unknown department", holders: holdersOf[p.id] || [] };
     });
 
-  // The number of AI suggestions waiting for review is a nice-to-have.
+  // The number of OS suggestions waiting for review is a nice-to-have.
   let pendingSuggestions = 0;
   try {
     const pending = await fetchAllPages<{ id: string }>("/ai-suggestions?status=pending&suggestion_type=critical_position");
