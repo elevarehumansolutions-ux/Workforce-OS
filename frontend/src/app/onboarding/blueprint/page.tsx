@@ -27,8 +27,9 @@ import type {
   ExistingPosition,
   ObjectiveGroup,
 } from "@/lib/blueprint";
+import Logo from "@/components/Logo";
 
-const ONBOARDING_STEPS = ["Business DNA", "Your business plan", "Invite Team"];
+const ONBOARDING_STEPS = ["Business DNA", "OS Structure", "Invite Team"];
 
 // The backend drafts the blueprint in the background, normally in well under a
 // minute. Look every 4 seconds, for up to about 2 minutes, then offer a retry.
@@ -676,15 +677,7 @@ export default function BlueprintPage() {
     <div className="min-h-screen w-full bg-[#05070f] text-white">
       <div className="flex items-center justify-between border-b border-white/10 px-8 py-4 sm:px-12">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-              <circle cx="9" cy="8" r="3" />
-              <path d="M2 20c0-3 3-5 7-5s7 2 7 5" />
-              <circle cx="17" cy="8" r="2.5" />
-              <path d="M22 20c0-2.5-2-4-4.5-4.5" />
-            </svg>
-          </div>
-          <span className="text-base font-bold">Elevare</span>
+          <Logo size={36} textClassName="text-base font-bold" />
         </div>
 
         <div className="hidden items-center gap-2 md:flex">
@@ -732,11 +725,11 @@ export default function BlueprintPage() {
 
       <div className="mx-auto max-w-5xl px-6 py-12">
         <div className="mx-auto max-w-3xl text-center">
-          <h1 className="text-3xl font-bold sm:text-4xl">Your business plan</h1>
+          <h1 className="text-3xl font-bold sm:text-4xl">OS Structure</h1>
           <p className="mt-2 text-gray-400">
-            Based on your Business DNA, we have prepared your objectives, your departments and how your capital
-            is shared between them, your organization chart (who reports to whom) and your KPIs. Add what fits,
-            edit the wording, or skip anything. You can change all of it later.
+            Based on your Business DNA, our Elevare OS has drafted your business objectives, organization
+            structure, departments and how your capital is shared between them, and your KPIs. Add what fits,
+            edit the wording, or skip anything.
           </p>
         </div>
 

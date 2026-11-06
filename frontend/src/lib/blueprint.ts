@@ -1,6 +1,6 @@
-import { apiFetch } from "@/lib/api";
+﻿import { apiFetch } from "@/lib/api";
 
-// The "blueprint" is what the AI proposes for a company right after its first
+// The "blueprint" is what the OS proposes for a company right after its first
 // Business DNA save: departments, positions (with who each reports to), objectives
 // with key results, and clean-ups of what the company already has. Nothing is real
 // until HR approves it. Backend: docs/05_API_DESIGN.md "Blueprint".
@@ -41,7 +41,7 @@ export interface BlueprintItem {
   // the department's KPIs in percent, its target and unit, and whether a LOWER figure
   // is better (for example days to deliver). The API sends decimals as strings.
   key_result_ref: string | null;
-  // Decided by the AI, not asked of the user. A department: critical or not, and its
+  // Decided by the OS, not asked of the user. A department: critical or not, and its
   // share of the capital investment in percent (an independent expected-return target:
   // different departments' shares may add up to more than 100). A position: critical,
   // with the kind of criticality and its risk level.
@@ -122,7 +122,7 @@ export function isPending(item: BlueprintItem): boolean {
 }
 
 // What the user sees for an item that has been decided. An edited item shows HR's
-// own wording, an approved one the AI's.
+// own wording, an approved one the OS's.
 export function shownTitle(item: BlueprintItem): string {
   if ((item.status === "edited" || item.status === "approved") && item.reviewed_title) {
     return item.reviewed_title;

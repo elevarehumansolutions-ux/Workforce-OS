@@ -6,6 +6,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 import OrgChartPicker from "@/components/OrgChartPicker";
 
 import RoleSidebarNav from "@/components/SidebarNav";
+import Logo from "@/components/Logo";
 
 // The menu is shared (and filtered by role) in components/SidebarNav.tsx.
 function SidebarNav(activeLabel: string) {
@@ -17,13 +18,7 @@ function SidebarShell(activeLabel: string) {
     <aside className="hidden w-64 flex-col justify-between border-r border-white/10 bg-[#0a0e1a] py-6 lg:flex">
       <div>
         <div className="mb-8 flex items-center gap-3 px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="8" width="4" height="9" rx="1" fill="white" />
-              <rect x="13" y="3" width="4" height="14" rx="1" fill="white" />
-            </svg>
-          </div>
-          <span className="text-base font-bold text-white">Elevare</span>
+          <Logo size={36} textClassName="text-base font-bold text-white" />
         </div>
         {SidebarNav(activeLabel)}
       </div>
@@ -203,7 +198,7 @@ export default function AddEmployeePage() {
     setFormError("");
 
     if (!form.positionId) {
-      setFormError("Position is required — pick one below.");
+      setFormError("Position is required. Pick one below.");
       return;
     }
     if (!form.startDate) {
@@ -279,7 +274,7 @@ export default function AddEmployeePage() {
               <p className="font-semibold">No positions exist yet.</p>
               <p className="mt-2 text-amber-200/80">
                 Every employee needs a position, and your organization doesn&apos;t have any yet. The
-                Positions / Reporting Hierarchy editor isn&apos;t built in this app yet — for now, ask
+                Positions / Reporting Hierarchy editor isn&apos;t built in this app yet. For now, ask
                 an admin to create at least one position directly on the backend before adding
                 employees here.
               </p>
@@ -454,7 +449,7 @@ export default function AddEmployeePage() {
                             }}
                             className="mt-0.5 h-4 w-4 accent-indigo-500"
                           />
-                          <span>Just the HR record for now — I&apos;ll send login access later.</span>
+                          <span>Just the HR record for now. I&apos;ll send login access later.</span>
                         </label>
                       </div>
                     </div>
@@ -491,7 +486,7 @@ export default function AddEmployeePage() {
                         {positions.map(function (position) {
                           return (
                             <option key={position.id} value={position.id}>
-                              {position.title} — {departmentNameFor(position)}
+                              {position.title}, {departmentNameFor(position)}
                             </option>
                           );
                         })}

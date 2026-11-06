@@ -6,6 +6,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 
 import RoleSidebarNav from "@/components/SidebarNav";
 import { isHrRole, loadMe } from "@/lib/settings";
+import Logo from "@/components/Logo";
 
 // The menu is shared (and filtered by role) in components/SidebarNav.tsx.
 function SidebarNav(activeLabel: string) {
@@ -17,13 +18,7 @@ function SidebarShell(activeLabel: string) {
     <aside className="hidden w-64 flex-col justify-between border-r border-white/10 bg-[#0a0e1a] py-6 lg:flex">
       <div>
         <div className="mb-8 flex items-center gap-3 px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="8" width="4" height="9" rx="1" fill="white" />
-              <rect x="13" y="3" width="4" height="14" rx="1" fill="white" />
-            </svg>
-          </div>
-          <span className="text-base font-bold text-white">Elevare</span>
+          <Logo size={36} textClassName="text-base font-bold text-white" />
         </div>
         {SidebarNav(activeLabel)}
       </div>
@@ -206,13 +201,13 @@ export default function EmployeeDirectoryPage() {
         });
       });
       let noticeText = "Invite sent.";
-      if (result.outcome === "added") noticeText = "They already had an account — added and linked instantly.";
-      if (result.outcome === "linked") noticeText = "Linked instantly — they were already an active member.";
+      if (result.outcome === "added") noticeText = "They already had an account, added and linked instantly.";
+      if (result.outcome === "linked") noticeText = "Linked instantly. They were already an active member.";
       setRowNotice({ id: employeeId, text: noticeText });
       setInviteRowId(null);
     } catch (err) {
       if (err instanceof ApiError && err.code === "MEMBERSHIP_DEACTIVATED") {
-        setInviteError("Their membership is deactivated — reactivate them from Team Management first.");
+        setInviteError("Their membership is deactivated. Reactivate them from Team Management first.");
       } else if (err instanceof ApiError) {
         setInviteError(err.message);
       } else {
