@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
+import Logo from "@/components/Logo";
 
 type SuggestionType = "critical_position" | "revenue_allocation" | "missing_department" | "kpi_weight";
 type Decision = "pending" | "approved" | "edited" | "rejected";
@@ -319,7 +320,7 @@ export default function AiSuggestionsPage() {
   async function saveEdit(s: Suggestion) {
     setEditError("");
     // Send only what actually changed — the server rejects an edit that
-    // matches the AI's proposal, and leaves omitted fields alone.
+    // matches the OS's proposal, and leaves omitted fields alone.
     const body: Record<string, string | number> = {};
     if (s.suggestion_type === "critical_position") {
       if (editValues.criticality && editValues.criticality !== s.suggested_criticality_type) {
@@ -425,15 +426,7 @@ export default function AiSuggestionsPage() {
     <div className="min-h-screen w-full bg-[#05070f] text-white">
       <div className="flex items-center justify-between border-b border-white/10 px-8 py-4 sm:px-12">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-              <circle cx="9" cy="8" r="3" />
-              <path d="M2 20c0-3 3-5 7-5s7 2 7 5" />
-              <circle cx="17" cy="8" r="2.5" />
-              <path d="M22 20c0-2.5-2-4-4.5-4.5" />
-            </svg>
-          </div>
-          <span className="text-base font-bold">Elevare</span>
+          <Logo size={36} textClassName="text-base font-bold" />
         </div>
 
         <button
@@ -455,8 +448,8 @@ export default function AiSuggestionsPage() {
         <div className="text-center">
           <h1 className="text-3xl font-bold sm:text-4xl">Review recommendations</h1>
           <p className="mt-2 text-gray-400">
-            We look at your departments, roles and goals and recommend what to flag or adjust. Nothing changes
-            until you approve it.
+            Our OS looks at your departments, roles and goals and suggests what to flag or adjust until the next
+            quarter. Nothing changes until you approve it.
           </p>
         </div>
 

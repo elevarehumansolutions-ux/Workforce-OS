@@ -3,6 +3,7 @@
 import React, { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, setAccessToken, ApiError } from "@/lib/api";
+import Logo from "@/components/Logo";
 
 interface SignupFormData {
   fullName: string;
@@ -111,13 +112,7 @@ export default function SignupPage() {
       />
 
       <div className="relative z-10 flex items-center gap-3 px-8 pt-8 sm:px-16 sm:pt-10">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-500">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="3" y="8" width="4" height="9" rx="1" fill="white" />
-            <rect x="13" y="3" width="4" height="14" rx="1" fill="white" />
-          </svg>
-        </div>
-        <span className="text-lg font-bold">Elevare</span>
+        <Logo size={44} textClassName="text-lg font-bold" />
       </div>
 
       <div className="relative z-10 mx-auto flex min-h-[calc(100vh-96px)] w-full max-w-7xl flex-col items-center justify-center gap-16 px-8 py-12 sm:px-16 lg:flex-row lg:items-center lg:justify-between">

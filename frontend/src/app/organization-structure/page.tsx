@@ -6,6 +6,7 @@ import PositionsEditor from "@/components/PositionsEditor";
 import { isHrRole, loadMe } from "@/lib/settings";
 
 import RoleSidebarNav from "@/components/SidebarNav";
+import Logo from "@/components/Logo";
 
 // The menu is shared (and filtered by role) in components/SidebarNav.tsx.
 function SidebarNav(activeLabel: string) {
@@ -17,13 +18,7 @@ function SidebarShell(activeLabel: string) {
     <aside className="hidden w-64 flex-col justify-between border-r border-white/10 bg-[#0a0e1a] py-6 lg:flex">
       <div>
         <div className="mb-8 flex items-center gap-3 px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-500">
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="3" y="8" width="4" height="9" rx="1" fill="white" />
-              <rect x="13" y="3" width="4" height="14" rx="1" fill="white" />
-            </svg>
-          </div>
-          <span className="text-base font-bold text-white">Elevare</span>
+          <Logo size={36} textClassName="text-base font-bold text-white" />
         </div>
         {SidebarNav(activeLabel)}
       </div>

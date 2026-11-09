@@ -4,6 +4,7 @@ import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { INDUSTRY_OPTIONS, OTHER_INDUSTRY, resolveIndustry, splitIndustry } from "@/lib/industry";
+import Logo from "@/components/Logo";
 
 interface BusinessDnaFormData {
   companyName: string;
@@ -14,7 +15,7 @@ interface BusinessDnaFormData {
   timezone: string;
 }
 
-const ONBOARDING_STEPS = ["Business DNA", "Your business plan", "Invite Team"];
+const ONBOARDING_STEPS = ["Business DNA", "OS Structure", "Invite Team"];
 
 const DEFAULT_TIMEZONE = "Africa/Lagos";
 
@@ -152,15 +153,7 @@ export default function BusinessDnaPage() {
     <div className="min-h-screen w-full bg-[#05070f] text-white">
       <div className="flex items-center justify-between border-b border-white/10 px-8 py-4 sm:px-12">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-              <circle cx="9" cy="8" r="3" />
-              <path d="M2 20c0-3 3-5 7-5s7 2 7 5" />
-              <circle cx="17" cy="8" r="2.5" />
-              <path d="M22 20c0-2.5-2-4-4.5-4.5" />
-            </svg>
-          </div>
-          <span className="text-base font-bold">Elevare</span>
+          <Logo size={36} textClassName="text-base font-bold" />
         </div>
 
         <div className="hidden items-center gap-2 md:flex">
@@ -192,7 +185,7 @@ export default function BusinessDnaPage() {
         <div className="text-center">
           <h1 className="text-3xl font-bold sm:text-4xl">Tell us about your business</h1>
           <p className="mt-2 text-gray-400">
-            Configure your enterprise profile to personalize your local OS environment
+            Configure your enterprise profile to personalize the Workforce OS environment
           </p>
         </div>
 

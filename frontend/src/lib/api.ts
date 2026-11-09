@@ -90,7 +90,7 @@ export function clearAccessToken(): void {
 interface ApiFetchOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   skipAuth?: boolean;
-  /** Internal — set when retrying once after a token refresh. Do not pass this in yourself. */
+  /** Internal. Set when retrying once after a token refresh. Do not pass this in yourself. */
   _isRetry?: boolean;
 }
 
@@ -196,4 +196,3 @@ export async function apiFetch<T = unknown>(path: string, options: ApiFetchOptio
     return doFetch<T>(path, { ...options, _isRetry: true });
   }
 }
-
