@@ -29,6 +29,7 @@ from .schemas import (
     TemplateCreateRequest,
     TemplateResponse,
     TemplateUpdateRequest,
+    ValueSummaryResponse,
 )
 from .service import InstanceService, StepService, TemplateService
 
@@ -199,6 +200,13 @@ async def delete_template(
 # Instances (running cases)
 # ---------------------------------------------------------------------------
 
+async def _with_value(service: InstanceService, instance) -> InstanceResponse:
+    """A case as the API shows it: its own fields plus the state of its money figure."""
+    fields = InstanceResponse.model_validate(instance).model_dump()
+    fields.update(await service.value_fields(instance))
+    return InstanceResponse(**fields)
+
+
 @router.post("/workflow-instances", status_code=200)
 async def start_instance(
     data: InstanceCreateRequest,
@@ -225,8 +233,10 @@ async def start_instance(
         ValidationException: If the template has no steps.
     """
     service = InstanceService(db)
-    instance = await service.start_instance(caller, data.template_id, data.subject)
-    response = InstanceResponse.model_validate(instance)
+    instance = await service.start_instance(
+        caller, data.template_id, data.subject, data.client_value, data.client_deadline_at
+    )
+    response = await _with_value(service, instance)
     await db.commit()
     return response
 
@@ -259,8 +269,31 @@ async def list_instances(
     """
     service = InstanceService(db)
     result = await service.list_instances(caller, status, template_id, page, limit)
-    result.data = [InstanceResponse.model_validate(instance) for instance in result.data]
+    result.data = [await _with_value(service, instance) for instance in result.data]
     return result
+
+
+@router.get("/workflow-instances/value-summary", status_code=200)
+async def get_value_summary(
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> ValueSummaryResponse:
+    """The money view: what is at risk, lost, secured and on track across the caller's cases.
+
+    HR administrators and business executives see every case's figure; everyone else only
+    the cases they may already see. A case's figure is counted once however many of its
+    tasks are late. Declared before ``/workflow-instances/{instance_id}`` so the word
+    ``value-summary`` is not read as an id.
+
+    Args:
+        db: Database session dependency.
+        caller: Caller's membership.
+
+    Returns:
+        The totals, counts and the list of at-risk and lost cases.
+    """
+    summary = await InstanceService(db).value_summary(caller)
+    return ValueSummaryResponse(**summary)
 
 
 @router.get("/workflow-instances/{instance_id}", status_code=200)
@@ -284,7 +317,7 @@ async def get_instance(
     """
     service = InstanceService(db)
     found = await service.get_instance(caller, instance_id)
-    base = InstanceResponse.model_validate(found["instance"]).model_dump()
+    base = (await _with_value(service, found["instance"])).model_dump()
     return InstanceDetailResponse(
         **base,
         steps=[StepResponse.model_validate(step) for step in found["steps"]],
@@ -319,7 +352,7 @@ async def cancel_instance(
     """
     service = InstanceService(db)
     instance = await service.cancel_instance(caller, instance_id, data.reason)
-    response = InstanceResponse.model_validate(instance)
+    response = await _with_value(service, instance)
     await db.commit()
     return response
 

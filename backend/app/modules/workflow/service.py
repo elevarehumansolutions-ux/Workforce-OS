@@ -7,6 +7,7 @@ a successful call, same convention as the other modules. See
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,11 +31,13 @@ from app.modules.audit_and_notification.enums import NotificationCategory
 from app.modules.audit_and_notification.service import AuditService, NotificationService
 from app.modules.organization.enums import EmployeeStatus
 from app.modules.organization.repository import DepartmentRepository, EmployeeRepository
+from app.modules.tasks.overdue import is_overdue
 from app.modules.tasks.service import TaskService
 from app.modules.tenancy_identity.enums import MembershipRole
 from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.repository import OrganizationRepository, UserRepository
 
+from . import value
 from .deadlines import add_business_hours
 from .enums import InstanceStatus
 from .models import WorkflowInstance, WorkflowStep, WorkflowTemplate
@@ -526,8 +529,99 @@ class InstanceService:
         self._audit = AuditService(db)
         self._notifications = NotificationService(db)
 
+    async def value_fields(self, instance: WorkflowInstance) -> dict:
+        """The money state of one case, ready to merge into its response.
+
+        Only a case that carries a figure needs its tasks looked at (to see whether one is
+        overdue), so cases without a figure cost nothing extra.
+        """
+        if instance.client_value is None:
+            return {"value_status": value.NONE, "value_at_risk": Decimal(0), "value_lost": Decimal(0)}
+        now = datetime.now(UTC)
+        has_overdue = False
+        if instance.status == InstanceStatus.IN_PROGRESS.value:
+            tasks = await self._task_service.list_tasks_for_workflow_instance(instance.id)
+            has_overdue = any(is_overdue(task, now) for task in tasks)
+        state = value.case_value_status(
+            client_value=instance.client_value,
+            deadline_at=instance.client_deadline_at,
+            status=instance.status,
+            completed_at=instance.completed_at,
+            now=now,
+            has_overdue_task=has_overdue,
+        )
+        at_risk, lost = value.value_amounts(instance.client_value, state)
+        return {"value_status": state, "value_at_risk": at_risk, "value_lost": lost}
+
+    async def value_summary(self, caller: Membership) -> dict:
+        """The money view across the cases the caller may see (HR and executives: all of them)."""
+        scope = await self._scope_for(caller)
+        cases = await self._instance_repo.list_cases_with_a_figure(scope)
+        now = datetime.now(UTC)
+        totals = {value.AT_RISK: Decimal(0), value.LOST: Decimal(0), value.SECURED: Decimal(0), value.ON_TRACK: Decimal(0)}
+        counts = {value.AT_RISK: 0, value.LOST: 0}
+        without_deadline = 0
+        listed: list[dict] = []
+        for case in cases:
+            overdue = []
+            if case.status == InstanceStatus.IN_PROGRESS.value:
+                tasks = await self._task_service.list_tasks_for_workflow_instance(case.id)
+                overdue = [task for task in tasks if is_overdue(task, now)]
+            state = value.case_value_status(
+                client_value=case.client_value,
+                deadline_at=case.client_deadline_at,
+                status=case.status,
+                completed_at=case.completed_at,
+                now=now,
+                has_overdue_task=len(overdue) > 0,
+            )
+            if state == value.NONE:
+                continue
+            totals[state] += case.client_value
+            if case.client_deadline_at is None and case.status == InstanceStatus.IN_PROGRESS.value:
+                without_deadline += 1
+            if state in counts:
+                counts[state] += 1
+                listed.append(
+                    {
+                        "id": case.id,
+                        "subject": case.subject,
+                        "status": case.status,
+                        "value_status": state,
+                        "client_value": case.client_value,
+                        "client_deadline_at": case.client_deadline_at,
+                        "overdue_tasks": [
+                            {
+                                "id": task.id,
+                                "title": task.title,
+                                "assigned_to_employee_id": task.assigned_to_employee_id,
+                                "department_id": task.department_id,
+                                "due_at": task.due_at,
+                            }
+                            for task in overdue
+                        ],
+                    }
+                )
+        # At risk first, then lost; the biggest figure first within each.
+        listed.sort(key=lambda row: (row["value_status"] != value.AT_RISK, -row["client_value"]))
+        return {
+            "at_risk_total": totals[value.AT_RISK],
+            "lost_total": totals[value.LOST],
+            "secured_total": totals[value.SECURED],
+            "on_track_total": totals[value.ON_TRACK],
+            "cases_at_risk": counts[value.AT_RISK],
+            "cases_lost": counts[value.LOST],
+            "cases_without_deadline": without_deadline,
+            "cases": listed,
+        }
+
     async def start_instance(
-        self, caller: Membership, template_id: uuid.UUID, subject: str
+        self,
+        caller: Membership,
+        template_id: uuid.UUID,
+        subject: str,
+        client_value: Decimal | None = None,
+        client_deadline_at: datetime | None = None,
     ) -> WorkflowInstance:
         """Start a case from a template and create the first step's task.
 
@@ -539,6 +633,10 @@ class InstanceService:
             caller: The caller's membership (gives the organization and user).
             template_id: The process to run.
             subject: What the case is about, such as a client's name.
+            client_value: What the job is worth in naira (for example the client's fee),
+                shared by its tasks; ``None`` when no figure applies.
+            client_deadline_at: The date the client expects it done; must be in the
+                future. Missing it makes the figure count as lost.
 
         Returns:
             The new case, in progress, with its first task already created.
@@ -550,6 +648,8 @@ class InstanceService:
             ValidationException: If the template has no steps.
         """
         await self._check_may_start(caller)
+        if client_deadline_at is not None and client_deadline_at <= datetime.now(UTC):
+            raise ValidationException(message="The client's final deadline must be in the future")
 
         template = await self._template_repo.get_template_by_id(template_id, lock=True)
         if template is None:
@@ -568,6 +668,8 @@ class InstanceService:
                 "workflow_template_id": template.id,
                 "subject": subject,
                 "started_by_user_id": caller.user_id,
+                "client_value": client_value,
+                "client_deadline_at": client_deadline_at,
             }
         )
         await self._create_task_for_step(instance, template, steps[0], len(steps), datetime.now(UTC))
@@ -580,7 +682,14 @@ class InstanceService:
             changes={
                 "old": None,
                 "new": jsonable_encoder(
-                    {"workflow_template_id": template.id, "subject": subject, "status": instance.status}
+                    {
+                        "workflow_template_id": template.id,
+                        "subject": subject,
+                        "status": instance.status,
+                        # Only recorded when given, so a plain case's audit entry is unchanged.
+                        **({"client_value": client_value} if client_value is not None else {}),
+                        **({"client_deadline_at": client_deadline_at} if client_deadline_at is not None else {}),
+                    }
                 ),
             },
         )

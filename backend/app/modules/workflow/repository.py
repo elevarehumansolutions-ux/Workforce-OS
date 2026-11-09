@@ -263,6 +263,16 @@ class InstanceRepository:
         stmt = stmt.order_by(WorkflowInstance.started_at.desc(), WorkflowInstance.id.desc())
         return await paginate(stmt, page, limit, self._db)
 
+    async def list_cases_with_a_figure(self, scope: InstanceScope) -> list[WorkflowInstance]:
+        """Every case ``scope`` may see that carries a money figure, newest first.
+
+        Used by the money summary; the same visibility rule as the case list.
+        """
+        stmt = self._only_visible(
+            select(WorkflowInstance).where(WorkflowInstance.client_value.is_not(None)), scope
+        ).order_by(WorkflowInstance.started_at.desc(), WorkflowInstance.id.desc())
+        return list((await self._db.execute(stmt)).scalars().all())
+
     async def create_instance(self, fields: dict) -> WorkflowInstance:
         """Insert a new case, flush, and refresh it from the database.
 

@@ -1,5 +1,6 @@
 """Pydantic request and response schemas for the Workflow module."""
 
+import decimal
 import uuid
 from datetime import datetime
 
@@ -69,6 +70,10 @@ class InstanceCreateRequest(BaseModel):
 
     template_id: uuid.UUID
     subject: str = Field(min_length=1, max_length=200)
+    # What the job is worth in naira (for example the client's fee), shared by its tasks.
+    client_value: decimal.Decimal | None = Field(default=None, ge=0, max_digits=16, decimal_places=2)
+    # The date the client expects the job done. Missing it makes the figure count as lost.
+    client_deadline_at: datetime | None = None
 
 
 class InstanceCancelRequest(BaseModel):
@@ -97,6 +102,13 @@ class InstanceResponse(BaseModel):
     started_at: datetime
     completed_at: datetime | None
     cancel_reason: str | None
+    client_value: decimal.Decimal | None = None
+    client_deadline_at: datetime | None = None
+    # The state of the figure: none, on_track, at_risk, lost or secured (see value.py), and
+    # the amount sitting in "at risk" or "lost" (the figure counts in at most one).
+    value_status: str = "none"
+    value_at_risk: decimal.Decimal = decimal.Decimal(0)
+    value_lost: decimal.Decimal = decimal.Decimal(0)
     created_at: datetime
     updated_at: datetime
 
@@ -202,3 +214,44 @@ class InstanceDetailResponse(InstanceResponse):
 
     steps: list[StepResponse]
     tasks: list[InstanceTaskResponse]
+
+
+class OverdueTaskBrief(BaseModel):
+    """One overdue task that is putting a case's figure at risk."""
+
+    id: uuid.UUID
+    title: str
+    assigned_to_employee_id: uuid.UUID | None
+    department_id: uuid.UUID
+    due_at: datetime | None
+
+
+class ValueCase(BaseModel):
+    """One case that carries a figure and is at risk or lost, for the summary."""
+
+    id: uuid.UUID
+    subject: str
+    status: str
+    value_status: str
+    client_value: decimal.Decimal
+    client_deadline_at: datetime | None
+    # The tasks holding it at risk (empty when the figure is lost).
+    overdue_tasks: list[OverdueTaskBrief]
+
+
+class ValueSummaryResponse(BaseModel):
+    """The money view across the cases the caller may see.
+
+    Each case's figure is counted ONCE in the totals, however many of its tasks are
+    late. ``cases`` lists the at-risk and lost cases, at risk first, biggest figure first.
+    """
+
+    at_risk_total: decimal.Decimal
+    lost_total: decimal.Decimal
+    secured_total: decimal.Decimal
+    on_track_total: decimal.Decimal
+    cases_at_risk: int
+    cases_lost: int
+    # Cases with a figure but no final deadline: they can be at risk, never lost by time.
+    cases_without_deadline: int
+    cases: list[ValueCase]
