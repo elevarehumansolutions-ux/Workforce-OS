@@ -100,6 +100,8 @@ export default function BlueprintPage() {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [acceptingAll, setAcceptingAll] = useState(false);
   const [generating, setGenerating] = useState(false);
+  // The id of the set being replaced while a new one is prepared, so the screen waits for a different one.
+  const [replacingBatch, setReplacingBatch] = useState<string | null>(null);
   const [capital, setCapital] = useState<number | null>(null);
   const [chartMode, setChartMode] = useState<"departments" | "roles">("departments");
   // The plan is shown one section at a time, chosen from the rail on the left.
@@ -153,15 +155,19 @@ export default function BlueprintPage() {
           const list = await fetchLatestBlueprint();
           if (cancelled) return;
           setLoadError("");
-          setItems(list);
-          if (list.length === 0 && polls < MAX_POLLS) {
+          // After "prepare a new set", the newest set is still the OLD one until the new one is
+          // saved: keep waiting for a set with a different batch id.
+          const stillTheOldSet =
+            replacingBatch !== null && list.length > 0 && list[0].batch_id === replacingBatch;
+          setItems(stillTheOldSet ? [] : list);
+          if ((list.length === 0 || stillTheOldSet) && polls < MAX_POLLS) {
             polls += 1;
             setWaiting(true);
             timer = setTimeout(check, POLL_EVERY_MS);
             return;
           }
           setWaiting(false);
-          setTimedOut(list.length === 0);
+          setTimedOut(list.length === 0 || stillTheOldSet);
           setLoading(false);
         } catch (err) {
           if (cancelled) return;
@@ -181,7 +187,7 @@ export default function BlueprintPage() {
         if (timer) clearTimeout(timer);
       };
     },
-    [pollRound]
+    [pollRound, replacingBatch]
   );
 
   async function refresh() {
@@ -275,18 +281,41 @@ export default function BlueprintPage() {
     }
   }
 
+  // "Prepare a new set": items still waiting are set aside (skipped) first, because a new set can
+  // only be prepared once nothing is waiting. Anything already added is kept: the new set
+  // recognises it and does not propose it again.
   async function handleGenerateAgain() {
+    const waitingItems = items.filter(isPending);
+    if (waitingItems.length > 0) {
+      const ok = window.confirm(
+        "This will set aside the " + waitingItems.length + " item" + (waitingItems.length === 1 ? "" : "s") +
+          " still waiting and prepare a fresh set. Anything you have already added is kept. Continue?"
+      );
+      if (!ok) return;
+    }
     setActionError("");
+    setNotice("");
     setGenerating(true);
     try {
+      for (const item of waitingItems) {
+        try {
+          await rejectBlueprintItem(item.id);
+        } catch (err) {
+          // Already decided by someone else: nothing to set aside.
+          if (!(err instanceof ApiError && err.code === "BLUEPRINT_ITEM_ALREADY_REVIEWED")) throw err;
+        }
+      }
+      const oldBatch = items.length > 0 ? items[0].batch_id : null;
       const result = await generateBlueprint();
       if (result.status === "already_pending") {
-        setNotice("You still have suggestions waiting for review.");
+        setNotice("Some items are still waiting. Review or skip them first.");
         await refresh();
       } else {
+        setReplacingBatch(oldBatch);
         setItems([]);
         setTimedOut(false);
         setLoading(true);
+        setActiveSection("departments");
         setPollRound(pollRound + 1);
       }
     } catch (err) {
@@ -1203,12 +1232,16 @@ export default function BlueprintPage() {
               <button
                 type="button"
                 onClick={handleGenerateAgain}
-                disabled={generating || pendingCount > 0}
-                title={pendingCount > 0 ? "Review the current suggestions first" : undefined}
-                className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-40"
+                disabled={generating}
+                className="text-sm font-medium text-indigo-400 underline-offset-2 hover:text-indigo-300 hover:underline disabled:opacity-40"
               >
-                {generating ? "Starting…" : "Prepare a new set of recommendations"}
+                {generating ? "Starting…" : "Not what you wanted? Prepare a new set of recommendations"}
               </button>
+              <p className="mt-1 text-xs text-gray-500">
+                {pendingCount > 0
+                  ? "Items still waiting will be set aside. Anything you have already added is kept."
+                  : "Anything you have already added is kept."}
+              </p>
             </div>
               </div>
             </div>
