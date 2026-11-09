@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { resumePath } from "@/lib/onboarding";
 import AppShell from "@/components/AppShell";
+import ValueAtRiskCard from "@/components/ValueAtRiskCard";
 import { fetchAllPages, fullName, roleLabel, formatDateTime } from "@/lib/tasks";
 import type { Department, Employee, PaginatedResponse, Position } from "@/lib/tasks";
 import { canReadAuditLog, isHrRole, loadMe, titleCase } from "@/lib/settings";
@@ -310,6 +311,10 @@ function DashboardBody() {
       {state.error ? (
         <div className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{state.error}</div>
       ) : null}
+
+      <div className="mb-4">
+        <ValueAtRiskCard />
+      </div>
       {state.loading ? <p className="text-sm text-gray-400">Loading…</p> : null}
 
       {data ? (

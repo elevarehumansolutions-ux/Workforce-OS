@@ -33,6 +33,11 @@ function StartWorkflowContent() {
   const [templatesResult, setTemplatesResult] = useState<TemplatesResult | null>(null);
   const [chosenId, setChosenId] = useState(presetTemplate);
   const [subject, setSubject] = useState("");
+  // What the job is worth (naira) and the client's final deadline; both optional.
+  const [jobValue, setJobValue] = useState("");
+  const [deadline, setDeadline] = useState("");
+  // Set when a figure was entered without a deadline: the person must confirm or add one.
+  const [askAboutDeadline, setAskAboutDeadline] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const [stepsResult, setStepsResult] = useState<StepsResult | null>(null);
@@ -113,7 +118,7 @@ function StartWorkflowContent() {
     [selectedId, stepsKey]
   );
 
-  async function start() {
+  async function start(skipDeadlineWarning: boolean) {
     setError("");
     if (!selectedId) {
       setError("Choose a template.");
@@ -123,11 +128,40 @@ function StartWorkflowContent() {
       setError("Enter who or what this case is for, e.g. a client name.");
       return;
     }
+    // The figure, as a number: "2,000,000" and "2000000" are both fine.
+    const cleaned = jobValue.replace(/[,\s₦]/g, "");
+    const figure = cleaned === "" ? null : Number(cleaned);
+    if (figure !== null && (Number.isNaN(figure) || figure < 0)) {
+      setError("Enter the figure as a number of naira, for example 2000000.");
+      return;
+    }
+    // A deadline is entered as a date; the client expects it done by the end of that day.
+    let deadlineIso: string | null = null;
+    if (deadline !== "") {
+      const end = new Date(deadline + "T23:59:00");
+      if (end.getTime() <= Date.now()) {
+        setError("The client's final deadline must be a date in the future.");
+        return;
+      }
+      deadlineIso = end.toISOString();
+    }
+    // A figure with no deadline can be at risk but can never be counted as lost by time,
+    // so tell the person first and let them add a deadline or carry on without one.
+    if (figure !== null && figure > 0 && deadlineIso === null && !skipDeadlineWarning) {
+      setAskAboutDeadline(true);
+      return;
+    }
+    setAskAboutDeadline(false);
     setStarting(true);
     try {
       const created = await apiFetch<WorkflowCase>("/workflow-instances", {
         method: "POST",
-        body: { template_id: selectedId, subject: subject.trim() },
+        body: {
+          template_id: selectedId,
+          subject: subject.trim(),
+          client_value: figure,
+          client_deadline_at: deadlineIso,
+        },
       });
       router.push("/workflow/case-detail?id=" + created.id);
     } catch (err) {
@@ -213,6 +247,68 @@ function StartWorkflowContent() {
               </div>
 
               <div className="rounded-lg border border-white/10 bg-[#0a0e1a] p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">What this job is worth (optional)</p>
+                <p className="mt-1 text-xs text-gray-500">
+                  For example the fee a client pays you for this job. Every task in the case shares it. While a task runs
+                  late, the figure shows as at risk; if the job is cancelled or the deadline is missed, it counts as lost.
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-300">Amount (₦)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={jobValue}
+                      onChange={function (e) {
+                        setJobValue(e.target.value);
+                        setAskAboutDeadline(false);
+                      }}
+                      placeholder="e.g. 2,000,000"
+                      className={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-300">Client&apos;s final deadline</label>
+                    <input
+                      type="date"
+                      value={deadline}
+                      onChange={function (e) {
+                        setDeadline(e.target.value);
+                        setAskAboutDeadline(false);
+                      }}
+                      className={inputClass + " [color-scheme:dark]"}
+                    />
+                  </div>
+                </div>
+
+                {askAboutDeadline ? (
+                  <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                    <p className="text-sm font-medium text-amber-200">No final deadline was entered.</p>
+                    <p className="mt-1 text-xs text-amber-200/80">
+                      Without a deadline this figure can show as at risk, but it can only be counted as lost if you
+                      cancel the case. Add the date the client expects the job done, or save without one.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={function () { setAskAboutDeadline(false); }}
+                        className="rounded-lg bg-amber-500 px-4 py-2 text-xs font-semibold text-black hover:bg-amber-400"
+                      >
+                        Add a deadline
+                      </button>
+                      <button
+                        type="button"
+                        onClick={function () { start(true); }}
+                        className="rounded-lg border border-white/20 px-4 py-2 text-xs font-medium text-gray-200 hover:bg-white/5"
+                      >
+                        Save without a deadline
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-lg border border-white/10 bg-[#0a0e1a] p-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">What will happen</p>
                 {stepsLoading ? <p className="mt-2 text-sm text-gray-400">Loading steps…</p> : null}
                 {stepsError ? <p className="mt-2 text-sm text-red-300">{stepsError}</p> : null}
@@ -244,7 +340,7 @@ function StartWorkflowContent() {
                 <button
                   type="button"
                   disabled={starting || stepsLoading || noSteps || !!stepsError}
-                  onClick={start}
+                  onClick={function () { start(false); }}
                   className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {starting ? "Starting…" : "Start workflow"}

@@ -1,4 +1,5 @@
-﻿import { isHr } from "@/lib/tasks";
+﻿import { apiFetch } from "@/lib/api";
+import { isHr } from "@/lib/tasks";
 import type { CallerContext, TaskStatus } from "@/lib/tasks";
 
 export interface WorkflowTemplate {
@@ -40,8 +41,70 @@ export interface WorkflowCase {
   started_at: string;
   completed_at: string | null;
   cancel_reason: string | null;
+  // What the job is worth in naira (for example the client's fee); decimals arrive as strings.
+  client_value: string | null;
+  // The date the client expects the job done. Missing it makes the figure count as lost.
+  client_deadline_at: string | null;
+  // The state of the figure: none, on_track, at_risk, lost or secured. At risk and lost carry
+  // the amount; a case's figure sits in at most one of them.
+  value_status: ValueStatus;
+  value_at_risk: string;
+  value_lost: string;
   created_at: string;
   updated_at: string;
+}
+
+export type ValueStatus = "none" | "on_track" | "at_risk" | "lost" | "secured";
+
+export function valueStatusLabel(status: ValueStatus): string {
+  if (status === "at_risk") return "At risk";
+  if (status === "lost") return "Lost";
+  if (status === "secured") return "Secured";
+  if (status === "on_track") return "On track";
+  return "";
+}
+
+export function valueStatusClasses(status: ValueStatus): string {
+  if (status === "at_risk") return "bg-amber-500/15 text-amber-300";
+  if (status === "lost") return "bg-red-500/15 text-red-300";
+  if (status === "secured") return "bg-emerald-500/15 text-emerald-300";
+  return "bg-indigo-500/15 text-indigo-300";
+}
+
+export interface OverdueTaskBrief {
+  id: string;
+  title: string;
+  assigned_to_employee_id: string | null;
+  department_id: string;
+  due_at: string | null;
+}
+
+export interface ValueCase {
+  id: string;
+  subject: string;
+  status: CaseStatus;
+  value_status: ValueStatus;
+  client_value: string;
+  client_deadline_at: string | null;
+  // The tasks holding the figure at risk (empty when it is already lost).
+  overdue_tasks: OverdueTaskBrief[];
+}
+
+// The money view across the cases the caller may see. Each case's figure is counted ONCE
+// in the totals, however many of its tasks are late.
+export interface ValueSummary {
+  at_risk_total: string;
+  lost_total: string;
+  secured_total: string;
+  on_track_total: string;
+  cases_at_risk: number;
+  cases_lost: number;
+  cases_without_deadline: number;
+  cases: ValueCase[];
+}
+
+export function loadValueSummary(): Promise<ValueSummary> {
+  return apiFetch<ValueSummary>("/workflow-instances/value-summary", { method: "GET" });
 }
 
 export interface CaseTask {
