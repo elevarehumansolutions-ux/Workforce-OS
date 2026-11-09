@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import type { FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { errorMessage, isHr, loadCaller, roleLabel } from "@/lib/tasks";
+import { departmentName, errorMessage, isHr, loadCaller, roleLabel } from "@/lib/tasks";
 import type { CallerContext } from "@/lib/tasks";
+import { loadObjectives } from "@/lib/strategy";
+import type { Objective } from "@/lib/strategy";
 import { useLoad } from "@/lib/useLoad";
 import {
   createKpi,
@@ -24,11 +27,31 @@ const INPUT = "w-full rounded-lg border border-white/10 bg-[#05070f] px-3 py-2 t
 const BUTTON = "rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-50";
 const GHOST = "rounded-lg border border-white/10 px-3 py-1.5 text-xs text-gray-200 hover:bg-white/5";
 
-const EMPTY_FORM: KpiForm = { name: "", weight: "", target: "", unit: "", isInverse: false, trackingMode: "manual" };
+const EMPTY_FORM: KpiForm = {
+  name: "",
+  description: "",
+  keyResultId: "",
+  weight: "",
+  target: "",
+  unit: "",
+  isInverse: false,
+  trackingMode: "manual",
+};
+
+// A key result a KPI can be linked to, shown under its objective in the picker.
+interface KeyResultChoice {
+  id: string;
+  text: string;
+  objective: string;
+  // Company-wide, or the department the objective belongs to.
+  scope: string;
+}
 
 function formFromKpi(k: KpiFull): KpiForm {
   return {
     name: k.name,
+    description: k.description === null ? "" : k.description,
+    keyResultId: k.key_result_id === null ? "" : k.key_result_id,
     weight: String(Number(k.weight)),
     target: k.target_value === null ? "" : String(Number(k.target_value)),
     unit: k.unit === null ? "" : k.unit,
@@ -37,10 +60,27 @@ function formFromKpi(k: KpiFull): KpiForm {
   };
 }
 
+// Group the choices by objective, so the picker reads "Objective: Deliver on time" then its key results.
+function groupChoices(choices: KeyResultChoice[]): { label: string; choices: KeyResultChoice[] }[] {
+  const groups: { label: string; choices: KeyResultChoice[] }[] = [];
+  choices.forEach(function (c) {
+    const label = c.scope + ": " + c.objective;
+    let group = groups.find(function (g) { return g.label === label; });
+    if (!group) {
+      group = { label: label, choices: [] };
+      groups.push(group);
+    }
+    group.choices.push(c);
+  });
+  return groups;
+}
+
 // ---- the add / edit form (same fields for both)
 
 function KpiFormFields(props: {
   initial: KpiForm;
+  // The key results this KPI could measure.
+  keyResultChoices: KeyResultChoice[];
   submitLabel: string;
   onSubmit: (form: KpiForm) => Promise<void>;
   onCancel?: () => void;
@@ -82,6 +122,30 @@ function KpiFormFields(props: {
       <div className="grid gap-2 sm:grid-cols-2">
         <input className={INPUT} placeholder="KPI name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input className={INPUT} placeholder="Weight (% of department)" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} />
+        <input
+          className={INPUT + " sm:col-span-2"}
+          placeholder="What does this measure? (optional)"
+          value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+        />
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-xs text-gray-400">Measures this key result (optional)</label>
+          <select className={INPUT} value={form.keyResultId} onChange={(e) => setForm({ ...form, keyResultId: e.target.value })}>
+            <option value="">None: not tied to a key result</option>
+            {groupChoices(props.keyResultChoices).map(function (group) {
+              return (
+                <optgroup key={group.label} label={group.label}>
+                  {group.choices.map(function (c) {
+                    return <option key={c.id} value={c.id}>{c.text}</option>;
+                  })}
+                </optgroup>
+              );
+            })}
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            This ties the KPI to your strategy. Employees are scored from tasks linked to the KPI.
+          </p>
+        </div>
         <input className={INPUT} placeholder="Target (optional)" value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} />
         <input className={INPUT} placeholder="Unit, e.g. deals (optional)" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
         <select className={INPUT} value={form.trackingMode} onChange={(e) => setForm({ ...form, trackingMode: e.target.value as "manual" | "task_count" })}>
@@ -259,6 +323,7 @@ function KpiRow(props: {
   siblings: KpiFull[];
   // The department's expected yearly return, or null when not known.
   departmentReturn: number | null;
+  keyResultChoices: KeyResultChoice[];
   canEdit: boolean;
   canRecord: boolean;
   reloadKey: number;
@@ -287,6 +352,7 @@ function KpiRow(props: {
       <div className="rounded-xl border border-indigo-500/30 bg-[#0d1220]/80 p-4">
         <KpiFormFields
           initial={formFromKpi(k)}
+          keyResultChoices={props.keyResultChoices}
           submitLabel="Save changes"
           onSubmit={async function (form) {
             await updateKpi(k.id, form);
@@ -299,6 +365,7 @@ function KpiRow(props: {
     );
   }
 
+  const linkedKeyResult = props.keyResultChoices.find(function (c) { return c.id === k.key_result_id; });
   const target = k.target_value !== null ? Number(k.target_value) + (k.unit ? " " + k.unit : "") : "Not set";
   const kpiReturn = props.departmentReturn !== null ? (props.departmentReturn * Number(k.weight)) / 100 : null;
   const label = "text-[11px] uppercase tracking-wide text-gray-500";
@@ -349,6 +416,13 @@ function KpiRow(props: {
           </p>
         </div>
       </div>
+      <p className="mt-2 text-xs text-gray-500">
+        {linkedKeyResult
+          ? "Measures the key result: " + linkedKeyResult.text + " (" + linkedKeyResult.objective + ")"
+          : k.key_result_id
+          ? "Measures a key result in another department's strategy."
+          : "Not tied to a key result."}
+      </p>
       <div className="mt-3">
         <KpiStanding kpi={k} reloadKey={props.reloadKey} />
       </div>
@@ -363,10 +437,14 @@ function departmentChoices(ctx: CallerContext) {
   return ctx.departments;
 }
 
-export default function KpisPage() {
-  const [chosen, setChosen] = useState("");
+function KpisContent() {
+  // "Add a KPI for this key result" on the Strategy screen opens this page with the department
+  // chosen, the add form open and that key result already selected.
+  const params = useSearchParams();
+  const presetKeyResult = params.get("keyResult") || "";
+  const [chosen, setChosen] = useState(params.get("department") || "");
   const [reloads, setReloads] = useState(0);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(params.get("add") === "1");
   const caller = useLoad("caller", loadCaller, "Could not load your details.");
   const ctx = caller.data;
 
@@ -395,6 +473,23 @@ export default function KpisPage() {
     "Could not load the department's expected return."
   );
   const annualReturn = departmentReturn.data ? departmentReturn.data.annualReturn : null;
+
+  // The key results a KPI could measure: this department's objectives and the company-wide ones.
+  const objectives = useLoad<Objective[]>("objectives|" + reloads, loadObjectives, "Could not load the objectives.");
+  const keyResultChoices: KeyResultChoice[] = [];
+  if (objectives.data && ctx) {
+    for (const o of objectives.data) {
+      if (o.department_id !== null && o.department_id !== departmentId) continue;
+      for (const kr of o.keyResults) {
+        keyResultChoices.push({
+          id: kr.id,
+          text: kr.description,
+          objective: o.title,
+          scope: o.department_id === null ? "Company-wide" : departmentName(ctx, o.department_id),
+        });
+      }
+    }
+  }
 
   const canEdit = ctx ? isHr(ctx) : false;
   const canRecord = ctx ? isHr(ctx) || ctx.role === "business_executive" : false;
@@ -463,7 +558,8 @@ export default function KpisPage() {
       {adding ? (
         <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-5">
           <KpiFormFields
-            initial={EMPTY_FORM}
+            initial={{ ...EMPTY_FORM, keyResultId: presetKeyResult }}
+            keyResultChoices={keyResultChoices}
             submitLabel="Add KPI"
             onSubmit={async function (form) {
               await createKpi(departmentId, form);
@@ -482,9 +578,18 @@ export default function KpisPage() {
 
       <div className="space-y-3">
         {list.map(function (k) {
-          return <KpiRow key={k.id + reloads} kpi={k} siblings={list} departmentReturn={annualReturn} canEdit={canEdit} canRecord={canRecord} reloadKey={reloads} onChanged={reload} />;
+          return <KpiRow key={k.id + reloads} kpi={k} siblings={list} departmentReturn={annualReturn} keyResultChoices={keyResultChoices} canEdit={canEdit} canRecord={canRecord} reloadKey={reloads} onChanged={reload} />;
         })}
       </div>
     </AppShell>
+  );
+}
+
+// useSearchParams needs a Suspense boundary around it.
+export default function KpisPage() {
+  return (
+    <Suspense fallback={null}>
+      <KpisContent />
+    </Suspense>
   );
 }
