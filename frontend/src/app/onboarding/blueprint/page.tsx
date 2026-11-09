@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
+import ChartViewport from "@/components/ChartViewport";
 import {
   acceptAllBlueprint,
   approveBlueprintItem,
@@ -40,6 +41,18 @@ interface Editing {
   id: string;
   text: string;
 }
+
+// The sections of the plan, in the order a person should go through them: the departments
+// (and their money) and the roles first, because objectives and KPIs hang off them.
+type SectionKey = "departments" | "chart" | "objectives" | "kpis" | "tidyups";
+
+const SECTIONS: { key: SectionKey; label: string; hint: string; kinds: string[] }[] = [
+  { key: "departments", label: "Departments and capital", hint: "Who gets what share", kinds: ["department"] },
+  { key: "chart", label: "Organization chart", hint: "Who reports to whom", kinds: ["position"] },
+  { key: "objectives", label: "Objectives", hint: "Goals and key results", kinds: ["objective", "key_result"] },
+  { key: "kpis", label: "KPIs", hint: "How progress is measured", kinds: ["kpi"] },
+  { key: "tidyups", label: "Tidy-ups", hint: "Fixes to what you have", kinds: ["rename_department", "rename_position", "review_note"] },
+];
 
 // The capital investment from the Business DNA (naira), or null when none was entered
 // or the caller may not read it. Used to turn each department's percentage into money.
@@ -89,6 +102,11 @@ export default function BlueprintPage() {
   const [generating, setGenerating] = useState(false);
   const [capital, setCapital] = useState<number | null>(null);
   const [chartMode, setChartMode] = useState<"departments" | "roles">("departments");
+  // The plan is shown one section at a time, chosen from the rail on the left.
+  const [activeSection, setActiveSection] = useState<SectionKey>("departments");
+  const [acceptingSection, setAcceptingSection] = useState(false);
+  // The organization chart can fill the whole screen (zoom and drag live in ChartViewport).
+  const [chartFull, setChartFull] = useState(false);
   const [openDepartment, setOpenDepartment] = useState<string | null>(null);
 
   useEffect(function () {
@@ -230,6 +248,33 @@ export default function BlueprintPage() {
     }
   }
 
+  // "Accept this section": approve every item still waiting in it, one after another. The
+  // server approves an item's parents first, so nothing is left without its department.
+  async function acceptSection(sectionItems: BlueprintItem[]) {
+    setActionError("");
+    setNotice("");
+    setAcceptingSection(true);
+    let added = 0;
+    try {
+      for (const item of sectionItems) {
+        if (!isPending(item)) continue;
+        try {
+          await approveBlueprintItem(item.id);
+          added += 1;
+        } catch (err) {
+          // One that cannot be added (for example already added through a parent) does not stop the rest.
+          if (!(err instanceof ApiError && err.code === "BLUEPRINT_ITEM_ALREADY_REVIEWED")) {
+            setActionError(err instanceof ApiError ? err.message : "Couldn't add one of the suggestions.");
+          }
+        }
+      }
+      if (added > 0) setNotice(added + (added === 1 ? " suggestion added." : " suggestions added."));
+    } finally {
+      await refresh();
+      setAcceptingSection(false);
+    }
+  }
+
   async function handleGenerateAgain() {
     setActionError("");
     setGenerating(true);
@@ -253,6 +298,24 @@ export default function BlueprintPage() {
 
   const view = buildBlueprintView(items, existingDepartments, existingPositions, capital);
   const pendingCount = items.filter(isPending).length;
+
+  // For the rail: how many items each section has, and how many still wait. "Tidy-ups" only
+  // appears when there is something to tidy.
+  const sectionInfo = SECTIONS.map(function (def) {
+    const mine = items.filter(function (i) { return def.kinds.indexOf(i.kind) !== -1; });
+    return {
+      key: def.key,
+      label: def.label,
+      hint: def.hint,
+      items: mine,
+      total: mine.length,
+      pending: mine.filter(isPending).length,
+    };
+  }).filter(function (s) {
+    return s.key !== "tidyups" || s.total > 0;
+  });
+  const currentIndex = Math.max(0, sectionInfo.findIndex(function (s) { return s.key === activeSection; }));
+  const current = sectionInfo[currentIndex];
   const showContent = !loading && !forbidden && items.length > 0;
 
   // The functions below return markup; they are NOT components, on purpose. A
@@ -503,6 +566,17 @@ export default function BlueprintPage() {
           {keyResult ? "Measures the key result: " + shownTitle(keyResult) : "Not linked to a key result"}
         </p>
       </div>
+    );
+  }
+
+  // The window the chart is drawn in: tall (about two thirds of the screen, or the whole screen in
+  // full screen), scrollable both ways, zoomable, and draggable like a map. A click on a box or
+  // button still works: dragging only starts on empty space.
+  function renderChartViewport(inner: React.ReactNode) {
+    return (
+      <ChartViewport full={chartFull} onToggleFull={function () { setChartFull(!chartFull); }}>
+        {inner}
+      </ChartViewport>
     );
   }
 
@@ -794,24 +868,91 @@ export default function BlueprintPage() {
         </div>
 
         {showContent ? (
-          <div className="mt-8 space-y-6">
-            <div className="mx-auto flex max-w-3xl items-center justify-between rounded-xl border border-white/10 bg-[#0d1220]/80 px-5 py-4">
-              <p className="text-sm text-gray-300">
-                {pendingCount === 0
-                  ? "All reviewed. Nothing is waiting."
-                  : pendingCount + (pendingCount === 1 ? " suggestion is" : " suggestions are") + " waiting for you."}
-              </p>
-              <button
-                type="button"
-                onClick={handleAcceptAll}
-                disabled={pendingCount === 0 || acceptingAll}
-                className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-40"
-              >
-                {acceptingAll ? "Adding…" : "Accept all"}
-              </button>
+          <div className="mt-6">
+            {/* Stays in view while you move around: how much is left, and Accept all */}
+            <div className="sticky top-0 z-30 -mx-6 border-b border-white/10 bg-[#05070f]/90 px-6 py-3 backdrop-blur">
+              <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+                <p className="text-sm text-gray-300">
+                  {pendingCount === 0
+                    ? "All reviewed. Nothing is waiting."
+                    : pendingCount + (pendingCount === 1 ? " item is" : " items are") + " waiting for you."}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleAcceptAll}
+                  disabled={pendingCount === 0 || acceptingAll}
+                  className="rounded-lg bg-indigo-500 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-40"
+                >
+                  {acceptingAll ? "Adding…" : "Accept all"}
+                </button>
+              </div>
             </div>
 
+            <div className="mx-auto mt-6 grid max-w-6xl gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+              {/* The rail: jump to any section. A row of tabs on narrow screens. */}
+              <nav aria-label="Plan sections" className="lg:sticky lg:top-20 lg:self-start">
+                <ul className="flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:gap-1 lg:overflow-visible">
+                  {sectionInfo.map(function (s, index) {
+                    const active = s.key === activeSection;
+                    const done = s.total > 0 && s.pending === 0;
+                    return (
+                      <li key={s.key} className="flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={function () { setActiveSection(s.key); }}
+                          className={
+                            "flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition " +
+                            (active
+                              ? "border-indigo-400/60 bg-indigo-500/10"
+                              : "border-transparent hover:bg-white/5")
+                          }
+                        >
+                          <span
+                            className={
+                              "flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold " +
+                              (done
+                                ? "bg-emerald-500/20 text-emerald-300"
+                                : active
+                                ? "bg-indigo-500 text-white"
+                                : "border border-white/20 text-gray-400")
+                            }
+                          >
+                            {done ? "✓" : index + 1}
+                          </span>
+                          <span className="min-w-0">
+                            <span className={"block text-sm font-medium " + (active ? "text-white" : "text-gray-300")}>{s.label}</span>
+                            <span className="hidden text-xs text-gray-500 lg:block">
+                              {s.total === 0 ? "Nothing here" : s.pending > 0 ? s.pending + " to review" : "All reviewed"}
+                            </span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </nav>
+
+              <div className="min-w-0 space-y-6">
+            {/* Section heading, with a shortcut to accept just this section */}
+            {current ? (
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">{current.label}</h2>
+                  <p className="text-sm text-gray-500">{current.hint}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={function () { acceptSection(current.items); }}
+                  disabled={current.pending === 0 || acceptingSection || acceptingAll}
+                  className="rounded-lg border border-indigo-500/50 px-4 py-2 text-sm font-medium text-indigo-300 hover:bg-indigo-500/10 disabled:opacity-40"
+                >
+                  {acceptingSection ? "Adding…" : "Accept this section" + (current.pending > 0 ? " (" + current.pending + ")" : "")}
+                </button>
+              </div>
+            ) : null}
+
             {/* Objectives */}
+            <div className={activeSection === "objectives" ? "space-y-6" : "hidden"}>
             {view.objectiveSections.length > 0 ? (
               <div className={card + " space-y-6"}>
                 <p className="text-xs uppercase tracking-wide text-gray-500">Objectives and key results</p>
@@ -831,7 +972,10 @@ export default function BlueprintPage() {
               </div>
             ) : null}
 
+            </div>
+
             {/* Departments */}
+            <div className={activeSection === "departments" ? "space-y-6" : "hidden"}>
             {view.departments.length > 0 ? (
               <div className={card}>
                 <p className={sectionLabel}>Capital and departments</p>
@@ -916,8 +1060,15 @@ export default function BlueprintPage() {
               </div>
             ) : null}
 
+            </div>
+
             {/* The organization chart: departments with their money, or the roles */}
-            <div className={card}>
+            <div className={activeSection === "chart" ? "space-y-6" : "hidden"}>
+            <div
+              className={
+                card + (chartFull ? " fixed inset-0 z-50 m-0 overflow-auto rounded-none bg-[#05070f]" : "")
+              }
+            >
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs uppercase tracking-wide text-gray-500">Organization chart</p>
                 <div className="flex rounded-lg border border-white/10 p-0.5 text-xs">
@@ -942,11 +1093,7 @@ export default function BlueprintPage() {
               {chartMode === "departments" ? (
                 view.departmentChart ? (
                   <div>
-                    <div className="overflow-x-auto pb-2 [color-scheme:dark]">
-                      <div className="org-tree mx-auto w-max min-w-full">
-                        <ul>{renderDepartmentChartNode(view.departmentChart)}</ul>
-                      </div>
-                    </div>
+                    {renderChartViewport(renderDepartmentChartNode(view.departmentChart))}
                     <p className="mt-2 text-xs text-gray-500">Click a department to see its roles, revenue target and profit.</p>
                     {renderDepartmentPanel()}
                   </div>
@@ -954,11 +1101,7 @@ export default function BlueprintPage() {
                   <p className="text-sm text-gray-500">No departments to show yet.</p>
                 )
               ) : view.chart ? (
-                <div className="overflow-x-auto pb-2 [color-scheme:dark]">
-                  <div className="org-tree mx-auto w-max min-w-full">
-                    <ul>{renderChartNode(view.chart)}</ul>
-                  </div>
-                </div>
+                renderChartViewport(renderChartNode(view.chart))
               ) : (
                 <p className="text-sm text-gray-500">
                   No roles to show yet. Add roles later in Organization structure.
@@ -971,7 +1114,10 @@ export default function BlueprintPage() {
               </p>
             </div>
 
+            </div>
+
             {/* KPIs */}
+            <div className={activeSection === "kpis" ? "space-y-6" : "hidden"}>
             {view.kpiSections.length > 0 ? (
               <div className={card + " space-y-6"}>
                 <p className="text-xs uppercase tracking-wide text-gray-500">KPIs</p>
@@ -1003,7 +1149,10 @@ export default function BlueprintPage() {
               </div>
             ) : null}
 
+            </div>
+
             {/* Tidy-ups of what the company already has */}
+            <div className={activeSection === "tidyups" ? "space-y-6" : "hidden"}>
             {view.cleanups.length > 0 ? (
               <div className={card + " space-y-2"}>
                 <p className="text-xs uppercase tracking-wide text-gray-500">Tidy-ups for what you already have</p>
@@ -1016,6 +1165,39 @@ export default function BlueprintPage() {
                 })}
               </div>
             ) : null}
+            </div>
+
+            {/* Back / Next between sections, so the whole plan can be walked through without scrolling */}
+            <div className="flex items-center justify-between border-t border-white/10 pt-4">
+              {currentIndex > 0 ? (
+                <button
+                  type="button"
+                  onClick={function () { setActiveSection(sectionInfo[currentIndex - 1].key); }}
+                  className="text-sm font-medium text-gray-400 hover:text-gray-200"
+                >
+                  ← {sectionInfo[currentIndex - 1].label}
+                </button>
+              ) : (
+                <span />
+              )}
+              {currentIndex < sectionInfo.length - 1 ? (
+                <button
+                  type="button"
+                  onClick={function () { setActiveSection(sectionInfo[currentIndex + 1].key); }}
+                  className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600"
+                >
+                  Next: {sectionInfo[currentIndex + 1].label} →
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={function () { router.push("/onboarding/invite-team"); }}
+                  className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600"
+                >
+                  {pendingCount > 0 ? "Continue to invite your team (" + pendingCount + " still waiting)" : "Continue to invite your team"} →
+                </button>
+              )}
+            </div>
 
             <div className="text-center">
               <button
@@ -1025,8 +1207,10 @@ export default function BlueprintPage() {
                 title={pendingCount > 0 ? "Review the current suggestions first" : undefined}
                 className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-40"
               >
-                {generating ? "Starting…" : "Draft a new set of suggestions"}
+                {generating ? "Starting…" : "Prepare a new set of recommendations"}
               </button>
+            </div>
+              </div>
             </div>
           </div>
         ) : null}
