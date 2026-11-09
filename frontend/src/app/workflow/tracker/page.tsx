@@ -6,7 +6,8 @@ import { apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import { errorMessage, fetchAllPages, formatDateTime, loadCaller, roleLabel } from "@/lib/tasks";
 import type { CallerContext, PaginatedResponse } from "@/lib/tasks";
-import { canStartCase, caseStatusClasses, caseStatusLabel } from "@/lib/workflow";
+import { canStartCase, caseStatusClasses, caseStatusLabel, valueStatusClasses, valueStatusLabel } from "@/lib/workflow";
+import { formatMoney } from "@/lib/blueprint";
 import type { CaseStatus, WorkflowCase, WorkflowTemplate } from "@/lib/workflow";
 
 interface ListResult {
@@ -156,24 +157,25 @@ export default function WorkflowCasesPage() {
               <th className="px-5 py-3 font-medium">Template</th>
               <th className="px-5 py-3 font-medium">Started</th>
               <th className="px-5 py-3 font-medium">Status</th>
+              <th className="px-5 py-3 font-medium">Value</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-gray-500">
+                <td colSpan={5} className="px-5 py-10 text-center text-gray-500">
                   Loading…
                 </td>
               </tr>
             ) : result && result.error ? (
               <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-red-300">
+                <td colSpan={5} className="px-5 py-10 text-center text-red-300">
                   {result.error}
                 </td>
               </tr>
             ) : cases.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-gray-500">
+                <td colSpan={5} className="px-5 py-10 text-center text-gray-500">
                   No cases to show here. You see the cases you started, the ones you have a task in, and the ones in your department.
                 </td>
               </tr>
@@ -190,6 +192,18 @@ export default function WorkflowCasesPage() {
                     <td className="px-5 py-4 text-gray-400">{formatDateTime(c.started_at)}</td>
                     <td className="px-5 py-4">
                       <span className={"rounded px-2 py-0.5 text-xs font-medium " + caseStatusClasses(c.status)}>{caseStatusLabel(c.status)}</span>
+                    </td>
+                    <td className="px-5 py-4">
+                      {c.client_value !== null && c.value_status !== "none" ? (
+                        <div>
+                          <p className="text-gray-200">{formatMoney(Number(c.client_value))}</p>
+                          <span className={"rounded px-2 py-0.5 text-xs font-medium " + valueStatusClasses(c.value_status)}>
+                            {valueStatusLabel(c.value_status)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-600">-</span>
+                      )}
                     </td>
                   </tr>
                 );

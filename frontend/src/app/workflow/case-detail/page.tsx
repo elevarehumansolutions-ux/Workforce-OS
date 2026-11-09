@@ -7,7 +7,8 @@ import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import { departmentName, employeeName, errorMessage, formatDateTime, loadCaller, roleLabel, statusLabel } from "@/lib/tasks";
 import type { CallerContext } from "@/lib/tasks";
-import { canCancelCase, caseStatusClasses, caseStatusLabel, stepState, stepStateClasses, stepStateLabel, taskForStep } from "@/lib/workflow";
+import { canCancelCase, caseStatusClasses, caseStatusLabel, stepState, stepStateClasses, stepStateLabel, taskForStep, valueStatusClasses, valueStatusLabel } from "@/lib/workflow";
+import { formatMoney } from "@/lib/blueprint";
 import type { CaseDetail, CaseTask, WorkflowTemplate } from "@/lib/workflow";
 
 interface CaseResult {
@@ -192,6 +193,45 @@ function CaseDetailContent() {
                 ) : null}
               </div>
             </div>
+
+            {detail.value_status !== "none" && detail.client_value !== null ? (
+              <div
+                className={
+                  "mt-5 rounded-xl border p-4 " +
+                  (detail.value_status === "lost"
+                    ? "border-red-500/30 bg-red-500/5"
+                    : detail.value_status === "at_risk"
+                    ? "border-amber-500/30 bg-amber-500/5"
+                    : "border-white/10 bg-[#0a0e1a]")
+                }
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-500">What this job is worth</p>
+                    <p className="text-2xl font-bold text-white">{formatMoney(Number(detail.client_value))}</p>
+                  </div>
+                  <span className={"rounded px-2.5 py-1 text-xs font-semibold " + valueStatusClasses(detail.value_status)}>
+                    {valueStatusLabel(detail.value_status)}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-gray-300">
+                  {detail.value_status === "at_risk"
+                    ? "A task of this case is overdue, so this figure is at risk. Following it up protects it."
+                    : detail.value_status === "lost"
+                    ? detail.status === "cancelled"
+                      ? "This case was cancelled, so the figure is counted as lost."
+                      : "The client's final deadline was missed, so the figure is counted as lost."
+                    : detail.value_status === "secured"
+                    ? "The job was finished in time, so the figure is secured."
+                    : "Nothing is late. The figure is on track."}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  {detail.client_deadline_at
+                    ? "Client's final deadline: " + formatDateTime(detail.client_deadline_at)
+                    : "No final deadline was set, so this figure can show as at risk but is only lost if the case is cancelled."}
+                </p>
+              </div>
+            ) : null}
 
             <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2">
               <div>

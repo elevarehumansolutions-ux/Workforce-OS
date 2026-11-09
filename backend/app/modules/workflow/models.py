@@ -6,10 +6,12 @@ Contains :class:`WorkflowTemplate` (a named process), :class:`WorkflowStep`
 
 from __future__ import annotations
 
+import decimal
 import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    DECIMAL,
     UUID,
     CheckConstraint,
     DateTime,
@@ -198,6 +200,10 @@ class WorkflowInstance(BaseModel):
             " OR (status <> 'cancelled' AND cancel_reason IS NULL)",
             name="check_workflow_instance_cancel_reason_matches_status",
         ),
+        CheckConstraint(
+            "client_value IS NULL OR client_value >= 0",
+            name="check_workflow_instance_client_value_not_negative",
+        ),
         # Answers "is any case still running on this template?" for the
         # delete and reorder rules.
         Index(
@@ -259,4 +265,22 @@ class WorkflowInstance(BaseModel):
         Text,
         nullable=True,
         doc="Why the case was stopped; set exactly when status is 'cancelled'",
+    )
+
+    client_value: Mapped[decimal.Decimal | None] = mapped_column(
+        DECIMAL(16, 2),
+        nullable=True,
+        doc=(
+            "What the job is worth to the company in naira, for example the client's fee for "
+            "sourcing a role. Its tasks share it. Null means no figure was entered."
+        ),
+    )
+
+    client_deadline_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc=(
+            "The date the client expects the job done. Missing it makes the figure count as "
+            "lost; without one the figure can only be 'at risk' (or lost by cancelling)."
+        ),
     )
