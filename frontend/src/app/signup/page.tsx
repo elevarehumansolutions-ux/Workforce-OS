@@ -3,6 +3,7 @@
 import React, { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, setAccessToken, ApiError } from "@/lib/api";
+import { useRedirectIfSignedIn } from "@/lib/useRedirectIfSignedIn";
 import Logo from "@/components/Logo";
 
 interface SignupFormData {
@@ -29,6 +30,7 @@ interface AuthResponse {
 
 export default function SignupPage() {
   const router = useRouter();
+  const checkingSession = useRedirectIfSignedIn();
   const [formData, setFormData] = useState<SignupFormData>({
     fullName: "",
     workEmail: "",
@@ -99,6 +101,15 @@ export default function SignupPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Already signed in? Then the redirect is under way: don't show the sign-up form.
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-[#05070f] text-sm text-gray-400">
+        Checking your session…
+      </div>
+    );
   }
 
   return (

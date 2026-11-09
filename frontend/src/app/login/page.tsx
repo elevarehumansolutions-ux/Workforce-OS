@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, setAccessToken, ApiError } from "@/lib/api";
 import { resumePath } from "@/lib/onboarding";
+import { useRedirectIfSignedIn } from "@/lib/useRedirectIfSignedIn";
 import Logo from "@/components/Logo";
 
 interface LoginFormData {
@@ -55,6 +56,7 @@ function friendlyLoginError(err: ApiError): string {
 
 function LoginContent() {
   const router = useRouter();
+  const checkingSession = useRedirectIfSignedIn();
   const searchParams = useSearchParams();
   const justVerified = searchParams.get("verified") === "1";
   const justReset = searchParams.get("reset") === "1";
@@ -142,6 +144,15 @@ function LoginContent() {
     } finally {
       setResending(false);
     }
+  }
+
+  // Already signed in (a valid session cookie)? Then the redirect is under way: don't show the form.
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-[#05070f] text-sm text-gray-400">
+        Checking your session…
+      </div>
+    );
   }
 
   return (

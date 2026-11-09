@@ -122,6 +122,19 @@ async function refreshAccessToken(): Promise<string> {
   return refreshPromise;
 }
 
+// Tries to restore a signed-in session from the refresh cookie, quietly: true means the
+// person is signed in (a fresh access token is stored), false means they are not. Unlike
+// apiFetch it never redirects, so it is safe to call on the login page. It shares the same
+// in-flight call as the automatic refresh, so two callers never race each other.
+export async function restoreSession(): Promise<boolean> {
+  try {
+    await refreshAccessToken();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function doFetch<T>(path: string, options: ApiFetchOptions): Promise<T> {
   const baseUrl = process.env.NEXT_PUBLIC_API_URL;
 
