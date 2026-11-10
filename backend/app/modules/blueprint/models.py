@@ -124,6 +124,11 @@ class BlueprintItem(BaseModel):
     department_ref: Mapped[str | None] = mapped_column(String(20), nullable=True)
     reports_to_ref: Mapped[str | None] = mapped_column(String(20), nullable=True)
     objective_ref: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    folded_into_ref: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        doc="Only for kind 'folded': the ref of the department or position that covers this one",
+    )
     key_result_ref: Mapped[str | None] = mapped_column(
         String(20), nullable=True, doc="The key result a proposed KPI measures, if any"
     )

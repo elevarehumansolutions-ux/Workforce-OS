@@ -27,6 +27,7 @@ KIND_ORDER = [
     BlueprintKind.KEY_RESULT.value,
     BlueprintKind.KPI.value,
     BlueprintKind.REVIEW_NOTE.value,
+    BlueprintKind.FOLDED.value,
 ]
 
 
