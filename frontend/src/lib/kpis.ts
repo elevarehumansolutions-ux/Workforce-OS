@@ -34,6 +34,12 @@ export interface TaskProgress {
 
 export interface KpiForm {
   name: string;
+  // What the KPI measures, in plain words (optional).
+  description: string;
+  // The key result this KPI measures ("" = none). It ties the KPI to the strategy: the objective
+  // and key result show which KPIs measure them. (Employees are scored from tasks linked to the
+  // KPI, not from this link.)
+  keyResultId: string;
   weight: string;
   target: string;
   unit: string;
@@ -97,6 +103,8 @@ export function weightTotal(kpis: KpiFull[]): number {
 function bodyFromForm(form: KpiForm) {
   return {
     name: form.name.trim(),
+    description: form.description.trim() === "" ? null : form.description.trim(),
+    key_result_id: form.keyResultId === "" ? null : form.keyResultId,
     weight: form.weight,
     target_value: form.target.trim() === "" ? null : form.target.trim(),
     unit: form.unit.trim() === "" ? null : form.unit.trim(),

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { FormEvent } from "react";
+import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { departmentName, errorMessage, isHr, loadCaller, roleLabel } from "@/lib/tasks";
 import type { CallerContext } from "@/lib/tasks";
@@ -61,7 +62,14 @@ function DeleteControl(props: { what: string; onDelete: () => Promise<void>; onD
 
 // ---- one key result: shows its text and date, HR can edit it in place
 
-function KeyResultRow(props: { keyResult: KeyResult; measuredBy: MeasuringKpi[]; canEdit: boolean; onChanged: () => void }) {
+function KeyResultRow(props: {
+  keyResult: KeyResult;
+  measuredBy: MeasuringKpi[];
+  // The department of this key result's objective (null = company-wide), for "Add a KPI".
+  departmentId: string | null;
+  canEdit: boolean;
+  onChanged: () => void;
+}) {
   const kr = props.keyResult;
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(kr.description);
@@ -122,6 +130,16 @@ function KeyResultRow(props: { keyResult: KeyResult; measuredBy: MeasuringKpi[];
         ) : (
           <p className="mt-1 text-xs text-gray-600">No KPI measures this yet.</p>
         )}
+        {props.canEdit ? (
+          <Link
+            href={
+              "/performance/kpis?add=1&keyResult=" + kr.id + (props.departmentId ? "&department=" + props.departmentId : "")
+            }
+            className="mt-1 inline-block text-xs font-medium text-indigo-400 hover:text-indigo-300"
+          >
+            + Add a KPI that measures this
+          </Link>
+        ) : null}
       </div>
       {props.canEdit ? (
         <div className="flex items-start gap-2">
@@ -218,6 +236,7 @@ function ObjectiveCard(props: {
               key={kr.id}
               keyResult={kr}
               measuredBy={props.measuring[kr.id] || []}
+              departmentId={o.department_id}
               canEdit={props.canEdit}
               onChanged={props.onChanged}
             />

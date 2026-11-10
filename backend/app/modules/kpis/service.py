@@ -20,7 +20,8 @@ from .enums import KPITrackingMode
 from .models import KPI, KPIScore
 from .repository import KPIRepository, KPIScoreRepository
 from .schemas import KPICreate
-from app.core.exceptions import KPIWeightConflictException
+from app.core.exceptions import KPIWeightConflictException, KeyResultNotFoundException
+from app.modules.okrs.repository import KeyResultRepository
 from app.modules.audit_and_notification.service import AuditService, NotificationService
 
 
@@ -51,6 +52,22 @@ class KPIService:
         self.score_repo = KPIScoreRepository(db)
         self._audit = AuditService(db)
         self.notification_service = NotificationService(db)
+        self._key_result_repo = KeyResultRepository(db)
+
+    async def _check_key_result(self, key_result_id: uuid.UUID | None) -> None:
+        """Refuse a link to a key result that does not exist in the caller's organization.
+
+        A database foreign key alone would accept any id, including a deleted key result or
+        another company's, so the link is checked here (row-level security makes another
+        company's key result simply not found). ``None`` means "measures no key result".
+
+        Raises:
+            KeyResultNotFoundException: If no non-deleted key result with that id is visible.
+        """
+        if key_result_id is None:
+            return
+        if await self._key_result_repo.get_key_result_by_id(key_result_id) is None:
+            raise KeyResultNotFoundException()
 
     async def create_kpi(
         self, organization_id: uuid.UUID, actor_user_id: uuid.UUID, kpi: KPICreate
@@ -73,6 +90,8 @@ class KPIService:
         Raises:
             KPIWeightConflictException: If the group would exceed 100%.
         """
+        await self._check_key_result(kpi.key_result_id)
+
         # List all kpis under the department
         existing_total = await self.kpi_repo.sum_weights_for_group(
             kpi.department_id,
@@ -128,6 +147,9 @@ class KPIService:
 
 
         update_data = data.model_dump(exclude_unset=True)
+
+        if "key_result_id" in update_data:
+            await self._check_key_result(update_data["key_result_id"])
 
         if 'weight' in update_data:
             existing_total = await self.kpi_repo.sum_weights_for_group(
@@ -189,6 +211,9 @@ class KPIService:
             KPINotFoundException: If a submitted item's id doesn't match
                 any KPI currently in this group.
         """
+        for item in request.kpis:
+            await self._check_key_result(item.key_result_id)
+
         submitted_total = sum(item.weight for item in request.kpis)
         if submitted_total != 100:
             raise KPIWeightConflictException(
