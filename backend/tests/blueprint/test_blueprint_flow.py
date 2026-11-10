@@ -620,3 +620,105 @@ async def test_a_kpi_that_no_longer_fits_is_skipped_with_the_reason(client, db_s
     assert len(body["skipped"]) == 2
     assert "100%" in body["skipped"][0]["reason"]
     assert [k["name"] for k in await _kpis_of(client, headers)] == ["Hand made"]
+
+
+# ------------------------------------------------ editing details before adding
+
+async def _edit(client, headers, item, **fields):
+    return await client.post(f"{BLUEPRINT}/{item.id}/edit", json={"title": item.title, **fields}, headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_a_kpis_target_unit_and_direction_can_be_changed_before_adding(client, db_session, monkeypatch):
+    """Target 95 % becomes 99 'percent', and the KPI is now 'lower is better'; the real KPI has them."""
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_ed1@example.com")
+    kpi = _by_title(items, "On-time delivery rate")
+
+    resp = await _edit(client, headers, kpi, kpi_target_value="99", kpi_unit="percent", kpi_is_inverse=True)
+
+    assert resp.status_code == 200
+    real = next(k for k in await _kpis_of(client, headers) if k["name"] == "On-time delivery rate")
+    assert (float(real["target_value"]), real["unit"], real["is_inverse"]) == (99, "percent", True)
+
+
+@pytest.mark.asyncio
+async def test_an_explicit_null_clears_a_kpis_target_and_leaving_it_out_keeps_it(client, db_session, monkeypatch):
+    """An explicit null removes the target; an edit that does not mention it leaves 95 alone."""
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_ed2@example.com")
+    cleared = _by_title(items, "On-time delivery rate")
+    kept = _by_title(items, "Average transit time")
+
+    await _edit(client, headers, cleared, kpi_target_value=None)
+    await _edit(client, headers, kept, kpi_unit="working days")
+
+    real = {k["name"]: k for k in await _kpis_of(client, headers)}
+    assert real["On-time delivery rate"]["target_value"] is None
+    assert float(real["Average transit time"]["target_value"]) == 2
+    assert real["Average transit time"]["unit"] == "working days"
+
+
+@pytest.mark.asyncio
+async def test_a_detail_that_does_not_belong_to_the_kind_is_refused(client, db_session, monkeypatch):
+    """A KPI field on a position, or a share on a KPI, is a 422 and nothing changes."""
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_ed3@example.com")
+
+    on_position = await _edit(client, headers, _by_title(items, "Operations Director"), kpi_unit="days")
+    on_kpi = await _edit(client, headers, _by_title(items, "On-time delivery rate"), revenue_allocation_pct="50")
+    no_direction = await _edit(client, headers, _by_title(items, "Average transit time"), kpi_is_inverse=None)
+
+    assert (on_position.status_code, on_kpi.status_code, no_direction.status_code) == (422, 422, 422)
+    still_pending = (await client.get(f"{BLUEPRINT}?status=pending", headers=headers)).json()["pagination"]["total"]
+    assert still_pending == len(items)
+
+
+@pytest.mark.asyncio
+async def test_out_of_range_numbers_are_refused(client, db_session, monkeypatch):
+    """A negative target and a share above 100 are 422."""
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_ed4@example.com")
+
+    negative = await _edit(client, headers, _by_title(items, "On-time delivery rate"), kpi_target_value="-1")
+    too_big = await _edit(client, headers, _by_title(items, "Operations"), revenue_allocation_pct="120")
+
+    assert (negative.status_code, too_big.status_code) == (422, 422)
+
+
+@pytest.mark.asyncio
+async def test_changing_one_departments_share_keeps_the_split_at_100(client, db_session, monkeypatch):
+    """Sales 50 -> 60: Operations (30) and Marketing (20) shrink in proportion to 24 and 16."""
+    _, headers, _, items = await _generate(
+        client, db_session, monkeypatch, "bp_ed5@example.com", answer=_three_critical_departments()
+    )
+
+    await _edit(client, headers, _by_title(items, "Sales"), revenue_allocation_pct="60")
+    await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
+
+    shares = await _shares(client, headers)
+    assert shares == {"Sales": 60.0, "Operations": 24.0, "Marketing": 16.0}
+    assert sum(shares.values()) == 100
+
+
+@pytest.mark.asyncio
+async def test_a_departments_margin_can_be_changed_before_adding(client, db_session, monkeypatch):
+    """The 30% margin becomes 45% on the real department."""
+    _, headers, _, items = await _generate(
+        client, db_session, monkeypatch, "bp_ed6@example.com", answer=_three_critical_departments()
+    )
+
+    await _edit(client, headers, _by_title(items, "Sales"), profit_margin_pct="45")
+
+    rows = (await client.get(DEPARTMENTS, headers=headers)).json()["data"]
+    assert float(next(d for d in rows if d["name"] == "Sales")["profit_margin_percentage"]) == 45
+
+
+@pytest.mark.asyncio
+async def test_the_edited_share_shows_on_the_proposal_list_too(client, db_session, monkeypatch):
+    """GET /blueprint carries the new raw shares so the screen can show them before anything is added."""
+    _, headers, _, items = await _generate(
+        client, db_session, monkeypatch, "bp_ed7@example.com", answer=_three_critical_departments()
+    )
+
+    await _edit(client, headers, _by_title(items, "Marketing"), revenue_allocation_pct="10")
+
+    listed = {i["title"]: float(i["revenue_allocation_pct"]) for i in (await client.get(BLUEPRINT, headers=headers)).json()["data"] if i["kind"] == "department"}
+    assert round(sum(listed.values()), 1) == 100
+    assert listed["Marketing"] == 10.0

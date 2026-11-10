@@ -147,9 +147,22 @@ class BlueprintItemResponse(BaseModel):
 
 
 class BlueprintEditRequest(BaseModel):
-    """HR's corrected wording for one item. Only the wording can be edited."""
+    """HR's corrections to one item before it is added: the wording, and a few details.
+
+    ``title`` is always sent. The detail fields are optional and only apply to the kinds named:
+    a KPI's target, unit and direction; a department's share of the capital and profit margin.
+    A field left out keeps the proposal's value; for the nullable ones an explicit ``null``
+    clears it. A detail that does not belong to the item's kind is a 422.
+    """
 
     title: str = Field(min_length=1, max_length=300)
+    # KPI
+    kpi_target_value: decimal.Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
+    kpi_unit: str | None = Field(default=None, max_length=40)
+    kpi_is_inverse: bool | None = None
+    # Department
+    revenue_allocation_pct: decimal.Decimal | None = Field(default=None, ge=0, le=100, max_digits=5, decimal_places=2)
+    profit_margin_pct: decimal.Decimal | None = Field(default=None, ge=0, le=100, max_digits=5, decimal_places=2)
 
 
 class AcceptAllSkipped(BaseModel):
