@@ -177,7 +177,7 @@ export default function OwnObjectives(props: {
           onChange={function (e) { setTitle(e.target.value); }}
         />
         <select className={input + " w-56"} value={departmentId} onChange={function (e) { setDepartmentId(e.target.value); }}>
-          <option value="">Company-wide</option>
+          <option value="">Company-wide (whole business)</option>
           {props.departments.map(function (d) {
             return (
               <option key={d.id} value={d.id}>
@@ -190,6 +190,11 @@ export default function OwnObjectives(props: {
           {busy ? "Adding…" : "+ Add objective"}
         </button>
       </form>
+      <p className="mt-2 text-xs text-gray-500">
+        The dropdown chooses who the objective belongs to. &quot;Company-wide&quot; is for the whole business. It also lists the
+        departments you have added, and the departments the plan suggests that you haven&apos;t added yet (marked &quot;suggested,
+        will be added&quot;). Choosing one of those adds that department to your company first, then attaches the objective to it.
+      </p>
     </section>
   );
 }
