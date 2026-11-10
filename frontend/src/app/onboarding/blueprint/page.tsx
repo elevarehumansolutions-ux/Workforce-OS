@@ -7,6 +7,7 @@ import ChartViewport from "@/components/ChartViewport";
 import OwnObjectives from "@/components/OwnObjectives";
 import {
   acceptAllBlueprint,
+  addBlueprintItemSeparately,
   approveBlueprintItem,
   buildBlueprintView,
   editBlueprintItem,
@@ -16,6 +17,7 @@ import {
   formatMoney,
   isPending,
   kpiAnnualReturn,
+  mergeBlueprintItem,
   rejectBlueprintItem,
   trimNumber,
   shownTitle,
@@ -57,7 +59,7 @@ interface Editing {
 type SectionKey = "departments" | "chart" | "objectives" | "kpis" | "tidyups";
 
 const SECTIONS: { key: SectionKey; label: string; hint: string; kinds: string[] }[] = [
-  { key: "departments", label: "Departments and capital", hint: "Who gets what share", kinds: ["department"] },
+  { key: "departments", label: "Departments and capital", hint: "Who gets what share", kinds: ["department", "folded"] },
   { key: "chart", label: "Organization chart", hint: "Who reports to whom", kinds: ["position"] },
   { key: "objectives", label: "Objectives", hint: "Goals and key results", kinds: ["objective", "key_result"] },
   { key: "kpis", label: "KPIs", hint: "How progress is measured", kinds: ["kpi"] },
@@ -99,6 +101,8 @@ export default function BlueprintPage() {
   const [existingPositions, setExistingPositions] = useState<ExistingPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [waiting, setWaiting] = useState(false);
+  // "Show full structure": lists what the lean plan leaves out, and who covers it.
+  const [showLeftOut, setShowLeftOut] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [pollRound, setPollRound] = useState(0);
   const [loadError, setLoadError] = useState("");
@@ -236,6 +240,30 @@ export default function BlueprintPage() {
 
   function reject(item: BlueprintItem) {
     runAction(item, function () { return rejectBlueprintItem(item.id); }, "Couldn't skip that suggestion.");
+  }
+
+  // A left-out department or role comes back as its own suggestion, ready to be added.
+  function addSeparately(item: BlueprintItem) {
+    runAction(item, function () { return addBlueprintItemSeparately(item.id); }, "Couldn't add that back.");
+  }
+
+  // Merge a suggested department or role into another one. Asks first, because the merged
+  // one stops being its own (everything it had moves to the other).
+  function mergeInto(item: BlueprintItem, target: { name: string; suggestedItemId?: string; existingId?: string }) {
+    const what = item.kind === "department" ? "department" : "role";
+    const ok = window.confirm(
+      "Merge “" + shownTitle(item) + "” into “" + target.name + "”? " +
+        "It will no longer be its own " + what + ": " +
+        (item.kind === "department"
+          ? "its roles, objectives, KPIs and share of the capital move to “" + target.name + "”."
+          : "the roles that reported to it will report to “" + target.name + "”.")
+    );
+    if (!ok) return;
+    runAction(
+      item,
+      function () { return mergeBlueprintItem(item.id, { suggestedItemId: target.suggestedItemId, existingId: target.existingId }); },
+      "Couldn't merge them."
+    );
   }
 
   // Open the edit box for an item, filled with what it says now. A department starts from its
@@ -535,6 +563,56 @@ export default function BlueprintPage() {
   }
 
   // One row of text with its actions: used for objectives, key results and tidy-ups.
+  // "Merge into…": for a SUGGESTED department or role. It can be merged into any other
+  // department (or role) of the same kind: another suggested one, or one already added.
+  function renderMergeControl(item: BlueprintItem) {
+    if (item.status !== "pending" || (item.kind !== "department" && item.kind !== "position")) return null;
+    const suggested = items.filter(function (i) {
+      return i.id !== item.id && i.kind === item.kind && i.status === "pending" && i.batch_id === item.batch_id;
+    });
+    // Rows that are real now (added from this plan or there before it): they all count as "already added".
+    const added: { id: string; name: string }[] =
+      item.kind === "department"
+        ? existingDepartments.map(function (d) { return { id: d.id, name: d.name }; })
+        : existingPositions.map(function (p) { return { id: p.id, name: p.title }; });
+    if (suggested.length === 0 && added.length === 0) return null;
+    const busy = busyId === item.id || acceptingAll;
+    return (
+      <select
+        value=""
+        disabled={busy}
+        onChange={function (e) {
+          const value = e.target.value;
+          if (value.indexOf("item:") === 0) {
+            const target = suggested.find(function (c) { return c.id === value.slice(5); });
+            if (target) mergeInto(item, { name: shownTitle(target), suggestedItemId: target.id });
+          } else if (value.indexOf("real:") === 0) {
+            const target = added.find(function (c) { return c.id === value.slice(5); });
+            if (target) mergeInto(item, { name: target.name, existingId: target.id });
+          }
+        }}
+        className="mt-1.5 w-full rounded-full border border-white/15 bg-[#05070f] px-2 py-1 text-xs text-gray-300 outline-none hover:border-white/30 disabled:opacity-50"
+        aria-label={"Merge " + shownTitle(item) + " into another"}
+      >
+        <option value="">Merge into…</option>
+        {suggested.length > 0 ? (
+          <optgroup label="Suggested">
+            {suggested.map(function (c) {
+              return <option key={c.id} value={"item:" + c.id}>{shownTitle(c)}</option>;
+            })}
+          </optgroup>
+        ) : null}
+        {added.length > 0 ? (
+          <optgroup label="Already added">
+            {added.map(function (c) {
+              return <option key={c.id} value={"real:" + c.id}>{c.name}</option>;
+            })}
+          </optgroup>
+        ) : null}
+      </select>
+    );
+  }
+
   function renderLine(props: { item: BlueprintItem; text?: string; note?: string | null; small?: boolean }) {
     const item = props.item;
     const isEditing = editing !== null && editing.id === item.id;
@@ -623,6 +701,7 @@ export default function BlueprintPage() {
               ) : (
                 <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-gray-400">Already in your company</span>
               )}
+              {item ? renderMergeControl(item) : null}
             </div>
           </div>
         )}
@@ -1125,6 +1204,80 @@ export default function BlueprintPage() {
 
             {/* Departments */}
             <div className={activeSection === "departments" ? "space-y-6" : "hidden"}>
+            {view.folded.length > 0 ? (
+              <div className={card}>
+                <p className={sectionLabel}>Kept lean on purpose</p>
+                <p className="text-sm text-gray-200">
+                  Your plan has <span className="font-semibold text-white">{view.lean.departments} department{view.lean.departments === 1 ? "" : "s"}</span> and{" "}
+                  <span className="font-semibold text-white">{view.lean.roles} role{view.lean.roles === 1 ? "" : "s"}</span>. A full structure
+                  would have had {view.lean.fullDepartments} and {view.lean.fullRoles}.
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Some departments and roles were left out because another one can cover their work. That saves you the
+                  cost of extra people while the business is small. You can still add any of them yourself later.
+                </p>
+                <button
+                  type="button"
+                  onClick={function () { setShowLeftOut(!showLeftOut); }}
+                  className="mt-3 text-sm font-medium text-indigo-400 hover:text-indigo-300"
+                >
+                  {showLeftOut ? "Hide the full structure" : "Show full structure (" + view.folded.length + " left out)"}
+                </button>
+                {showLeftOut ? (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-xs text-gray-500">
+                      For each one: <span className="text-gray-300">Make it a separate department (or role)</span> puts it back
+                      in your plan as its own suggestion, which you can then add, edit or skip.{" "}
+                      <span className="text-gray-300">Keep it left out</span> agrees it is covered by the one named, and
+                      nothing is created for it.
+                    </p>
+                    {view.folded.map(function (note) {
+                      const busy = busyId === note.item.id || acceptingAll;
+                      return (
+                        <div
+                          key={note.item.id}
+                          className="flex items-start justify-between gap-3 rounded-lg border border-white/5 bg-[#0a0e1a] px-3 py-2.5"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-white">
+                              {note.item.title}{" "}
+                              <span className="text-xs font-normal text-gray-500">({note.what === "department" ? "department" : "role"})</span>
+                            </p>
+                            <p className="mt-0.5 text-xs text-indigo-300/80">
+                              {note.coveredBy ? "Covered by " + note.coveredBy : "Covered by another part of the plan"}
+                            </p>
+                            {note.item.rationale ? <p className="mt-0.5 text-xs text-gray-500">{note.item.rationale}</p> : null}
+                          </div>
+                          {isPending(note.item) ? (
+                            <div className="flex flex-shrink-0 items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={function () { addSeparately(note.item); }}
+                                className="rounded-full bg-indigo-500 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-600 disabled:opacity-50"
+                              >
+                                {busy ? "…" : note.what === "department" ? "Make it a separate department" : "Make it a separate role"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={function () { approve(note.item); }}
+                                className="rounded-full border border-white/15 px-3 py-1 text-xs font-medium text-gray-300 hover:border-white/30 disabled:opacity-50"
+                              >
+                                Keep it left out
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="flex-shrink-0 rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-gray-400">Seen</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {view.departments.length > 0 ? (
               <div className={card}>
                 <p className={sectionLabel}>Capital and departments</p>
@@ -1199,6 +1352,7 @@ export default function BlueprintPage() {
                               ) : (
                                 <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-gray-400">Already in your company</span>
                               )}
+                              {item ? renderMergeControl(item) : null}
                             </div>
                           </div>
                         )}

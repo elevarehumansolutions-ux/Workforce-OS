@@ -18,6 +18,9 @@ class BlueprintKind(str, Enum):
     RENAME_DEPARTMENT = "rename_department"
     RENAME_POSITION = "rename_position"
     REVIEW_NOTE = "review_note"
+    # A department or position the plan does NOT create on its own, because another
+    # department or position covers its work (lean structure). Approving only means "seen".
+    FOLDED = "folded"
 
 
 class BlueprintStatus(str, Enum):

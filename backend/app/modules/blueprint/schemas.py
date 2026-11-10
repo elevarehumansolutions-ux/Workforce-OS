@@ -96,6 +96,20 @@ class ProposedCleanup(BaseModel):
     note: str
 
 
+class ProposedFold(BaseModel):
+    """A department or role the plan leaves out, because another one covers its work.
+
+    Example: kind "department", name "Talent Sourcing", covered_by "D3" (Recruitment).
+    A combined role is not a fold: it is a normal position with a combined title,
+    and the roles it replaces are listed here as folds into it.
+    """
+
+    kind: Literal["department", "position"]
+    name: str
+    covered_by: str
+    reason: str
+
+
 class BlueprintAnswer(BaseModel):
     """Claude's whole answer for one organization."""
 
@@ -104,6 +118,8 @@ class BlueprintAnswer(BaseModel):
     objectives: list[ProposedObjective]
     kpis: list[ProposedKPI]
     cleanups: list[ProposedCleanup]
+    # Optional so an answer without any folds is still valid.
+    folded: list[ProposedFold] = []
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +145,7 @@ class BlueprintItemResponse(BaseModel):
     department_ref: str | None
     reports_to_ref: str | None
     objective_ref: str | None
+    folded_into_ref: str | None
     key_result_ref: str | None
     is_critical: bool | None
     revenue_allocation_pct: decimal.Decimal | None
@@ -144,6 +161,17 @@ class BlueprintItemResponse(BaseModel):
     reviewed_at: datetime | None
     created_entity_id: uuid.UUID | None
     created_at: datetime
+
+
+class BlueprintMergeRequest(BaseModel):
+    """What the item should be merged into: give exactly ONE of the two.
+
+    ``target_id`` is another suggested item of the plan; ``existing_id`` is a real
+    department or position the company already has.
+    """
+
+    target_id: uuid.UUID | None = None
+    existing_id: uuid.UUID | None = None
 
 
 class BlueprintEditRequest(BaseModel):

@@ -12,6 +12,7 @@ MAX_KEY_RESULTS_PER_OBJECTIVE = 4
 MAX_KPIS_PER_DEPARTMENT = 4
 MAX_KPIS = 30
 MAX_CRITICAL_POSITIONS_PER_DEPARTMENT = 3
+MAX_FOLDED = 12
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,20 @@ def blueprint_system_prompt() -> str:
         "(revenue_generating, revenue_enabling, operational, customer, compliance, strategic, "
         "financial or legal) and risk_level (very_low, low, medium, high or very_high). A position "
         "without both is not critical.\n"
+        "Keep the structure LEAN: the company should not pay for roles or departments its work "
+        "does not need. Judge how big the business is from the description and the capital "
+        "investment, and design for that size: a small business needs few departments and "
+        "people who cover several duties; only a large one needs every specialist function. "
+        "A position should exist only if it would own real work (key results or KPIs). Where "
+        "two jobs in the same field are too light to justify two people, propose ONE position "
+        "with a combined title (for example 'HR and Talent Acquisition Officer'); where a "
+        "department is too small to stand alone, leave it out and let a related department "
+        "cover it. For each department or position you leave out this way, add a 'folded' "
+        "entry: kind ('department' or 'position'), name (what you left out), covered_by (the "
+        "ref or label of the department or position that covers it; it must be one you "
+        "propose or already exists) and a one-sentence reason. Never fold away the departments "
+        f"or positions that generate revenue or that the business cannot run without. At most "
+        f"{MAX_FOLDED} folded entries.\n"
         "If the company already has a structure, tidy it: use a cleanup with action 'rename' and "
         "new_name when an existing name is non-standard or misspelt; use action 'review' with a "
         "note when two existing items look like duplicates or something looks wrong. "

@@ -15,6 +15,7 @@ from app.modules.blueprint.schemas import (
     BlueprintAnswer,
     ProposedCleanup,
     ProposedDepartment,
+    ProposedFold,
     ProposedKeyResult,
     ProposedKPI,
     ProposedObjective,
@@ -722,3 +723,47 @@ async def test_the_edited_share_shows_on_the_proposal_list_too(client, db_sessio
     listed = {i["title"]: float(i["revenue_allocation_pct"]) for i in (await client.get(BLUEPRINT, headers=headers)).json()["data"] if i["kind"] == "department"}
     assert round(sum(listed.values()), 1) == 100
     assert listed["Marketing"] == 10.0
+
+
+def _answer_with_a_fold() -> BlueprintAnswer:
+    """The logistics plan, plus: 'Fleet Admin' is left out because Operations (D1) covers it."""
+    answer = _logistics_answer()
+    answer.folded = [
+        ProposedFold(
+            kind="department", name="Fleet Admin", covered_by="D1",
+            reason="Operations can run the vehicles in a company this size.",
+        )
+    ]
+    return answer
+
+
+@pytest.mark.asyncio
+async def test_a_folded_note_is_listed_and_approving_it_creates_nothing(client, db_session, monkeypatch):
+    """Adaeze sees 'Fleet Admin: covered by Operations'; marking it seen adds no department."""
+    _, headers, _, items = await _generate(
+        client, db_session, monkeypatch, "bp_fold1@example.com", answer=_answer_with_a_fold()
+    )
+    note = _by_title(items, "Fleet Admin")
+
+    listed = (await client.get(BLUEPRINT, headers=headers)).json()["data"]
+    listed_note = next(i for i in listed if i["id"] == str(note.id))
+    resp = await client.post(f"{BLUEPRINT}/{note.id}/approve", headers=headers)
+
+    assert (listed_note["kind"], listed_note["folded_into_ref"]) == ("folded", "D1")
+    assert resp.status_code == 200
+    assert (resp.json()["status"], resp.json()["created_entity_id"]) == ("approved", None)
+    assert (await client.get(DEPARTMENTS, headers=headers)).json()["data"] == []
+
+
+@pytest.mark.asyncio
+async def test_accept_all_marks_a_folded_note_seen_and_still_builds_the_rest(client, db_session, monkeypatch):
+    """The note is counted among the accepted items and no 'Fleet Admin' department appears."""
+    _, headers, _, items = await _generate(
+        client, db_session, monkeypatch, "bp_fold2@example.com", answer=_answer_with_a_fold()
+    )
+
+    resp = await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
+
+    assert resp.json() == {"accepted": len(items), "skipped": []}
+    names = [d["name"] for d in (await client.get(DEPARTMENTS, headers=headers)).json()["data"]]
+    assert names == ["Operations"]

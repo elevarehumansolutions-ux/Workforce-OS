@@ -27,6 +27,7 @@ KIND_ORDER = [
     BlueprintKind.KEY_RESULT.value,
     BlueprintKind.KPI.value,
     BlueprintKind.REVIEW_NOTE.value,
+    BlueprintKind.FOLDED.value,
 ]
 
 
@@ -124,6 +125,16 @@ class BlueprintRepository:
             BlueprintItem.created_at.desc(), BlueprintItem.sort_order, BlueprintItem.id
         )
         return await paginate(stmt, page, limit, self._db)
+
+    async def list_batch_items(self, batch_id: uuid.UUID) -> list[BlueprintItem]:
+        """Every item of one generation run, in the AI's own order (used when reshaping a plan)."""
+        stmt = (
+            select(BlueprintItem)
+            .where(BlueprintItem.batch_id == batch_id)
+            .order_by(BlueprintItem.sort_order, BlueprintItem.id)
+            .execution_options(populate_existing=True)
+        )
+        return list((await self._db.execute(stmt)).scalars().all())
 
     async def list_department_share_items(self, batch_id: uuid.UUID) -> list[BlueprintItem]:
         """The batch's departments that carry a capital share and have not been skipped.

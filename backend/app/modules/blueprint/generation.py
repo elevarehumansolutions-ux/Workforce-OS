@@ -25,6 +25,7 @@ from .models import BlueprintItem
 from .prompts import (
     MAX_CRITICAL_POSITIONS_PER_DEPARTMENT,
     MAX_DEPARTMENTS,
+    MAX_FOLDED,
     MAX_KEY_RESULTS_PER_OBJECTIVE,
     MAX_KPIS,
     MAX_KPIS_PER_DEPARTMENT,
@@ -423,6 +424,43 @@ def build_item_rows(
                 note,
                 **{target_column: target_id},
             )
+
+    # --- folded: things the plan leaves out because another one covers them -----
+    # Names already in the plan (real or proposed) cannot also be "left out".
+    names_in_plan = {
+        "department": {name_key(n) for n in department_names.values()},
+        "position": {name_key(title) for title, _ in position_names.values()},
+    }
+    for row in rows:
+        if row["kind"] == BlueprintKind.DEPARTMENT.value:
+            names_in_plan["department"].add(name_key(row["title"]))
+        elif row["kind"] == BlueprintKind.POSITION.value:
+            names_in_plan["position"].add(name_key(row["title"]))
+
+    for fold in answer.folded[:MAX_FOLDED]:
+        name = clean_text(fold.name, _TITLE_LIMIT)
+        if not name or name_key(name) in names_in_plan[fold.kind]:
+            continue
+        # The thing that covers it must really exist: a real row or one of this plan.
+        if fold.kind == "department":
+            host = known.find_department(fold.covered_by)
+        else:
+            host = known.find_position(fold.covered_by)
+        if host is None:
+            continue
+        host_id, host_ref = host
+        extra = {"folded_into_ref": host_ref}
+        if host_id is not None and fold.kind == "department":
+            extra["department_id"] = host_id
+        elif host_id is not None:
+            extra["position_id"] = host_id
+        names_in_plan[fold.kind].add(name_key(name))
+        add_row(
+            BlueprintKind.FOLDED.value,
+            name,
+            clean_text(fold.reason, _RATIONALE_LIMIT),
+            **extra,
+        )
 
     return rows
 

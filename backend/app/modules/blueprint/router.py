@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db, require_org_role
+from app.core.exceptions import ValidationException
 from app.core.schemas import PaginationResponse
 from app.core.triggers import trigger_blueprint_generation
 from app.modules.tenancy_identity.models import Membership
@@ -22,8 +23,10 @@ from .schemas import (
     AcceptAllResponse,
     BlueprintEditRequest,
     BlueprintItemResponse,
+    BlueprintMergeRequest,
     GenerateResponse,
 )
+from .reshape import BlueprintReshaper
 from .service import BlueprintService
 
 router = APIRouter()
@@ -131,6 +134,38 @@ async def reject_item(
 ) -> BlueprintItemResponse:
     """Reject one item. Items that depend on it cannot be approved afterwards."""
     item = await BlueprintService(db).reject_item(item_id, caller.user_id)
+    response = BlueprintItemResponse.model_validate(item)
+    await db.commit()
+    return response
+
+
+@router.post("/blueprint/{item_id}/add-separately", status_code=200)
+async def add_separately(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_REVIEW_ROLES)),
+) -> BlueprintItemResponse:
+    """Turn a left-out item back into its own pending department or role."""
+    item = await BlueprintReshaper(db).add_separately(item_id)
+    response = BlueprintItemResponse.model_validate(item)
+    await db.commit()
+    return response
+
+
+@router.post("/blueprint/{item_id}/merge", status_code=200)
+async def merge_item(
+    item_id: uuid.UUID,
+    data: BlueprintMergeRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_REVIEW_ROLES)),
+) -> BlueprintItemResponse:
+    """Merge a suggested department or role into another one; the first becomes a left-out note."""
+    if (data.target_id is None) == (data.existing_id is None):
+        raise ValidationException(message="Give either target_id or existing_id, not both and not neither.")
+    if data.target_id is not None:
+        item = await BlueprintReshaper(db).merge(item_id, data.target_id)
+    else:
+        item = await BlueprintReshaper(db).merge_into_existing(item_id, data.existing_id, caller.user_id)
     response = BlueprintItemResponse.model_validate(item)
     await db.commit()
     return response
