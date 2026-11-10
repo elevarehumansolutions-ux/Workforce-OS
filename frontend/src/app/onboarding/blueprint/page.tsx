@@ -1109,7 +1109,14 @@ export default function BlueprintPage() {
 
             {/* Objectives the company writes itself, in addition to the suggested ones */}
             <OwnObjectives
-              departments={existingDepartments.map(function (d) { return { id: d.id, name: d.name }; })}
+              departments={[
+                ...existingDepartments.map(function (d) { return { id: d.id, name: d.name }; }),
+                // Departments the plan suggests but that are not added yet.
+                ...items
+                  .filter(function (i) { return i.kind === "department" && i.status === "pending"; })
+                  .map(function (i) { return { id: "pending:" + i.id, name: i.title, pendingItemId: i.id }; }),
+              ]}
+              onDepartmentAdded={function () { refresh(); }}
               planObjectiveIds={items
                 .filter(function (i) { return i.kind === "objective" && i.created_entity_id !== null; })
                 .map(function (i) { return i.created_entity_id as string; })}

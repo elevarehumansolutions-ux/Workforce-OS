@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { errorMessage } from "@/lib/tasks";
+import { approveBlueprintItem } from "@/lib/blueprint";
 import { addKeyResult, addObjective, loadObjectives } from "@/lib/strategy";
 import type { Objective } from "@/lib/strategy";
 import { useLoad } from "@/lib/useLoad";
@@ -11,9 +12,13 @@ import { useLoad } from "@/lib/useLoad";
 // suggested in the plan. They are saved straight away (no approve step: you wrote them). The
 // objectives that came from the plan are left out here, because the plan already shows them.
 export default function OwnObjectives(props: {
-  departments: { id: string; name: string }[];
+  // Departments an objective can belong to. One with a `pendingItemId` is only SUGGESTED in the
+  // plan so far (not a real department yet): choosing it adds that department first.
+  departments: { id: string; name: string; pendingItemId?: string }[];
   // Ids of the real objectives that came from the plan, so they are not listed twice.
   planObjectiveIds: string[];
+  // Called after a suggested department was added, so the plan can reload.
+  onDepartmentAdded: () => void;
 }) {
   const [reloads, setReloads] = useState(0);
   const [title, setTitle] = useState("");
@@ -45,7 +50,19 @@ export default function OwnObjectives(props: {
     setBusy(true);
     setError("");
     try {
-      await addObjective(title.trim(), departmentId === "" ? null : departmentId);
+      let realDepartmentId: string | null = departmentId === "" ? null : departmentId;
+      const chosen = props.departments.find(function (d) { return d.id === departmentId; });
+      if (chosen && chosen.pendingItemId) {
+        // The department is only suggested so far: add it, then use the real one.
+        const added = await approveBlueprintItem(chosen.pendingItemId);
+        if (!added.created_entity_id) {
+          setError("Couldn't add that department first. Try adding it from the Departments section.");
+          return;
+        }
+        realDepartmentId = added.created_entity_id;
+        props.onDepartmentAdded();
+      }
+      await addObjective(title.trim(), realDepartmentId);
       setTitle("");
       setReloads(reloads + 1);
     } catch (err) {
@@ -160,15 +177,24 @@ export default function OwnObjectives(props: {
           onChange={function (e) { setTitle(e.target.value); }}
         />
         <select className={input + " w-56"} value={departmentId} onChange={function (e) { setDepartmentId(e.target.value); }}>
-          <option value="">Company-wide</option>
+          <option value="">Company-wide (whole business)</option>
           {props.departments.map(function (d) {
-            return <option key={d.id} value={d.id}>{d.name}</option>;
+            return (
+              <option key={d.id} value={d.id}>
+                {d.pendingItemId ? d.name + " (suggested, will be added)" : d.name}
+              </option>
+            );
           })}
         </select>
         <button type="submit" disabled={busy} className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-50">
           {busy ? "Adding…" : "+ Add objective"}
         </button>
       </form>
+      <p className="mt-2 text-xs text-gray-500">
+        The dropdown chooses who the objective belongs to. &quot;Company-wide&quot; is for the whole business. It also lists the
+        departments you have added, and the departments the plan suggests that you haven&apos;t added yet (marked &quot;suggested,
+        will be added&quot;). Choosing one of those adds that department to your company first, then attaches the objective to it.
+      </p>
     </section>
   );
 }
