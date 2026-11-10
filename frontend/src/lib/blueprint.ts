@@ -132,13 +132,18 @@ export function addBlueprintItemSeparately(id: string): Promise<BlueprintItem> {
   return apiFetch<BlueprintItem>("/blueprint/" + id + "/add-separately", { method: "POST" });
 }
 
-// Merge a suggested department (or role) into another suggested one of the same kind. The
-// first stops being its own and becomes a "left out" note covered by the target.
-export function mergeBlueprintItem(id: string, targetId: string): Promise<BlueprintItem> {
-  return apiFetch<BlueprintItem>("/blueprint/" + id + "/merge", {
-    method: "POST",
-    body: { target_id: targetId },
-  });
+// Merge a suggested department (or role) into another one of the same kind. The target is
+// either another SUGGESTED item (give its blueprint item id) or one the company ALREADY has
+// (give the real department's or position's id): exactly one of the two. The merged item
+// stops being its own and becomes a "left out" note covered by the target.
+export interface MergeTarget {
+  suggestedItemId?: string;
+  existingId?: string;
+}
+
+export function mergeBlueprintItem(id: string, target: MergeTarget): Promise<BlueprintItem> {
+  const body = target.existingId ? { existing_id: target.existingId } : { target_id: target.suggestedItemId };
+  return apiFetch<BlueprintItem>("/blueprint/" + id + "/merge", { method: "POST", body: body });
 }
 
 export function acceptAllBlueprint(): Promise<AcceptAllResult> {

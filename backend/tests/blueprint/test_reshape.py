@@ -170,6 +170,121 @@ async def test_a_merged_critical_role_makes_the_target_critical(client, db_sessi
     assert (target["is_critical"], target["criticality_type"], target["risk_level"]) == (True, "operational", "high")
 
 
+# ---------------------------------------------------------------- merge into what exists
+
+async def _real_id(client, headers, url, field, value):
+    """The id of the real department or position with this name or title."""
+    rows = (await client.get(url, headers=headers)).json()["data"]
+    return next(r["id"] for r in rows if r[field] == value)
+
+
+@pytest.mark.asyncio
+async def test_a_suggested_department_can_be_merged_into_one_already_added(client, db_session, monkeypatch):
+    """Operations is added (real); Support is merged into it: its roles move there, and it takes all the capital."""
+    headers, items = await _plan_for(client, db_session, monkeypatch, "rs_ex1@example.com")
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'Operations').id}/approve", headers=headers)
+    operations_id = await _real_id(client, headers, DEPARTMENTS, "name", "Operations")
+
+    resp = await client.post(
+        f"{BLUEPRINT}/{_by_title(items, 'Customer Support').id}/merge",
+        json={"existing_id": operations_id}, headers=headers,
+    )
+
+    assert resp.status_code == 200
+    plan = await _listed(client, headers)
+    assert (plan["Customer Support"]["kind"], plan["Customer Support"]["department_id"]) == ("folded", operations_id)
+    assert (plan["Support Lead"]["department_id"], plan["Support Lead"]["department_ref"]) == (operations_id, None)
+    real = (await client.get(DEPARTMENTS, headers=headers)).json()["data"]
+    assert float(real[0]["revenue_allocation_percentage"]) == 100.0
+
+
+@pytest.mark.asyncio
+async def test_the_moved_roles_are_created_inside_the_real_department(client, db_session, monkeypatch):
+    """After the merge, Accept all puts the Support Lead in the real Operations department."""
+    headers, items = await _plan_for(client, db_session, monkeypatch, "rs_ex2@example.com")
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'Operations').id}/approve", headers=headers)
+    operations_id = await _real_id(client, headers, DEPARTMENTS, "name", "Operations")
+    await client.post(
+        f"{BLUEPRINT}/{_by_title(items, 'Customer Support').id}/merge",
+        json={"existing_id": operations_id}, headers=headers,
+    )
+
+    await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
+
+    departments = (await client.get(DEPARTMENTS, headers=headers)).json()["data"]
+    assert [d["name"] for d in departments] == ["Operations"]
+    assert await _real_id(client, headers, POSITIONS, "title", "Support Lead")
+    support_lead = next(p for p in (await client.get(POSITIONS, headers=headers)).json()["data"] if p["title"] == "Support Lead")
+    assert support_lead["department_id"] == operations_id
+
+
+@pytest.mark.asyncio
+async def test_the_moved_kpis_share_the_real_departments_free_weight(client, db_session, monkeypatch):
+    """Operations has no KPIs yet: its own suggested KPI and Support's now split the 100% between them."""
+    headers, items = await _plan_for(client, db_session, monkeypatch, "rs_ex3@example.com")
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'Operations').id}/approve", headers=headers)
+    operations_id = await _real_id(client, headers, DEPARTMENTS, "name", "Operations")
+
+    await client.post(
+        f"{BLUEPRINT}/{_by_title(items, 'Customer Support').id}/merge",
+        json={"existing_id": operations_id}, headers=headers,
+    )
+
+    plan = await _listed(client, headers)
+    assert [float(plan[n]["kpi_weight"]) for n in ("On-time rate", "Answer speed")] == [50.0, 50.0]
+    assert plan["Answer speed"]["department_id"] == operations_id
+
+
+@pytest.mark.asyncio
+async def test_kpis_that_no_longer_fit_are_set_aside_and_the_note_says_so(client, db_session, monkeypatch):
+    """Operations already has its full 100% of KPIs: Support's KPI is skipped and the reason is recorded."""
+    headers, items = await _plan_for(client, db_session, monkeypatch, "rs_ex4@example.com")
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'On-time rate').id}/approve", headers=headers)
+    operations_id = await _real_id(client, headers, DEPARTMENTS, "name", "Operations")
+
+    await client.post(
+        f"{BLUEPRINT}/{_by_title(items, 'Customer Support').id}/merge",
+        json={"existing_id": operations_id}, headers=headers,
+    )
+
+    plan = await _listed(client, headers)
+    assert plan["Answer speed"]["status"] == "rejected"
+    assert "full set of KPIs" in plan["Customer Support"]["rationale"]
+
+
+@pytest.mark.asyncio
+async def test_a_suggested_role_can_be_merged_into_one_already_added(client, db_session, monkeypatch):
+    """The Director is added (real); Dispatch Manager is merged into it: Driver Lead now reports to the real Director."""
+    headers, items = await _plan_for(client, db_session, monkeypatch, "rs_ex5@example.com")
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'Operations Director').id}/approve", headers=headers)
+    director_id = await _real_id(client, headers, POSITIONS, "title", "Operations Director")
+
+    await client.post(
+        f"{BLUEPRINT}/{_by_title(items, 'Dispatch Manager').id}/merge",
+        json={"existing_id": director_id}, headers=headers,
+    )
+
+    plan = await _listed(client, headers)
+    assert (plan["Dispatch Manager"]["kind"], plan["Dispatch Manager"]["position_id"]) == ("folded", director_id)
+    assert (plan["Driver Lead"]["reports_to_position_id"], plan["Driver Lead"]["reports_to_ref"]) == (director_id, None)
+
+
+@pytest.mark.asyncio
+async def test_merging_into_an_unknown_real_row_is_404_and_the_target_choice_is_checked(client, db_session, monkeypatch):
+    """A made-up real id is a 404; giving both targets, or neither, is a 422."""
+    import uuid
+
+    headers, items = await _plan_for(client, db_session, monkeypatch, "rs_ex6@example.com")
+    support, operations = _by_title(items, "Customer Support"), _by_title(items, "Operations")
+    url = f"{BLUEPRINT}/{support.id}/merge"
+
+    unknown = await client.post(url, json={"existing_id": str(uuid.uuid4())}, headers=headers)
+    both = await client.post(url, json={"existing_id": str(uuid.uuid4()), "target_id": str(operations.id)}, headers=headers)
+    neither = await client.post(url, json={}, headers=headers)
+
+    assert [r.status_code for r in (unknown, both, neither)] == [404, 422, 422]
+
+
 # ---------------------------------------------------------------- merge refusals
 
 @pytest.mark.asyncio

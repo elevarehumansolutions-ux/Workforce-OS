@@ -164,9 +164,14 @@ class BlueprintItemResponse(BaseModel):
 
 
 class BlueprintMergeRequest(BaseModel):
-    """Which suggested department or role the item should be merged into."""
+    """What the item should be merged into: give exactly ONE of the two.
 
-    target_id: uuid.UUID
+    ``target_id`` is another suggested item of the plan; ``existing_id`` is a real
+    department or position the company already has.
+    """
+
+    target_id: uuid.UUID | None = None
+    existing_id: uuid.UUID | None = None
 
 
 class BlueprintEditRequest(BaseModel):

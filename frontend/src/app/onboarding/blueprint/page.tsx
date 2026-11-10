@@ -249,17 +249,21 @@ export default function BlueprintPage() {
 
   // Merge a suggested department or role into another one. Asks first, because the merged
   // one stops being its own (everything it had moves to the other).
-  function mergeInto(item: BlueprintItem, target: BlueprintItem) {
+  function mergeInto(item: BlueprintItem, target: { name: string; suggestedItemId?: string; existingId?: string }) {
     const what = item.kind === "department" ? "department" : "role";
     const ok = window.confirm(
-      "Merge “" + shownTitle(item) + "” into “" + shownTitle(target) + "”? " +
+      "Merge “" + shownTitle(item) + "” into “" + target.name + "”? " +
         "It will no longer be its own " + what + ": " +
         (item.kind === "department"
-          ? "its roles, objectives, KPIs and share of the capital move to “" + shownTitle(target) + "”."
-          : "the roles that reported to it will report to “" + shownTitle(target) + "”.")
+          ? "its roles, objectives, KPIs and share of the capital move to “" + target.name + "”."
+          : "the roles that reported to it will report to “" + target.name + "”.")
     );
     if (!ok) return;
-    runAction(item, function () { return mergeBlueprintItem(item.id, target.id); }, "Couldn't merge them.");
+    runAction(
+      item,
+      function () { return mergeBlueprintItem(item.id, { suggestedItemId: target.suggestedItemId, existingId: target.existingId }); },
+      "Couldn't merge them."
+    );
   }
 
   // Open the edit box for an item, filled with what it says now. A department starts from its
@@ -559,34 +563,52 @@ export default function BlueprintPage() {
   }
 
   // One row of text with its actions: used for objectives, key results and tidy-ups.
-  // "Merge into…": only for a suggested department or role, and only when there is another
-  // suggested one of the same kind to merge it into (real ones cannot be merged here).
+  // "Merge into…": for a SUGGESTED department or role. It can be merged into any other
+  // department (or role) of the same kind: another suggested one, or one already added.
   function renderMergeControl(item: BlueprintItem) {
     if (item.status !== "pending" || (item.kind !== "department" && item.kind !== "position")) return null;
-    const candidates = items.filter(function (i) {
+    const suggested = items.filter(function (i) {
       return i.id !== item.id && i.kind === item.kind && i.status === "pending" && i.batch_id === item.batch_id;
     });
-    if (candidates.length === 0) return null;
+    // Rows that are real now (added from this plan or there before it): they all count as "already added".
+    const added: { id: string; name: string }[] =
+      item.kind === "department"
+        ? existingDepartments.map(function (d) { return { id: d.id, name: d.name }; })
+        : existingPositions.map(function (p) { return { id: p.id, name: p.title }; });
+    if (suggested.length === 0 && added.length === 0) return null;
     const busy = busyId === item.id || acceptingAll;
     return (
       <select
         value=""
         disabled={busy}
         onChange={function (e) {
-          const target = candidates.find(function (c) { return c.id === e.target.value; });
-          if (target) mergeInto(item, target);
+          const value = e.target.value;
+          if (value.indexOf("item:") === 0) {
+            const target = suggested.find(function (c) { return c.id === value.slice(5); });
+            if (target) mergeInto(item, { name: shownTitle(target), suggestedItemId: target.id });
+          } else if (value.indexOf("real:") === 0) {
+            const target = added.find(function (c) { return c.id === value.slice(5); });
+            if (target) mergeInto(item, { name: target.name, existingId: target.id });
+          }
         }}
         className="mt-1.5 w-full rounded-full border border-white/15 bg-[#05070f] px-2 py-1 text-xs text-gray-300 outline-none hover:border-white/30 disabled:opacity-50"
         aria-label={"Merge " + shownTitle(item) + " into another"}
       >
         <option value="">Merge into…</option>
-        {candidates.map(function (c) {
-          return (
-            <option key={c.id} value={c.id}>
-              {shownTitle(c)}
-            </option>
-          );
-        })}
+        {suggested.length > 0 ? (
+          <optgroup label="Suggested">
+            {suggested.map(function (c) {
+              return <option key={c.id} value={"item:" + c.id}>{shownTitle(c)}</option>;
+            })}
+          </optgroup>
+        ) : null}
+        {added.length > 0 ? (
+          <optgroup label="Already added">
+            {added.map(function (c) {
+              return <option key={c.id} value={"real:" + c.id}>{c.name}</option>;
+            })}
+          </optgroup>
+        ) : null}
       </select>
     );
   }
@@ -1196,6 +1218,12 @@ export default function BlueprintPage() {
                 </button>
                 {showLeftOut ? (
                   <div className="mt-3 space-y-2">
+                    <p className="text-xs text-gray-500">
+                      For each one: <span className="text-gray-300">Make it a separate department (or role)</span> puts it back
+                      in your plan as its own suggestion, which you can then add, edit or skip.{" "}
+                      <span className="text-gray-300">Keep it left out</span> agrees it is covered by the one named, and
+                      nothing is created for it.
+                    </p>
                     {view.folded.map(function (note) {
                       const busy = busyId === note.item.id || acceptingAll;
                       return (
@@ -1221,7 +1249,7 @@ export default function BlueprintPage() {
                                 onClick={function () { addSeparately(note.item); }}
                                 className="rounded-full bg-indigo-500 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-600 disabled:opacity-50"
                               >
-                                {busy ? "…" : "Add as its own"}
+                                {busy ? "…" : note.what === "department" ? "Make it a separate department" : "Make it a separate role"}
                               </button>
                               <button
                                 type="button"
@@ -1229,7 +1257,7 @@ export default function BlueprintPage() {
                                 onClick={function () { approve(note.item); }}
                                 className="rounded-full border border-white/15 px-3 py-1 text-xs font-medium text-gray-300 hover:border-white/30 disabled:opacity-50"
                               >
-                                Got it
+                                Keep it left out
                               </button>
                             </div>
                           ) : (
