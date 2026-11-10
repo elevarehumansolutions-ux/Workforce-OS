@@ -163,6 +163,12 @@ class BlueprintItemResponse(BaseModel):
     created_at: datetime
 
 
+class BlueprintMergeRequest(BaseModel):
+    """Which suggested department or role the item should be merged into."""
+
+    target_id: uuid.UUID
+
+
 class BlueprintEditRequest(BaseModel):
     """HR's corrections to one item before it is added: the wording, and a few details.
 

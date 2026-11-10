@@ -7,6 +7,7 @@ import ChartViewport from "@/components/ChartViewport";
 import OwnObjectives from "@/components/OwnObjectives";
 import {
   acceptAllBlueprint,
+  addBlueprintItemSeparately,
   approveBlueprintItem,
   buildBlueprintView,
   editBlueprintItem,
@@ -16,6 +17,7 @@ import {
   formatMoney,
   isPending,
   kpiAnnualReturn,
+  mergeBlueprintItem,
   rejectBlueprintItem,
   trimNumber,
   shownTitle,
@@ -238,6 +240,26 @@ export default function BlueprintPage() {
 
   function reject(item: BlueprintItem) {
     runAction(item, function () { return rejectBlueprintItem(item.id); }, "Couldn't skip that suggestion.");
+  }
+
+  // A left-out department or role comes back as its own suggestion, ready to be added.
+  function addSeparately(item: BlueprintItem) {
+    runAction(item, function () { return addBlueprintItemSeparately(item.id); }, "Couldn't add that back.");
+  }
+
+  // Merge a suggested department or role into another one. Asks first, because the merged
+  // one stops being its own (everything it had moves to the other).
+  function mergeInto(item: BlueprintItem, target: BlueprintItem) {
+    const what = item.kind === "department" ? "department" : "role";
+    const ok = window.confirm(
+      "Merge “" + shownTitle(item) + "” into “" + shownTitle(target) + "”? " +
+        "It will no longer be its own " + what + ": " +
+        (item.kind === "department"
+          ? "its roles, objectives, KPIs and share of the capital move to “" + shownTitle(target) + "”."
+          : "the roles that reported to it will report to “" + shownTitle(target) + "”.")
+    );
+    if (!ok) return;
+    runAction(item, function () { return mergeBlueprintItem(item.id, target.id); }, "Couldn't merge them.");
   }
 
   // Open the edit box for an item, filled with what it says now. A department starts from its
@@ -537,6 +559,38 @@ export default function BlueprintPage() {
   }
 
   // One row of text with its actions: used for objectives, key results and tidy-ups.
+  // "Merge into…": only for a suggested department or role, and only when there is another
+  // suggested one of the same kind to merge it into (real ones cannot be merged here).
+  function renderMergeControl(item: BlueprintItem) {
+    if (item.status !== "pending" || (item.kind !== "department" && item.kind !== "position")) return null;
+    const candidates = items.filter(function (i) {
+      return i.id !== item.id && i.kind === item.kind && i.status === "pending" && i.batch_id === item.batch_id;
+    });
+    if (candidates.length === 0) return null;
+    const busy = busyId === item.id || acceptingAll;
+    return (
+      <select
+        value=""
+        disabled={busy}
+        onChange={function (e) {
+          const target = candidates.find(function (c) { return c.id === e.target.value; });
+          if (target) mergeInto(item, target);
+        }}
+        className="mt-1.5 w-full rounded-full border border-white/15 bg-[#05070f] px-2 py-1 text-xs text-gray-300 outline-none hover:border-white/30 disabled:opacity-50"
+        aria-label={"Merge " + shownTitle(item) + " into another"}
+      >
+        <option value="">Merge into…</option>
+        {candidates.map(function (c) {
+          return (
+            <option key={c.id} value={c.id}>
+              {shownTitle(c)}
+            </option>
+          );
+        })}
+      </select>
+    );
+  }
+
   function renderLine(props: { item: BlueprintItem; text?: string; note?: string | null; small?: boolean }) {
     const item = props.item;
     const isEditing = editing !== null && editing.id === item.id;
@@ -625,6 +679,7 @@ export default function BlueprintPage() {
               ) : (
                 <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-gray-400">Already in your company</span>
               )}
+              {item ? renderMergeControl(item) : null}
             </div>
           </div>
         )}
@@ -1159,14 +1214,24 @@ export default function BlueprintPage() {
                             {note.item.rationale ? <p className="mt-0.5 text-xs text-gray-500">{note.item.rationale}</p> : null}
                           </div>
                           {isPending(note.item) ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={function () { approve(note.item); }}
-                              className="flex-shrink-0 rounded-full border border-white/15 px-3 py-1 text-xs font-medium text-gray-300 hover:border-white/30 disabled:opacity-50"
-                            >
-                              {busy ? "…" : "Got it"}
-                            </button>
+                            <div className="flex flex-shrink-0 items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={function () { addSeparately(note.item); }}
+                                className="rounded-full bg-indigo-500 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-600 disabled:opacity-50"
+                              >
+                                {busy ? "…" : "Add as its own"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={function () { approve(note.item); }}
+                                className="rounded-full border border-white/15 px-3 py-1 text-xs font-medium text-gray-300 hover:border-white/30 disabled:opacity-50"
+                              >
+                                Got it
+                              </button>
+                            </div>
                           ) : (
                             <span className="flex-shrink-0 rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-gray-400">Seen</span>
                           )}
@@ -1252,6 +1317,7 @@ export default function BlueprintPage() {
                               ) : (
                                 <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs text-gray-400">Already in your company</span>
                               )}
+                              {item ? renderMergeControl(item) : null}
                             </div>
                           </div>
                         )}

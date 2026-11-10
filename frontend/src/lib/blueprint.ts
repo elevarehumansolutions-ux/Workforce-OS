@@ -127,6 +127,20 @@ export function rejectBlueprintItem(id: string): Promise<BlueprintItem> {
   return apiFetch<BlueprintItem>("/blueprint/" + id + "/reject", { method: "POST" });
 }
 
+// A left-out department or role comes back as its own pending item.
+export function addBlueprintItemSeparately(id: string): Promise<BlueprintItem> {
+  return apiFetch<BlueprintItem>("/blueprint/" + id + "/add-separately", { method: "POST" });
+}
+
+// Merge a suggested department (or role) into another suggested one of the same kind. The
+// first stops being its own and becomes a "left out" note covered by the target.
+export function mergeBlueprintItem(id: string, targetId: string): Promise<BlueprintItem> {
+  return apiFetch<BlueprintItem>("/blueprint/" + id + "/merge", {
+    method: "POST",
+    body: { target_id: targetId },
+  });
+}
+
 export function acceptAllBlueprint(): Promise<AcceptAllResult> {
   return apiFetch<AcceptAllResult>("/blueprint/accept-all", { method: "POST" });
 }
