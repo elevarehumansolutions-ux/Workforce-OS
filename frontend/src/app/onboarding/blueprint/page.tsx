@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 import ChartViewport from "@/components/ChartViewport";
+import OwnObjectives from "@/components/OwnObjectives";
 import {
   acceptAllBlueprint,
   approveBlueprintItem,
@@ -1001,6 +1002,13 @@ export default function BlueprintPage() {
               </div>
             ) : null}
 
+            {/* Objectives the company writes itself, in addition to the suggested ones */}
+            <OwnObjectives
+              departments={existingDepartments.map(function (d) { return { id: d.id, name: d.name }; })}
+              planObjectiveIds={items
+                .filter(function (i) { return i.kind === "objective" && i.created_entity_id !== null; })
+                .map(function (i) { return i.created_entity_id as string; })}
+            />
             </div>
 
             {/* Departments */}
@@ -1089,6 +1097,17 @@ export default function BlueprintPage() {
               </div>
             ) : null}
 
+            <div className="rounded-2xl border border-dashed border-white/15 p-4 text-sm text-gray-400">
+              Need a department or role that isn&apos;t here?{" "}
+              <button
+                type="button"
+                onClick={function () { router.push("/organization-structure"); }}
+                className="font-medium text-indigo-400 hover:text-indigo-300"
+              >
+                Add it in Organization structure
+              </button>
+              .
+            </div>
             </div>
 
             {/* The organization chart: departments with their money, or the roles */}
@@ -1178,6 +1197,17 @@ export default function BlueprintPage() {
               </div>
             ) : null}
 
+            <div className="rounded-2xl border border-dashed border-white/15 p-4 text-sm text-gray-400">
+              Want a KPI of your own?{" "}
+              <button
+                type="button"
+                onClick={function () { router.push("/performance/kpis?add=1"); }}
+                className="font-medium text-indigo-400 hover:text-indigo-300"
+              >
+                Add a KPI
+              </button>{" "}
+              (you can tie it to a key result there).
+            </div>
             </div>
 
             {/* Tidy-ups of what the company already has */}
