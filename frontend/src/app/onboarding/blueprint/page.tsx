@@ -25,6 +25,7 @@ import type {
   BlueprintItem,
   ChartNode,
   DepartmentChartNode,
+  EditDetails,
   ExistingDepartment,
   ExistingPosition,
   ObjectiveGroup,
@@ -41,6 +42,14 @@ const MAX_POLLS = 30;
 interface Editing {
   id: string;
   text: string;
+  // Details for a KPI (target, unit, direction) or a department (share, margin), as typed.
+  target: string;
+  unit: string;
+  inverse: boolean;
+  share: string;
+  margin: string;
+  // The share when editing began, so an unchanged share is not sent (sending it re-spreads the others).
+  startShare: string;
 }
 
 // The sections of the plan, in the order a person should go through them: the departments
@@ -229,13 +238,45 @@ export default function BlueprintPage() {
     runAction(item, function () { return rejectBlueprintItem(item.id); }, "Couldn't skip that suggestion.");
   }
 
+  // Open the edit box for an item, filled with what it says now. A department starts from its
+  // live share (after the capital has been re-balanced), which is what the card shows.
+  function startEditing(item: BlueprintItem) {
+    const card = view.departments.find(function (d) { return d.item !== null && d.item.id === item.id; });
+    const liveShare = card && card.sharePct !== null ? String(card.sharePct) : "";
+    setEditing({
+      id: item.id,
+      text: item.title,
+      target: item.kpi_target_value === null ? "" : String(Number(item.kpi_target_value)),
+      unit: item.kpi_unit === null ? "" : item.kpi_unit,
+      inverse: item.kpi_is_inverse === true,
+      share: liveShare,
+      margin: item.profit_margin_pct === null ? "" : String(Number(item.profit_margin_pct)),
+      startShare: liveShare,
+    });
+  }
+
   async function saveEdit() {
     if (!editing) return;
     const text = editing.text.trim();
     const item = items.find(function (i) { return i.id === editing.id; });
     if (!item || text === "") return;
+
+    // Only the details that belong to this kind of item are sent.
+    const details: EditDetails = {};
+    if (item.kind === "kpi") {
+      details.kpi_target_value = editing.target.trim() === "" ? null : editing.target.trim();
+      details.kpi_unit = editing.unit.trim() === "" ? null : editing.unit.trim();
+      details.kpi_is_inverse = editing.inverse;
+    }
+    if (item.kind === "department") {
+      if (editing.share.trim() !== "" && editing.share.trim() !== editing.startShare) {
+        details.revenue_allocation_pct = editing.share.trim();
+      }
+      details.profit_margin_pct = editing.margin.trim() === "" ? null : editing.margin.trim();
+    }
+
     setEditing(null);
-    await runAction(item, function () { return editBlueprintItem(item.id, text); }, "Couldn't save your change.");
+    await runAction(item, function () { return editBlueprintItem(item.id, text, details); }, "Couldn't save your change.");
   }
 
   async function handleAcceptAll() {
@@ -373,7 +414,7 @@ export default function BlueprintPage() {
         <button
           type="button"
           disabled={busy}
-          onClick={function () { setEditing({ id: item.id, text: item.title }); }}
+          onClick={function () { startEditing(item); }}
           className="rounded-full border border-white/15 px-3 py-1 text-xs font-medium text-gray-300 hover:border-white/30 disabled:opacity-50"
         >
           Edit
@@ -401,7 +442,7 @@ export default function BlueprintPage() {
           value={editing.text}
           maxLength={300}
           onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
-            setEditing({ id: item.id, text: e.target.value });
+            setEditing({ ...editing, text: e.target.value });
           }}
           onKeyDown={function (e: React.KeyboardEvent<HTMLInputElement>) {
             if (e.key === "Enter") saveEdit();
@@ -409,6 +450,70 @@ export default function BlueprintPage() {
           }}
           className="w-full rounded-lg border border-white/10 bg-[#111726] px-3 py-1.5 text-sm text-white outline-none focus:border-indigo-500"
         />
+        {item.kind === "kpi" ? (
+          <div className="grid gap-2 text-left sm:grid-cols-2">
+            <label className="text-[11px] text-gray-400">
+              Target
+              <input
+                type="text"
+                inputMode="decimal"
+                value={editing.target}
+                placeholder="none"
+                onChange={function (e) { setEditing({ ...editing, target: e.target.value }); }}
+                className="mt-0.5 w-full rounded-lg border border-white/10 bg-[#111726] px-3 py-1.5 text-sm text-white outline-none focus:border-indigo-500"
+              />
+            </label>
+            <label className="text-[11px] text-gray-400">
+              Unit
+              <input
+                type="text"
+                value={editing.unit}
+                placeholder="e.g. %, days"
+                maxLength={40}
+                onChange={function (e) { setEditing({ ...editing, unit: e.target.value }); }}
+                className="mt-0.5 w-full rounded-lg border border-white/10 bg-[#111726] px-3 py-1.5 text-sm text-white outline-none focus:border-indigo-500"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-gray-300 sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={editing.inverse}
+                onChange={function (e) { setEditing({ ...editing, inverse: e.target.checked }); }}
+              />
+              A lower result is better (for example fewer days, fewer complaints)
+            </label>
+            <p className="text-[11px] text-gray-500 sm:col-span-2">
+              The weight is set on the KPIs screen, because a department&apos;s weights must add up to 100%.
+            </p>
+          </div>
+        ) : null}
+        {item.kind === "department" ? (
+          <div className="grid gap-2 text-left sm:grid-cols-2">
+            <label className="text-[11px] text-gray-400">
+              Share of capital (%)
+              <input
+                type="text"
+                inputMode="decimal"
+                value={editing.share}
+                onChange={function (e) { setEditing({ ...editing, share: e.target.value }); }}
+                className="mt-0.5 w-full rounded-lg border border-white/10 bg-[#111726] px-3 py-1.5 text-sm text-white outline-none focus:border-indigo-500"
+              />
+            </label>
+            <label className="text-[11px] text-gray-400">
+              Estimated profit margin (%)
+              <input
+                type="text"
+                inputMode="decimal"
+                value={editing.margin}
+                onChange={function (e) { setEditing({ ...editing, margin: e.target.value }); }}
+                className="mt-0.5 w-full rounded-lg border border-white/10 bg-[#111726] px-3 py-1.5 text-sm text-white outline-none focus:border-indigo-500"
+              />
+            </label>
+            <p className="text-[11px] text-gray-500 sm:col-span-2">
+              The other departments&apos; shares adjust so the capital always adds up to 100%.
+            </p>
+          </div>
+        ) : null}
         <div className="flex items-center justify-center gap-2">
           <button
             type="button"
