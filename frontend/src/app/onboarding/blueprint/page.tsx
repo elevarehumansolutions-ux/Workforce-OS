@@ -57,7 +57,7 @@ interface Editing {
 type SectionKey = "departments" | "chart" | "objectives" | "kpis" | "tidyups";
 
 const SECTIONS: { key: SectionKey; label: string; hint: string; kinds: string[] }[] = [
-  { key: "departments", label: "Departments and capital", hint: "Who gets what share", kinds: ["department"] },
+  { key: "departments", label: "Departments and capital", hint: "Who gets what share", kinds: ["department", "folded"] },
   { key: "chart", label: "Organization chart", hint: "Who reports to whom", kinds: ["position"] },
   { key: "objectives", label: "Objectives", hint: "Goals and key results", kinds: ["objective", "key_result"] },
   { key: "kpis", label: "KPIs", hint: "How progress is measured", kinds: ["kpi"] },
@@ -99,6 +99,8 @@ export default function BlueprintPage() {
   const [existingPositions, setExistingPositions] = useState<ExistingPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [waiting, setWaiting] = useState(false);
+  // "Show full structure": lists what the lean plan leaves out, and who covers it.
+  const [showLeftOut, setShowLeftOut] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
   const [pollRound, setPollRound] = useState(0);
   const [loadError, setLoadError] = useState("");
@@ -1118,6 +1120,64 @@ export default function BlueprintPage() {
 
             {/* Departments */}
             <div className={activeSection === "departments" ? "space-y-6" : "hidden"}>
+            {view.folded.length > 0 ? (
+              <div className={card}>
+                <p className={sectionLabel}>Kept lean on purpose</p>
+                <p className="text-sm text-gray-200">
+                  Your plan has <span className="font-semibold text-white">{view.lean.departments} department{view.lean.departments === 1 ? "" : "s"}</span> and{" "}
+                  <span className="font-semibold text-white">{view.lean.roles} role{view.lean.roles === 1 ? "" : "s"}</span>. A full structure
+                  would have had {view.lean.fullDepartments} and {view.lean.fullRoles}.
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Some departments and roles were left out because another one can cover their work. That saves you the
+                  cost of extra people while the business is small. You can still add any of them yourself later.
+                </p>
+                <button
+                  type="button"
+                  onClick={function () { setShowLeftOut(!showLeftOut); }}
+                  className="mt-3 text-sm font-medium text-indigo-400 hover:text-indigo-300"
+                >
+                  {showLeftOut ? "Hide the full structure" : "Show full structure (" + view.folded.length + " left out)"}
+                </button>
+                {showLeftOut ? (
+                  <div className="mt-3 space-y-2">
+                    {view.folded.map(function (note) {
+                      const busy = busyId === note.item.id || acceptingAll;
+                      return (
+                        <div
+                          key={note.item.id}
+                          className="flex items-start justify-between gap-3 rounded-lg border border-white/5 bg-[#0a0e1a] px-3 py-2.5"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-white">
+                              {note.item.title}{" "}
+                              <span className="text-xs font-normal text-gray-500">({note.what === "department" ? "department" : "role"})</span>
+                            </p>
+                            <p className="mt-0.5 text-xs text-indigo-300/80">
+                              {note.coveredBy ? "Covered by " + note.coveredBy : "Covered by another part of the plan"}
+                            </p>
+                            {note.item.rationale ? <p className="mt-0.5 text-xs text-gray-500">{note.item.rationale}</p> : null}
+                          </div>
+                          {isPending(note.item) ? (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={function () { approve(note.item); }}
+                              className="flex-shrink-0 rounded-full border border-white/15 px-3 py-1 text-xs font-medium text-gray-300 hover:border-white/30 disabled:opacity-50"
+                            >
+                              {busy ? "…" : "Got it"}
+                            </button>
+                          ) : (
+                            <span className="flex-shrink-0 rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-gray-400">Seen</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {view.departments.length > 0 ? (
               <div className={card}>
                 <p className={sectionLabel}>Capital and departments</p>

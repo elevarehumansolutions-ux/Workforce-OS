@@ -13,7 +13,9 @@ export type BlueprintKind =
   | "kpi"
   | "rename_department"
   | "rename_position"
-  | "review_note";
+  | "review_note"
+  // A department or role the plan leaves out because another one covers its work.
+  | "folded";
 
 export type BlueprintStatus = "pending" | "approved" | "edited" | "rejected";
 
@@ -37,6 +39,9 @@ export interface BlueprintItem {
   department_ref: string | null;
   reports_to_ref: string | null;
   objective_ref: string | null;
+  // Only for a "folded" note: the ref of the proposed department or position that covers it.
+  // When the one that covers it already exists, department_id / position_id is set instead.
+  folded_into_ref: string | null;
   // Only for a KPI: the key result it measures (a ref, or null for none), its share of
   // the department's KPIs in percent, its target and unit, and whether a LOWER figure
   // is better (for example days to deliver). The API sends decimals as strings.
@@ -219,6 +224,23 @@ export interface KpiSection {
   departmentAnnualReturn: number | null;
 }
 
+// One department or role the plan leaves out because another one covers it.
+export interface FoldedNote {
+  item: BlueprintItem;
+  // Is the thing left out a department or a position? It is the same kind as what covers it.
+  what: "department" | "position";
+  // The name of the department or position that covers it ("" if it could not be found).
+  coveredBy: string;
+}
+
+// How lean the plan is: what it keeps, and what the full structure would have had.
+export interface LeanCounts {
+  departments: number;
+  roles: number;
+  fullDepartments: number;
+  fullRoles: number;
+}
+
 export interface BlueprintView {
   // The capital investment from the Business DNA, or null when none was entered.
   capital: number | null;
@@ -231,6 +253,8 @@ export interface BlueprintView {
   objectiveSections: ObjectiveSection[];
   kpiSections: KpiSection[];
   cleanups: BlueprintItem[];
+  folded: FoldedNote[];
+  lean: LeanCounts;
 }
 
 // "95.00" -> "95", "2.50" -> "2.5". The API sends decimals as strings.
@@ -564,6 +588,38 @@ export function buildBlueprintView(
     if (d.sharePct !== null && d.item && d.item.status !== "rejected") totalSharePct += d.sharePct;
   });
 
+  // --- what the plan leaves out, and how lean it is ---------------------------------
+  // What covers a left-out item is either another item of this plan (found by its ref) or
+  // something the company already has (found by its id). Its kind tells what was left out.
+  const folded: FoldedNote[] = [];
+  items.forEach(function (i) {
+    if (i.kind !== "folded") return;
+    let what: "department" | "position" = "department";
+    let coveredBy = "";
+    const host = i.folded_into_ref ? items.find(function (x) { return x.ref === i.folded_into_ref; }) : undefined;
+    if (host) {
+      what = host.kind === "position" ? "position" : "department";
+      coveredBy = shownTitle(host);
+    } else if (i.position_id) {
+      what = "position";
+      const existing = existingPositions.find(function (p) { return p.id === i.position_id; });
+      coveredBy = existing ? existing.title : "";
+    } else if (i.department_id) {
+      coveredBy = existingDepartmentName[i.department_id] || "";
+    }
+    folded.push({ item: i, what: what, coveredBy: coveredBy });
+  });
+
+  const keptDepartments = departmentItems.filter(function (d) { return d.status !== "rejected"; }).length;
+  const leftOutDepartments = folded.filter(function (f) { return f.what === "department"; }).length;
+  const leftOutRoles = folded.length - leftOutDepartments;
+  const lean: LeanCounts = {
+    departments: keptDepartments,
+    roles: positionItems.length,
+    fullDepartments: keptDepartments + leftOutDepartments,
+    fullRoles: positionItems.length + leftOutRoles,
+  };
+
   return {
     capital: capital,
     totalSharePct: totalSharePct,
@@ -573,5 +629,7 @@ export function buildBlueprintView(
     objectiveSections: objectiveSections,
     kpiSections: kpiSections,
     cleanups: cleanups,
+    folded: folded,
+    lean: lean,
   };
 }
