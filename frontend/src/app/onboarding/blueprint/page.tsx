@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 import ChartViewport from "@/components/ChartViewport";
 import OwnObjectives from "@/components/OwnObjectives";
+import KpiWeightsPanel from "@/components/KpiWeightsPanel";
+import { keepOnlyNumber } from "@/lib/numberInput";
 import {
   acceptAllBlueprint,
   addBlueprintItemSeparately,
@@ -44,7 +46,8 @@ const MAX_POLLS = 30;
 interface Editing {
   id: string;
   text: string;
-  // Details for a KPI (target, unit, direction) or a department (share, margin), as typed.
+  // Details for a KPI (weight, target, unit, direction) or a department (share, margin), as typed.
+  weight: string;
   target: string;
   unit: string;
   inverse: boolean;
@@ -266,6 +269,15 @@ export default function BlueprintPage() {
     );
   }
 
+  // What the suggested KPIs still waiting in one department add up to, in percent.
+  function waitingKpiWeight(kpis: BlueprintItem[]): number {
+    let total = 0;
+    kpis.forEach(function (k) {
+      if (k.status === "pending" && k.kpi_weight !== null) total = total + Number(k.kpi_weight);
+    });
+    return total;
+  }
+
   // Open the edit box for an item, filled with what it says now. A department starts from its
   // live share (after the capital has been re-balanced), which is what the card shows.
   function startEditing(item: BlueprintItem) {
@@ -274,6 +286,7 @@ export default function BlueprintPage() {
     setEditing({
       id: item.id,
       text: item.title,
+      weight: item.kpi_weight === null ? "" : String(Number(item.kpi_weight)),
       target: item.kpi_target_value === null ? "" : String(Number(item.kpi_target_value)),
       unit: item.kpi_unit === null ? "" : item.kpi_unit,
       inverse: item.kpi_is_inverse === true,
@@ -292,6 +305,12 @@ export default function BlueprintPage() {
     // Only the details that belong to this kind of item are sent.
     const details: EditDetails = {};
     if (item.kind === "kpi") {
+      const weight = Number(editing.weight);
+      if (editing.weight.trim() === "" || isNaN(weight) || weight <= 0 || weight > 100) {
+        setActionError("The weight must be a number above 0 and up to 100.");
+        return;
+      }
+      details.kpi_weight = editing.weight.trim();
       details.kpi_target_value = editing.target.trim() === "" ? null : editing.target.trim();
       details.kpi_unit = editing.unit.trim() === "" ? null : editing.unit.trim();
       details.kpi_is_inverse = editing.inverse;
@@ -487,7 +506,7 @@ export default function BlueprintPage() {
                 inputMode="decimal"
                 value={editing.target}
                 placeholder="none"
-                onChange={function (e) { setEditing({ ...editing, target: e.target.value }); }}
+                onChange={function (e) { setEditing({ ...editing, target: keepOnlyNumber(e.target.value) }); }}
                 className="mt-0.5 w-full rounded-lg border border-white/10 bg-[#111726] px-3 py-1.5 text-sm text-white outline-none focus:border-indigo-500"
               />
             </label>
@@ -510,8 +529,18 @@ export default function BlueprintPage() {
               />
               A lower result is better (for example fewer days, fewer complaints)
             </label>
+            <label className="text-[11px] text-gray-400 sm:col-span-2">
+              Weight (%): how much it counts toward the department&apos;s score
+              <input
+                type="text"
+                inputMode="decimal"
+                value={editing.weight}
+                onChange={function (e) { setEditing({ ...editing, weight: keepOnlyNumber(e.target.value) }); }}
+                className="mt-0.5 w-full rounded-lg border border-white/10 bg-[#111726] px-3 py-1.5 text-sm text-white outline-none focus:border-indigo-500"
+              />
+            </label>
             <p className="text-[11px] text-gray-500 sm:col-span-2">
-              The weight is set on the KPIs screen, because a department&apos;s weights must add up to 100%.
+              If the department has less room than this when you add it, the suggested KPIs are scaled down to fit.
             </p>
           </div>
         ) : null}
@@ -1448,6 +1477,14 @@ export default function BlueprintPage() {
                           below carries its share of that.
                         </p>
                       ) : null}
+                      {section.departmentId ? (
+                        <KpiWeightsPanel
+                          departmentId={section.departmentId}
+                          departmentName={section.title}
+                          waitingTotal={waitingKpiWeight(section.kpis)}
+                          reloadKey={items.filter(function (i) { return i.status !== "pending"; }).length}
+                        />
+                      ) : null}
                       <div className="space-y-2">
                         {section.kpis.map(function (kpi) {
                           return renderKpi(kpi, section.title, section.departmentAnnualReturn);
@@ -1458,7 +1495,7 @@ export default function BlueprintPage() {
                 })}
                 <p className="text-xs text-gray-500">
                   A KPI&apos;s share of score is how much it counts toward its department&apos;s score (a department&apos;s
-                  KPIs add up to 100%). Targets are a starting point: you can change any of these later in KPIs.
+                  KPIs can use up to 100% between them). Targets are a starting point: you can change any of these later in KPIs.
                 </p>
               </div>
             ) : null}

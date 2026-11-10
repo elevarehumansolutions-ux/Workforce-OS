@@ -191,8 +191,9 @@ class KPIService:
         created, and an existing KPI whose id is missing from the
         submitted list is deleted — this is the only way to delete a
         KPI. Records one audit entry per create/update/delete performed,
-        not one for the whole batch. The submitted list must sum to
-        exactly 100.
+        not one for the whole batch. The submitted list must not sum to
+        more than 100 (changed 2026-11-10 from "exactly 100"; it may be
+        short of 100, or empty).
 
         Args:
             organization_id: Organization the group belongs to.
@@ -206,18 +207,21 @@ class KPIService:
             The full resulting list of KPIs.
 
         Raises:
-            KPIWeightConflictException: If the submitted list doesn't
-                sum to exactly 100.
+            KPIWeightConflictException: If the submitted list sums to
+                more than 100.
             KPINotFoundException: If a submitted item's id doesn't match
                 any KPI currently in this group.
         """
         for item in request.kpis:
             await self._check_key_result(item.key_result_id)
 
+        # At most 100, same rule as create_kpi. A list that is short of 100 is fine:
+        # scoring rescales the weights of the KPIs that exist. An empty list is fine too,
+        # so the last KPI of a department can be deleted.
         submitted_total = sum(item.weight for item in request.kpis)
-        if submitted_total != 100:
+        if submitted_total > 100:
             raise KPIWeightConflictException(
-                f"KPI weights for this department must total 100%. "
+                f"KPI weights for this department must not exceed 100%. "
                 f"The submitted list totals {submitted_total}%."
             )
 

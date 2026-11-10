@@ -200,9 +200,26 @@ async def test_list_kpis_is_org_scoped(client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_reconcile_kpis_rejects_total_not_equal_100(client):
-    """PUT .../kpis rejects a submitted list that doesn't sum to exactly 100."""
+async def test_reconcile_kpis_rejects_total_over_100(client):
+    """PUT .../kpis rejects a submitted list that sums to more than 100."""
     owner = await register_verified_and_login(client, email="kpi_owner9@example.com")
+    h = _auth_header(owner["access_token"])
+    dept_id = await _make_department(client, h)
+
+    resp = await client.put(
+        f"{DEPARTMENTS}/{dept_id}/kpis",
+        json={"kpis": [{"name": "A", "weight": 60}, {"name": "B", "weight": 50}]},
+        headers=h,
+    )
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "KPI_WEIGHT_MISMATCH"
+    assert "110" in resp.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_kpis_accepts_total_short_of_100(client):
+    """A list under 100 is saved: the department is still being built up."""
+    owner = await register_verified_and_login(client, email="kpi_owner9b@example.com")
     h = _auth_header(owner["access_token"])
     dept_id = await _make_department(client, h)
 
@@ -211,9 +228,22 @@ async def test_reconcile_kpis_rejects_total_not_equal_100(client):
         json={"kpis": [{"name": "A", "weight": 30}, {"name": "B", "weight": 60}]},
         headers=h,
     )
-    assert resp.status_code == 409
-    assert resp.json()["code"] == "KPI_WEIGHT_MISMATCH"
-    assert "90" in resp.json()["message"]
+    assert resp.status_code == 200
+    assert len(resp.json()["kpis"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_reconcile_kpis_can_delete_the_last_kpi(client):
+    """An empty list deletes every KPI of the department, including the last one."""
+    owner = await register_verified_and_login(client, email="kpi_owner9c@example.com")
+    h = _auth_header(owner["access_token"])
+    dept_id = await _make_department(client, h)
+    made = await client.post(KPIS, json={"department_id": dept_id, "name": "Only one", "weight": 100}, headers=h)
+
+    resp = await client.put(f"{DEPARTMENTS}/{dept_id}/kpis", json={"kpis": []}, headers=h)
+    assert resp.status_code == 200
+    assert resp.json()["kpis"] == []
+    assert (await client.get(f"{KPIS}/{made.json()['id']}", headers=h)).status_code == 404
 
 
 @pytest.mark.asyncio

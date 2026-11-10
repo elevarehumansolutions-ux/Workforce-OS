@@ -22,7 +22,9 @@ import {
 } from "@/lib/kpis";
 import type { DepartmentReturn, KpiForm, KpiFull } from "@/lib/kpis";
 import { formatMoney } from "@/lib/blueprint";
+import { keepOnlyNumber } from "@/lib/numberInput";
 
+const LABEL = "mb-1 block text-xs text-gray-400";
 const INPUT = "w-full rounded-lg border border-white/10 bg-[#05070f] px-3 py-2 text-sm text-white outline-none focus:border-indigo-400";
 const BUTTON = "rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-50";
 const GHOST = "rounded-lg border border-white/10 px-3 py-1.5 text-xs text-gray-200 hover:bg-white/5";
@@ -120,14 +122,32 @@ function KpiFormFields(props: {
   return (
     <form onSubmit={submit} className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2">
-        <input className={INPUT} placeholder="KPI name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        <input className={INPUT} placeholder="Weight (% of department)" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} />
-        <input
-          className={INPUT + " sm:col-span-2"}
-          placeholder="What does this measure? (optional)"
-          value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
-        />
+        <div>
+          <label className={LABEL}>KPI name</label>
+          <input className={INPUT} placeholder="e.g. On-time delivery rate" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </div>
+        <div>
+          <label className={LABEL}>Weight: how much it counts toward the department&apos;s score</label>
+          <div className="flex items-center gap-2">
+            <input
+              className={INPUT}
+              inputMode="decimal"
+              placeholder="e.g. 30"
+              value={form.weight}
+              onChange={(e) => setForm({ ...form, weight: keepOnlyNumber(e.target.value) })}
+            />
+            <span className="text-sm text-gray-400">%</span>
+          </div>
+        </div>
+        <div className="sm:col-span-2">
+          <label className={LABEL}>Explain this KPI in one sentence (optional)</label>
+          <input
+            className={INPUT}
+            placeholder="e.g. Share of orders delivered by the promised date"
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+          />
+        </div>
         <div className="sm:col-span-2">
           <label className="mb-1 block text-xs text-gray-400">Measures this key result (optional)</label>
           <select className={INPUT} value={form.keyResultId} onChange={(e) => setForm({ ...form, keyResultId: e.target.value })}>
@@ -146,12 +166,32 @@ function KpiFormFields(props: {
             This ties the KPI to your strategy. Employees are scored from tasks linked to the KPI.
           </p>
         </div>
-        <input className={INPUT} placeholder="Target (optional)" value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} />
-        <input className={INPUT} placeholder="Unit, e.g. deals (optional)" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-        <select className={INPUT} value={form.trackingMode} onChange={(e) => setForm({ ...form, trackingMode: e.target.value as "manual" | "task_count" })}>
-          <option value="manual">Result typed in by HR or an executive</option>
-          <option value="task_count">Counted from completed tasks</option>
-        </select>
+        <div>
+          <label className={LABEL}>Target (optional): the number you want to reach</label>
+          <input
+            className={INPUT}
+            inputMode="decimal"
+            placeholder="e.g. 95"
+            value={form.target}
+            onChange={(e) => setForm({ ...form, target: keepOnlyNumber(e.target.value) })}
+          />
+        </div>
+        <div>
+          <label className={LABEL}>Unit (optional): what the number counts</label>
+          <input className={INPUT} placeholder="e.g. %, deals, days" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className={LABEL}>How will progress be measured?</label>
+          <select className={INPUT} value={form.trackingMode} onChange={(e) => setForm({ ...form, trackingMode: e.target.value as "manual" | "task_count" })}>
+            <option value="manual">Result typed in by HR or an executive</option>
+            <option value="task_count">Counted from completed tasks</option>
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            {form.trackingMode === "manual"
+              ? "Someone types the real figure each quarter, for example 12 deals closed. Good for things the system cannot see, such as sales or customer satisfaction."
+              : "The system counts the tasks linked to this KPI that are completed this quarter. Link tasks to it when you create them."}
+          </p>
+        </div>
         <label className="flex items-center gap-2 text-sm text-gray-300">
           <input type="checkbox" checked={form.isInverse} onChange={(e) => setForm({ ...form, isInverse: e.target.checked })} />
           Lower is better (e.g. complaints)
@@ -242,7 +282,7 @@ function RecordResult(props: { kpi: KpiFull; onSaved: () => void }) {
   );
 }
 
-// ---- delete a KPI: the weights of the KPIs that stay must still total 100
+// ---- delete a KPI: the weights of the KPIs that stay must not pass 100 (short of 100 is fine)
 
 function DeleteKpiPanel(props: { kpi: KpiFull; siblings: KpiFull[]; onDone: () => void; onCancel: () => void }) {
   // Only KPIs in the same weight group (same location) take part.
@@ -261,8 +301,10 @@ function DeleteKpiPanel(props: { kpi: KpiFull; siblings: KpiFull[]; onDone: () =
   for (const s of staying) {
     total = total + Number(weights[s.id]);
   }
-  // Round to avoid 99.99999 from decimal typing.
-  const totalIsHundred = staying.length > 0 && Math.round(total * 100) === 10000;
+  // Round to avoid 100.00000001 from decimal typing. Short of 100 is allowed (and so is
+  // nothing left at all, the last KPI): the server only refuses a total above 100.
+  const totalIsTooHigh = Math.round(total * 100) > 10000;
+  const canDelete = !totalIsTooHigh && !isNaN(total);
 
   async function confirm() {
     setBusy(true);
@@ -277,19 +319,13 @@ function DeleteKpiPanel(props: { kpi: KpiFull; siblings: KpiFull[]; onDone: () =
     }
   }
 
-  if (staying.length === 0) {
-    return (
-      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-        <p>A department&apos;s KPI weights must total 100%, so the last KPI can&apos;t be deleted. Add the replacement first, then delete this one.</p>
-        <button onClick={props.onCancel} className={GHOST + " mt-3"}>Close</button>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
       <p className="text-sm text-red-100">
-        Delete <strong>{props.kpi.name}</strong>? Its past scores stay on record. Share its weight among the others so they total 100%:
+        Delete <strong>{props.kpi.name}</strong>? Its past scores stay on record.
+        {staying.length > 0
+          ? " If you like, hand its weight to the others below. The total may be less than 100% while you are still setting up, but never more."
+          : " It is the department's last KPI, so the department will have none until you add one."}
       </p>
       {staying.map(function (s) {
         return (
@@ -304,10 +340,14 @@ function DeleteKpiPanel(props: { kpi: KpiFull; siblings: KpiFull[]; onDone: () =
           </div>
         );
       })}
-      <p className={"text-sm " + (totalIsHundred ? "text-emerald-300" : "text-amber-300")}>Total: {total}% {totalIsHundred ? "" : "(must be exactly 100)"}</p>
+      {staying.length > 0 ? (
+        <p className={"text-sm " + (totalIsTooHigh ? "text-red-300" : "text-emerald-300")}>
+          Total: {total}% {totalIsTooHigh ? "(must not be more than 100)" : "(" + Math.round((100 - total) * 100) / 100 + "% unused)"}
+        </p>
+      ) : null}
       {error ? <p className="text-xs text-red-300">{error}</p> : null}
       <div className="flex gap-2">
-        <button onClick={confirm} disabled={!totalIsHundred || busy} className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600 disabled:opacity-40">
+        <button onClick={confirm} disabled={!canDelete || busy} className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600 disabled:opacity-40">
           Delete KPI
         </button>
         <button onClick={props.onCancel} className={GHOST}>Cancel</button>

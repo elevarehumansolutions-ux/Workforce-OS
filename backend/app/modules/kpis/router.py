@@ -183,9 +183,9 @@ async def reconcile_kpis(
     updated, an item with no ``id`` is created, and an existing KPI whose
     id is missing from the submitted list is deleted — this is the only
     way to delete a KPI, there is no standalone ``DELETE /kpis/{id}``.
-    The submitted list's weights must sum to exactly 100 (409
+    The submitted list's weights must not sum to more than 100 (409
     ``KPI_WEIGHT_MISMATCH`` otherwise, with the actual total in the
-    message).
+    message). Short of 100, or an empty list, is accepted.
 
     Args:
         department_id: The group's department.

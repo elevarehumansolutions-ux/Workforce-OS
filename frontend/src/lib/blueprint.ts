@@ -109,6 +109,8 @@ export function approveBlueprintItem(id: string): Promise<BlueprintItem> {
 // unit, direction (null clears the target or unit). A department: its share of the capital
 // (the others are re-spread to keep the total at 100) and its estimated profit margin.
 export interface EditDetails {
+  // A KPI's share of its department's score, in percent (never null).
+  kpi_weight?: string;
   kpi_target_value?: string | null;
   kpi_unit?: string | null;
   kpi_is_inverse?: boolean;
@@ -241,6 +243,9 @@ export interface KpiSection {
   kpis: BlueprintItem[];
   // The department's yearly return target; each KPI's own return is its weight's share of it.
   departmentAnnualReturn: number | null;
+  // The real department's id, or null while the department itself is only a suggestion
+  // (then it has no KPIs of its own yet, so there is nothing to list).
+  departmentId: string | null;
 }
 
 // One department or role the plan leaves out because another one covers it.
@@ -598,7 +603,21 @@ export function buildBlueprintView(
   departments.forEach(function (d) {
     const mine = kpiItems.filter(function (k) { return departmentKeyOf(k) === d.key; });
     if (mine.length > 0) {
-      kpiSections.push({ title: d.name, color: d.color, kpis: mine, departmentAnnualReturn: d.annualReturn });
+      // "id:<uuid>" is a department the company already had; a proposed one has a real id
+      // only once it has been added.
+      let realId: string | null = null;
+      if (d.key.startsWith("id:")) {
+        realId = d.key.substring(3);
+      } else if (d.item && d.item.created_entity_id) {
+        realId = d.item.created_entity_id;
+      }
+      kpiSections.push({
+        title: d.name,
+        color: d.color,
+        kpis: mine,
+        departmentAnnualReturn: d.annualReturn,
+        departmentId: realId,
+      });
     }
   });
 

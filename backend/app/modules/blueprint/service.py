@@ -7,7 +7,7 @@ rolls the review back too.
 """
 
 import uuid
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +15,7 @@ from app.core.exceptions import (
     BlueprintItemAlreadyReviewedException,
     BlueprintItemNotFoundException,
     BlueprintParentRejectedException,
+    KPIWeightConflictException,
     PlatformError,
     ValidationException,
 )
@@ -117,6 +118,41 @@ class BlueprintService:
             # The link is optional: a KPI is still useful without its key result.
             return None
 
+    async def _fit_kpi_weight(self, item: BlueprintItem, department_id: uuid.UUID) -> None:
+        """Shrink a suggested KPI (and the waiting ones of its department) to the room that is free.
+
+        The suggested weights were fitted when the plan was made. KPIs the owner has created
+        since, by hand, use up some of the department's 100%, so the suggestions no longer
+        fit. Rather than refuse them, every waiting suggestion of this department is scaled
+        down in the same proportion until together they fit the free room. Rounding goes DOWN,
+        so the total can never creep over 100.
+        """
+        used = await self._kpis.kpi_repo.sum_weights_for_group(department_id, None)
+        room = Decimal(100) - Decimal(used)
+        waiting = {item.id: item}
+        for other in await self._repo.list_batch_items(item.batch_id):
+            same_department = (
+                other.department_id == item.department_id
+                and other.department_ref == item.department_ref
+            )
+            if other.kind == BlueprintKind.KPI.value and same_department:
+                if other.status == BlueprintStatus.PENDING.value:
+                    waiting[other.id] = other
+        waiting_total = sum(Decimal(other.kpi_weight or 0) for other in waiting.values())
+        if waiting_total > room:
+            for other in waiting.values():
+                if room > 0:
+                    scaled = Decimal(other.kpi_weight or 0) / waiting_total * room
+                    other.kpi_weight = scaled.quantize(Decimal("0.01"), ROUND_DOWN)
+        if room <= 0 or Decimal(item.kpi_weight or 0) <= 0:
+            raise KPIWeightConflictException(
+                message=(
+                    "This department's KPIs already use all of its 100%. "
+                    "Lower another KPI's weight first, then add this one."
+                )
+            )
+        await self._db.flush()
+
     async def _apply(self, item: BlueprintItem, actor_user_id: uuid.UUID) -> None:
         """Create or change the real row this item stands for."""
         org_id = item.organization_id
@@ -161,7 +197,8 @@ class BlueprintService:
         elif item.kind == BlueprintKind.KPI.value:
             department_id = await self._department_for(item, actor_user_id)
             key_result_id = await self._key_result_for(item, actor_user_id)
-            # create_kpi refuses (409) a weight that would push the department over 100%.
+            await self._fit_kpi_weight(item, department_id)
+            # create_kpi still refuses (409) a weight that would push the department over 100%.
             created = await self._kpis.create_kpi(
                 org_id,
                 actor_user_id,
@@ -261,13 +298,13 @@ class BlueprintService:
     async def _apply_details(self, item: BlueprintItem, details: dict) -> None:
         """Change a pending item's proposal details before it is added.
 
-        Which details may change depends on the kind: a KPI's target, unit and direction; a
+        Which details may change depends on the kind: a KPI's weight, target, unit and direction; a
         department's share of the capital and profit margin. Anything else is refused. Changing
         one department's share spreads the rest over the others in the same proportions, so the
         capital stays split exactly 100% and the share asked for is the share that is kept.
         """
         allowed = {
-            BlueprintKind.KPI.value: {"kpi_target_value", "kpi_unit", "kpi_is_inverse"},
+            BlueprintKind.KPI.value: {"kpi_weight", "kpi_target_value", "kpi_unit", "kpi_is_inverse"},
             BlueprintKind.DEPARTMENT.value: {"revenue_allocation_pct", "profit_margin_pct"},
         }.get(item.kind, set())
         not_allowed = set(details) - allowed
@@ -277,6 +314,8 @@ class BlueprintService:
             )
         if "kpi_is_inverse" in details and details["kpi_is_inverse"] is None:
             raise ValidationException(message="Say whether a lower result is better, or leave it out")
+        if "kpi_weight" in details and details["kpi_weight"] is None:
+            raise ValidationException(message="Give the KPI a weight, or leave it out")
 
         for field, value in details.items():
             if field == "revenue_allocation_pct":

@@ -118,13 +118,20 @@ export async function createKpi(departmentId: string, form: KpiForm): Promise<vo
   await apiFetch("/kpis", { method: "POST", body: body });
 }
 
+// Change only the weight of one KPI. PATCH leaves every field that is not sent alone, and the
+// server still refuses a weight that would push the department over 100%.
+export async function updateKpiWeight(kpiId: string, weight: string): Promise<void> {
+  await apiFetch("/kpis/" + kpiId, { method: "PATCH", body: { weight: weight } });
+}
+
 export async function updateKpi(kpiId: string, form: KpiForm): Promise<void> {
   await apiFetch("/kpis/" + kpiId, { method: "PATCH", body: bodyFromForm(form) });
 }
 
 // The only way to delete a KPI is to send the department's WHOLE list again
-// without it, and the weights of what is left must total exactly 100. So the
-// caller passes the KPIs that stay plus the weight each should now have.
+// without it, and the weights of what is left must not total more than 100
+// (short of 100, or nothing left, is accepted). So the caller passes the KPIs
+// that stay plus the weight each should now have.
 // Every field is sent again because this call replaces the KPI's values.
 export async function deleteKpi(
   departmentId: string,
