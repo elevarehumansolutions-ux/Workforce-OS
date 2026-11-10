@@ -606,8 +606,8 @@ async def test_a_department_with_a_full_set_of_kpis_gets_no_proposals(client, db
 
 
 @pytest.mark.asyncio
-async def test_a_kpi_that_no_longer_fits_is_skipped_with_the_reason(client, db_session, monkeypatch):
-    """HR adds a 90% KPI by hand after the draft: the AI's KPIs would exceed 100%, so accept-all skips them."""
+async def test_suggested_kpis_shrink_to_the_room_a_hand_made_kpi_left(client, db_session, monkeypatch):
+    """HR adds a 90% KPI by hand after the draft: the two 50% suggestions are scaled to 5% each and added."""
     login, headers, org_id = await _org_with_dna(client, db_session, "bp_kpi6@example.com")
     sales = (await client.post(DEPARTMENTS, json={"name": "Sales"}, headers=headers)).json()
     _fake_anthropic(monkeypatch, usage=_usage(), parsed_output=_kpis_for_existing_department(50, 50))
@@ -617,10 +617,54 @@ async def test_a_kpi_that_no_longer_fits_is_skipped_with_the_reason(client, db_s
     resp = await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
 
     body = resp.json()
+    assert body["accepted"] == 2
+    assert body["skipped"] == []
+    weights = sorted(float(k["weight"]) for k in await _kpis_of(client, headers))
+    assert weights == [5.0, 5.0, 90.0]
+
+
+@pytest.mark.asyncio
+async def test_a_kpi_is_refused_with_a_clear_message_when_the_department_has_no_room(client, db_session, monkeypatch):
+    """HR's hand-made KPIs use all 100%: accept-all skips the suggestions and says what to do."""
+    login, headers, org_id = await _org_with_dna(client, db_session, "bp_kpi6b@example.com")
+    sales = (await client.post(DEPARTMENTS, json={"name": "Sales"}, headers=headers)).json()
+    _fake_anthropic(monkeypatch, usage=_usage(), parsed_output=_kpis_for_existing_department(50, 50))
+    await generate_blueprint(db_session, org_id)
+    await client.post(KPIS, json={"department_id": sales["id"], "name": "Hand made", "weight": 100}, headers=headers)
+
+    resp = await client.post(f"{BLUEPRINT}/accept-all", headers=headers)
+
+    body = resp.json()
     assert body["accepted"] == 0
     assert len(body["skipped"]) == 2
-    assert "100%" in body["skipped"][0]["reason"]
+    assert "Lower another KPI's weight" in body["skipped"][0]["reason"]
     assert [k["name"] for k in await _kpis_of(client, headers)] == ["Hand made"]
+
+
+@pytest.mark.asyncio
+async def test_a_suggested_kpis_weight_can_be_corrected_when_adding_it(client, db_session, monkeypatch):
+    """The 60% KPI is added with 55% (room is plentiful, so the number the owner typed is kept)."""
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_kpi7@example.com")
+    kpi = _by_title(items, "On-time delivery rate")
+    other = _by_title(items, "Average transit time")
+    await client.post(f"{BLUEPRINT}/{other.id}/reject", headers=headers)  # leave the whole 100% free
+
+    resp = await _edit(client, headers, kpi, kpi_weight="55")
+
+    assert resp.status_code == 200
+    real = next(k for k in await _kpis_of(client, headers) if k["name"] == "On-time delivery rate")
+    assert float(real["weight"]) == 55
+
+
+@pytest.mark.asyncio
+async def test_a_kpi_weight_of_zero_or_over_100_is_a_422_and_null_is_refused(client, db_session, monkeypatch):
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_kpi8@example.com")
+    kpi = _by_title(items, "On-time delivery rate")
+
+    for bad in ("0", "101", "-5"):
+        assert (await _edit(client, headers, kpi, kpi_weight=bad)).status_code == 422
+    assert (await _edit(client, headers, kpi, kpi_weight=None)).status_code == 422
+    assert await _kpis_of(client, headers) == []
 
 
 # ------------------------------------------------ editing details before adding

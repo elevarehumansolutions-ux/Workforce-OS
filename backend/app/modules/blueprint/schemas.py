@@ -185,6 +185,8 @@ class BlueprintEditRequest(BaseModel):
 
     title: str = Field(min_length=1, max_length=300)
     # KPI
+    # Its share of the department's score, in percent (greater than 0, at most 100).
+    kpi_weight: decimal.Decimal | None = Field(default=None, gt=0, le=100, max_digits=5, decimal_places=2)
     kpi_target_value: decimal.Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
     kpi_unit: str | None = Field(default=None, max_length=40)
     kpi_is_inverse: bool | None = None

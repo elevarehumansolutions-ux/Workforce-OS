@@ -118,6 +118,12 @@ export async function createKpi(departmentId: string, form: KpiForm): Promise<vo
   await apiFetch("/kpis", { method: "POST", body: body });
 }
 
+// Change only the weight of one KPI. PATCH leaves every field that is not sent alone, and the
+// server still refuses a weight that would push the department over 100%.
+export async function updateKpiWeight(kpiId: string, weight: string): Promise<void> {
+  await apiFetch("/kpis/" + kpiId, { method: "PATCH", body: { weight: weight } });
+}
+
 export async function updateKpi(kpiId: string, form: KpiForm): Promise<void> {
   await apiFetch("/kpis/" + kpiId, { method: "PATCH", body: bodyFromForm(form) });
 }
