@@ -336,6 +336,71 @@ and beat only learn about new tasks and schedules on start-up.
 
 ---
 
+## 11. Reset a test organization so onboarding starts afresh (destructive)
+
+Use on a **test/demo** organization only. Keeps the organization row, the user and the
+owner's membership; deletes everything else the organization owns (plan, departments, roles,
+people, OKRs, KPIs, tasks, workflows, scores, Business DNA) and blanks the company name.
+Steps: back up, dry-run with `ROLLBACK`, then run again with `COMMIT`.
+
+**Why this order.** Foreign keys point child to parent (a KPI points at a key result, a key
+result at an objective, an objective at a department), so children are deleted first.
+Three self-references are set to NULL first (`departments.head_employee_id`,
+`positions.reports_to_position_id`, `employees.manager_id`), or the delete is blocked by its
+own rows. `audit_log` and `ai_usage_log` are left alone (history, may be append-only).
+
+**Where the onboarding position lives.** In the browser (`localStorage` key
+`wos_onboarding_progress`), not on the server. After the reset, open
+`/onboarding/business-dna` directly. Saving Business DNA triggers the first plan only when
+the organization has no `blueprint_items`, which is what the reset guarantees.
+
+Backup first: `docker compose -f docker-compose.prod.yml exec -T db pg_dump -U elevare elevare_db > backup_before_reset.sql`.
+
+Save as `reset_org.sql` (replace `ORG-ID`; end with `ROLLBACK;` for the dry run, `COMMIT;` for real):
+
+```sql
+BEGIN;
+SELECT set_config('app.current_org_id', 'ORG-ID', true);
+UPDATE departments SET head_employee_id = NULL;
+UPDATE positions SET reports_to_position_id = NULL;
+UPDATE employees SET manager_id = NULL;
+DELETE FROM task_blocks;
+DELETE FROM tasks;
+DELETE FROM workflow_instances;
+DELETE FROM workflow_steps;
+DELETE FROM workflow_templates;
+DELETE FROM attendance_records;
+DELETE FROM employee_kpi_scores;
+DELETE FROM kpi_scores;
+DELETE FROM department_scores;
+DELETE FROM executive_summaries;
+DELETE FROM ai_suggestions;
+DELETE FROM blueprint_items;
+DELETE FROM kpis;
+DELETE FROM key_results;
+DELETE FROM okrs;
+DELETE FROM invites;
+DELETE FROM employees;
+DELETE FROM positions;
+DELETE FROM departments;
+DELETE FROM locations;
+DELETE FROM notifications;
+DELETE FROM business_dna_core_values;
+DELETE FROM business_dna;
+UPDATE organizations SET name = NULL WHERE id = 'ORG-ID';
+SELECT (SELECT count(*) FROM blueprint_items) AS blueprint,
+       (SELECT count(*) FROM departments) AS departments,
+       (SELECT count(*) FROM employees) AS employees,
+       (SELECT count(*) FROM memberships) AS memberships;
+ROLLBACK;
+```
+
+Run: `docker compose -f docker-compose.prod.yml exec -T db psql -U elevare -d elevare_db -v ON_ERROR_STOP=1 < reset_org.sql`
+(`-v ON_ERROR_STOP=1` stops at the first error so nothing half-applies; `<` feeds the file in).
+If other team members exist, their memberships/users are untouched; only their employee rows go.
+
+---
+
 ## Incident log
 
 ### 2026-10-07: `PUT /api/v1/business-dna` returns 500 (reported by Uche)

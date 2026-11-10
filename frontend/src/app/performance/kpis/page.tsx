@@ -242,7 +242,7 @@ function RecordResult(props: { kpi: KpiFull; onSaved: () => void }) {
   );
 }
 
-// ---- delete a KPI: the weights of the KPIs that stay must still total 100
+// ---- delete a KPI: the weights of the KPIs that stay must not pass 100 (short of 100 is fine)
 
 function DeleteKpiPanel(props: { kpi: KpiFull; siblings: KpiFull[]; onDone: () => void; onCancel: () => void }) {
   // Only KPIs in the same weight group (same location) take part.
@@ -261,8 +261,10 @@ function DeleteKpiPanel(props: { kpi: KpiFull; siblings: KpiFull[]; onDone: () =
   for (const s of staying) {
     total = total + Number(weights[s.id]);
   }
-  // Round to avoid 99.99999 from decimal typing.
-  const totalIsHundred = staying.length > 0 && Math.round(total * 100) === 10000;
+  // Round to avoid 100.00000001 from decimal typing. Short of 100 is allowed (and so is
+  // nothing left at all, the last KPI): the server only refuses a total above 100.
+  const totalIsTooHigh = Math.round(total * 100) > 10000;
+  const canDelete = !totalIsTooHigh && !isNaN(total);
 
   async function confirm() {
     setBusy(true);
@@ -277,19 +279,13 @@ function DeleteKpiPanel(props: { kpi: KpiFull; siblings: KpiFull[]; onDone: () =
     }
   }
 
-  if (staying.length === 0) {
-    return (
-      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-        <p>A department&apos;s KPI weights must total 100%, so the last KPI can&apos;t be deleted. Add the replacement first, then delete this one.</p>
-        <button onClick={props.onCancel} className={GHOST + " mt-3"}>Close</button>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
       <p className="text-sm text-red-100">
-        Delete <strong>{props.kpi.name}</strong>? Its past scores stay on record. Share its weight among the others so they total 100%:
+        Delete <strong>{props.kpi.name}</strong>? Its past scores stay on record.
+        {staying.length > 0
+          ? " If you like, hand its weight to the others below. The total may be less than 100% while you are still setting up, but never more."
+          : " It is the department's last KPI, so the department will have none until you add one."}
       </p>
       {staying.map(function (s) {
         return (
@@ -304,10 +300,14 @@ function DeleteKpiPanel(props: { kpi: KpiFull; siblings: KpiFull[]; onDone: () =
           </div>
         );
       })}
-      <p className={"text-sm " + (totalIsHundred ? "text-emerald-300" : "text-amber-300")}>Total: {total}% {totalIsHundred ? "" : "(must be exactly 100)"}</p>
+      {staying.length > 0 ? (
+        <p className={"text-sm " + (totalIsTooHigh ? "text-red-300" : "text-emerald-300")}>
+          Total: {total}% {totalIsTooHigh ? "(must not be more than 100)" : "(" + Math.round((100 - total) * 100) / 100 + "% unused)"}
+        </p>
+      ) : null}
       {error ? <p className="text-xs text-red-300">{error}</p> : null}
       <div className="flex gap-2">
-        <button onClick={confirm} disabled={!totalIsHundred || busy} className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600 disabled:opacity-40">
+        <button onClick={confirm} disabled={!canDelete || busy} className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-600 disabled:opacity-40">
           Delete KPI
         </button>
         <button onClick={props.onCancel} className={GHOST}>Cancel</button>
