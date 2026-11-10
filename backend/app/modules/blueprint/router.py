@@ -115,8 +115,9 @@ async def edit_item(
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(require_org_role(*_REVIEW_ROLES)),
 ) -> BlueprintItemResponse:
-    """Approve one item with corrected wording."""
-    item = await BlueprintService(db).edit_item(item_id, caller.user_id, data.title)
+    """Approve one item with corrected wording and, for a KPI or a department, corrected details."""
+    details = data.model_dump(exclude_unset=True, exclude={"title"})
+    item = await BlueprintService(db).edit_item(item_id, caller.user_id, data.title, details)
     response = BlueprintItemResponse.model_validate(item)
     await db.commit()
     return response

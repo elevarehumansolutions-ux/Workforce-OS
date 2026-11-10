@@ -100,8 +100,22 @@ export function approveBlueprintItem(id: string): Promise<BlueprintItem> {
   return apiFetch<BlueprintItem>("/blueprint/" + id + "/approve", { method: "POST" });
 }
 
-export function editBlueprintItem(id: string, title: string): Promise<BlueprintItem> {
-  return apiFetch<BlueprintItem>("/blueprint/" + id + "/edit", { method: "POST", body: { title: title } });
+// Details that can be corrected before an item is added, beside its wording. A KPI: target,
+// unit, direction (null clears the target or unit). A department: its share of the capital
+// (the others are re-spread to keep the total at 100) and its estimated profit margin.
+export interface EditDetails {
+  kpi_target_value?: string | null;
+  kpi_unit?: string | null;
+  kpi_is_inverse?: boolean;
+  revenue_allocation_pct?: string;
+  profit_margin_pct?: string | null;
+}
+
+export function editBlueprintItem(id: string, title: string, details?: EditDetails): Promise<BlueprintItem> {
+  return apiFetch<BlueprintItem>("/blueprint/" + id + "/edit", {
+    method: "POST",
+    body: { title: title, ...(details || {}) },
+  });
 }
 
 export function rejectBlueprintItem(id: string): Promise<BlueprintItem> {

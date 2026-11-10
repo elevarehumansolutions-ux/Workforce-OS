@@ -16,6 +16,7 @@ from app.core.exceptions import (
     BlueprintItemNotFoundException,
     BlueprintParentRejectedException,
     PlatformError,
+    ValidationException,
 )
 from app.core.schemas import PaginationResponse
 from app.modules.audit_and_notification.service import AuditService
@@ -257,12 +258,71 @@ class BlueprintService:
         await self._rebalance_capital(batch_id, actor_user_id)
         return approved
 
+    async def _apply_details(self, item: BlueprintItem, details: dict) -> None:
+        """Change a pending item's proposal details before it is added.
+
+        Which details may change depends on the kind: a KPI's target, unit and direction; a
+        department's share of the capital and profit margin. Anything else is refused. Changing
+        one department's share spreads the rest over the others in the same proportions, so the
+        capital stays split exactly 100% and the share asked for is the share that is kept.
+        """
+        allowed = {
+            BlueprintKind.KPI.value: {"kpi_target_value", "kpi_unit", "kpi_is_inverse"},
+            BlueprintKind.DEPARTMENT.value: {"revenue_allocation_pct", "profit_margin_pct"},
+        }.get(item.kind, set())
+        not_allowed = set(details) - allowed
+        if not_allowed:
+            raise ValidationException(
+                message=f"A {item.kind} can't change: {', '.join(sorted(not_allowed))}"
+            )
+        if "kpi_is_inverse" in details and details["kpi_is_inverse"] is None:
+            raise ValidationException(message="Say whether a lower result is better, or leave it out")
+
+        for field, value in details.items():
+            if field == "revenue_allocation_pct":
+                await self._set_department_share(item, value)
+            elif field == "kpi_unit":
+                item.kpi_unit = value.strip() or None if value is not None else None
+            else:
+                setattr(item, field, value)
+        await self._db.flush()
+
+    async def _set_department_share(self, item: BlueprintItem, share: Decimal | None) -> None:
+        """Give a department the share asked for and rescale the other departments around it."""
+        others = [
+            other
+            for other in await self._repo.list_department_share_items(item.batch_id)
+            if other.id != item.id
+        ]
+        if share is None:
+            item.revenue_allocation_pct = None
+            return
+        item.is_critical = True  # a department with a share of the capital is a critical one
+        if not others:
+            item.revenue_allocation_pct = Decimal(100)  # alone, it takes all the capital
+            return
+        item.revenue_allocation_pct = share
+        others_total = sum(Decimal(other.revenue_allocation_pct) for other in others)
+        room = Decimal(100) - share
+        for other in others:
+            other.revenue_allocation_pct = (
+                Decimal(other.revenue_allocation_pct) / others_total * room
+                if others_total > 0
+                else room / len(others)
+            ).quantize(Decimal("0.01"))
+
     async def edit_item(
-        self, item_id: uuid.UUID, actor_user_id: uuid.UUID, new_title: str
+        self,
+        item_id: uuid.UUID,
+        actor_user_id: uuid.UUID,
+        new_title: str,
+        details: dict | None = None,
     ) -> BlueprintItem:
-        """Approve an item with HR's own wording."""
+        """Approve an item with HR's own wording and, where allowed, corrected details."""
         item = await self._get_pending_item(item_id)
         batch_id = item.batch_id
+        if details:
+            await self._apply_details(item, details)
         edited = await self._claim_and_apply(
             item.id, actor_user_id, BlueprintStatus.EDITED.value, new_title.strip()
         )
