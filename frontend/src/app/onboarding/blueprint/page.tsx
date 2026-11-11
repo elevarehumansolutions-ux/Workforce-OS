@@ -26,6 +26,7 @@ import {
   describeUndoRemoves,
   previewUndo,
   undoBlueprintItem,
+  undoMergeBlueprintItem,
 } from "@/lib/blueprint";
 import type {
   AcceptAllResult,
@@ -241,6 +242,37 @@ export default function BlueprintPage() {
       await refresh();
       setBusyId(null);
     }
+  }
+
+  // "Undo merge": the merged item comes back as its own suggestion, with what moved with it.
+  function undoMerge(note: BlueprintItem) {
+    runAction(note, function () { return undoMergeBlueprintItem(note.id); }, "Couldn't undo the merge.");
+  }
+
+  // On the card of the item that took a merge: what was merged into it, with a way back.
+  function renderMergedHere(item: BlueprintItem) {
+    const mergedHere = items.filter(function (n) {
+      if (n.kind !== "folded" || !n.can_undo_merge || n.status !== "pending") return false;
+      const byRef = item.ref !== null && n.folded_into_ref === item.ref;
+      const byRealRow =
+        item.created_entity_id !== null && (n.department_id === item.created_entity_id || n.position_id === item.created_entity_id);
+      return byRef || byRealRow;
+    });
+    return mergedHere.map(function (n) {
+      return (
+        <p key={n.id} className="mt-1 text-xs text-gray-400">
+          You merged <span className="text-gray-200">{n.title}</span> into this.{" "}
+          <button
+            type="button"
+            disabled={busyId === n.id || acceptingAll}
+            onClick={function () { undoMerge(n); }}
+            className="font-medium text-indigo-300 underline hover:text-indigo-200 disabled:opacity-50"
+          >
+            Undo merge
+          </button>
+        </p>
+      );
+    });
   }
 
   // Undo on an "Added" card: first ask what else would go with it and show that, then wait for a yes.
@@ -703,6 +735,7 @@ export default function BlueprintPage() {
             </p>
           )}
           {props.note ? <p className="mt-0.5 text-xs text-indigo-300/80">{props.note}</p> : null}
+          {!isEditing ? renderMergedHere(item) : null}
           {!isEditing && !props.small && item.rationale ? (
             <p className="mt-0.5 text-xs text-gray-500">{item.rationale}</p>
           ) : null}
@@ -935,6 +968,7 @@ export default function BlueprintPage() {
           <div>
             <p className="text-base font-semibold text-white">{d.name}</p>
             {d.isCritical ? <p className="text-xs font-semibold text-amber-300">★ Critical department</p> : null}
+            {d.item ? renderMergedHere(d.item) : null}
           </div>
           <div className="flex items-center gap-3">
             {d.item ? renderActions(d.item) : null}
@@ -1364,6 +1398,16 @@ export default function BlueprintPage() {
                               >
                                 {busy ? "…" : note.what === "department" ? "Make it a separate department" : "Make it a separate role"}
                               </button>
+                              {note.item.can_undo_merge ? (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={function () { undoMerge(note.item); }}
+                                  className="rounded-full border border-indigo-400/60 px-3 py-1 text-xs font-medium text-indigo-200 hover:bg-indigo-500/10 disabled:opacity-50"
+                                >
+                                  Undo merge
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 disabled={busy}

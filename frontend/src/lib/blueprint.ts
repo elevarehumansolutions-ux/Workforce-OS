@@ -64,6 +64,8 @@ export interface BlueprintItem {
   reviewed_title: string | null;
   created_entity_id: string | null;
   reviewed_at: string | null;
+  // True on a left-out note that a merge made (and remembers): "Undo merge" works on it.
+  can_undo_merge?: boolean;
   created_at: string;
 }
 
@@ -186,6 +188,13 @@ export function describeUndoRemoves(removes: Record<string, number>): string {
     return parts.join("");
   }
   return parts.slice(0, parts.length - 1).join(", ") + " and " + parts[parts.length - 1];
+}
+
+// Reverse a merge. Works on the left-out note the merge made: it becomes its own department or
+// role again, with its roles, KPIs and capital share back. Only while nothing it touched has been
+// added (422 otherwise); merges made before this existed have no record and cannot be undone.
+export function undoMergeBlueprintItem(id: string): Promise<BlueprintItem> {
+  return apiFetch<BlueprintItem>("/blueprint/" + id + "/undo-merge", { method: "POST" });
 }
 
 export function acceptAllBlueprint(): Promise<AcceptAllResult> {
