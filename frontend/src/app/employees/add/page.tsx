@@ -4,6 +4,7 @@ import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 import OrgChartPicker from "@/components/OrgChartPicker";
+import { personLabel } from "@/lib/personLabel";
 
 import RoleSidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
@@ -185,6 +186,28 @@ export default function AddEmployeePage() {
       suggestedManager = { id: holders[0].id, name: holders[0].first_name + " " + holders[0].last_name };
     }
   }
+
+  // People who could be the manager: everyone not offboarded. Those who hold the role directly
+  // above the chosen one come first (the likely managers), then the rest.
+  const bossRoleId = chosenPosition ? chosenPosition.reports_to_position_id : null;
+  const likelyManagers: EmployeeSummary[] = [];
+  const otherPeople: EmployeeSummary[] = [];
+  existingEmployees.forEach(function (e) {
+    if (e.status === "offboarded") return;
+    if (bossRoleId && e.position_id === bossRoleId) {
+      likelyManagers.push(e);
+    } else {
+      otherPeople.push(e);
+    }
+  });
+  const managerChoices = likelyManagers.concat(otherPeople);
+
+  // The role above the chosen one exists but nobody holds it yet: say so, so the person
+  // adding employees knows to add the boss first (or leave the manager empty).
+  const bossRole = bossRoleId
+    ? positions.find(function (p) { return p.id === bossRoleId; })
+    : undefined;
+  const bossRoleIsEmpty = bossRole !== undefined && likelyManagers.length === 0;
 
   function departmentNameFor(position: Position): string {
     const department = departments.find(function (d) {
@@ -514,14 +537,20 @@ export default function AddEmployeePage() {
                         className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-2.5 text-sm text-gray-300 outline-none focus:border-indigo-500"
                       >
                         <option value="">No manager</option>
-                        {existingEmployees.map(function (employee) {
+                        {managerChoices.map(function (employee) {
                           return (
                             <option key={employee.id} value={employee.id}>
-                              {employee.first_name} {employee.last_name}
+                              {personLabel(employee, positions, departments)}
                             </option>
                           );
                         })}
                       </select>
+                      {bossRoleIsEmpty && bossRole && form.managerId === "" ? (
+                        <p className="mt-1.5 text-xs text-amber-300">
+                          Nobody holds {bossRole.title} yet, the role above this one. Add that person first, or leave the
+                          manager empty and set it later.
+                        </p>
+                      ) : null}
                       {suggestedManager && form.managerId === "" ? (
                         <p className="mt-1.5 text-xs text-gray-400">
                           Usually reports to {suggestedManager.name}, who holds the role above this one.{" "}

@@ -98,6 +98,8 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
     peopleByPosition[e.position_id].push(e);
   });
 
+  const nobodyIsPlaced = Object.keys(peopleByPosition).length === 0;
+
   function renderBox(box: Box) {
     const p = box.position;
     const color = colorOfDepartment[p.department_id] || "#6b7280";
@@ -142,7 +144,9 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
         {props.mode === "manager" ? (
           <div className="mt-2 space-y-1">
             {people.length === 0 ? (
-              <p className="text-[11px] text-gray-600">Nobody in this role yet</p>
+              <p className="rounded-md border border-dashed border-white/10 px-2 py-1 text-[11px] text-gray-500">
+                Vacant: no one holds this role yet
+              </p>
             ) : (
               people.map(function (e) {
                 const chosen = props.selectedId === e.id;
@@ -210,6 +214,13 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
             Done
           </button>
         </div>
+
+        {props.mode === "manager" && nobodyIsPlaced ? (
+          <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+            No one has been added to any role yet, so there is nobody to choose. Close this window, finish adding this
+            person, then add the people below them. Or add the most senior person first, and come back to set managers.
+          </p>
+        ) : null}
 
         {props.positions.length === 0 ? (
           <p className="mt-6 rounded-lg border border-white/10 p-6 text-center text-sm text-gray-400">
