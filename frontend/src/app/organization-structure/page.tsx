@@ -363,7 +363,7 @@ export default function OrganizationStructurePage() {
               </div>
 
               {canEdit ? (
-                <PositionsEditor departments={departments} />
+                <PositionsEditor departments={departments} people={employees} />
               ) : (
                 <p className="text-sm text-gray-400">The chart of roles is managed by HR administrators.</p>
               )}
