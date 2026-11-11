@@ -2,8 +2,6 @@
 // for example action "create" + entity "department" -> "added a department".
 // Every screen that lists activity uses this, so the same event reads the same everywhere.
 
-import { fetchAllPages } from "@/lib/tasks";
-
 // The thing that was acted on, with its article.
 const THING: Record<string, string> = {
   task: "a task",
@@ -60,25 +58,6 @@ const STANDALONE: Record<string, string> = {
   clock_out: "clocked out",
   auto_close: "had an attendance record closed automatically",
 };
-
-// Names of everyone who has a login, keyed by user id. Employee records only cover people who
-// were added as employees, so the owner or another HR account would show as "Someone".
-// The team list is HR-only: for any other role the call is refused, and we return no names
-// (the caller then falls back to employee names).
-export async function loadLoginNames(): Promise<Record<string, string>> {
-  const names: Record<string, string> = {};
-  try {
-    const rows = await fetchAllPages<{ user: { id: string; full_name: string } }>("/memberships");
-    for (const row of rows) {
-      if (row.user && row.user.full_name) {
-        names[row.user.id] = row.user.full_name;
-      }
-    }
-  } catch {
-    // Not allowed or unavailable: the activity list still works.
-  }
-  return names;
-}
 
 // "business_dna_core_value" -> "business dna core value", only for things not listed above.
 function plainWords(text: string): string {

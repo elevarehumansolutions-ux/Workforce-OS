@@ -51,9 +51,15 @@ async def list_audit_log(
         cursor=cursor,
         limit=limit,
     )
+    names = await service.get_actor_names(caller.organization_id, result["items"])
+    data = []
+    for item in result["items"]:
+        row = AuditLogResponse.model_validate(item)
+        row.actor_name = names.get(item.actor_user_id)
+        data.append(row)
     return CursorPaginationResponse(
         message="OK",
-        data=[AuditLogResponse.model_validate(item) for item in result["items"]],
+        data=data,
         pagination=CursorPaginationMeta(
             next_cursor=result["next_cursor"],
             count=result["count"],

@@ -12,7 +12,7 @@ import type { Department, Employee, PaginatedResponse, Position } from "@/lib/ta
 import { canReadAuditLog, isHrRole, loadMe } from "@/lib/settings";
 import type { MeData } from "@/lib/settings";
 import { useLoad } from "@/lib/useLoad";
-import { describeActivity, loadLoginNames } from "@/lib/activityText";
+import { describeActivity } from "@/lib/activityText";
 
 interface MeResponse {
   user: { id: string; account_status: string };
@@ -100,6 +100,8 @@ interface AttendanceRow {
 interface AuditRow {
   id: string;
   actor_user_id: string | null;
+  // Sent by the server with every row, so it works for every role that can read the log.
+  actor_name?: string | null;
   action: string;
   entity_type: string;
   created_at: string;
@@ -186,11 +188,6 @@ async function loadDashboard(): Promise<DashboardData> {
   const active = employees.filter(function (e) {
     return e.status === "active";
   });
-  // Login names first (covers the owner and HR accounts with no employee record);
-  // employee names then fill in or replace them. Only HR can read the team list.
-  if (isHrRole(me.role)) {
-    result.actors = await loadLoginNames();
-  }
   const nameById: Record<string, string> = {};
   for (const e of employees) {
     nameById[e.id] = fullName(e);
@@ -271,7 +268,7 @@ function DashboardBody() {
   function actorOf(row: AuditRow): string {
     if (!data || !row.actor_user_id) return "The system";
     if (row.actor_user_id === data.me.userId) return "You";
-    return data.actors[row.actor_user_id] || "Someone";
+    return row.actor_name || data.actors[row.actor_user_id] || "Someone";
   }
 
   const stats: { label: string; value: string; note: string; tone?: string }[] = [];

@@ -115,6 +115,16 @@ class AuditService:
             limit=limit,
         )
 
+    async def get_actor_names(
+        self, organization_id: uuid.UUID, rows: list[AuditLog]
+    ) -> dict[uuid.UUID, str]:
+        """Names of the people who performed the given audit rows (system rows have none)."""
+        actor_ids = []
+        for row in rows:
+            if row.actor_user_id is not None and row.actor_user_id not in actor_ids:
+                actor_ids.append(row.actor_user_id)
+        return await self._repo.get_actor_names(organization_id, actor_ids)
+
 
 class NotificationService:
     """Creates and reads in-app notifications on behalf of other modules."""

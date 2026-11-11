@@ -7,6 +7,7 @@ from datetime import datetime, UTC
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.tenancy_identity.models import Membership, User
 from .models import AuditLog, Notification
 from .enums import NotificationCategory
 from app.core.pagination import paginate_cursor
@@ -102,6 +103,27 @@ class AuditRepository:
             query = query.where(AuditLog.created_at <= date_to)
 
         return await paginate_cursor(query, self._db, AuditLog, cursor=cursor, limit=limit)
+
+    async def get_actor_names(
+        self, organization_id: uuid.UUID, user_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """Return ``{user_id: full_name}`` for the given users who belong to this organization.
+
+        Joining the membership keeps the lookup inside the organization: a user id that
+        is not a member here (should never happen) gets no name rather than leaking one.
+        """
+        if not user_ids:
+            return {}
+        result = await self._db.execute(
+            select(User.id, User.full_name)
+            .join(Membership, Membership.user_id == User.id)
+            .where(Membership.organization_id == organization_id)
+            .where(User.id.in_(user_ids))
+        )
+        names: dict[uuid.UUID, str] = {}
+        for user_id, full_name in result.all():
+            names[user_id] = full_name
+        return names
 
 
 

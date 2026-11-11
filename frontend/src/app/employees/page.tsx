@@ -5,14 +5,15 @@ import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
 import { fetchAllPages, formatDateTime, fullName, roleLabel } from "@/lib/tasks";
 import type { Employee, PaginatedResponse } from "@/lib/tasks";
-import { canReadAuditLog, isHrRole, loadMe } from "@/lib/settings";
-import { describeActivity, loadLoginNames } from "@/lib/activityText";
+import { canReadAuditLog, loadMe } from "@/lib/settings";
+import { describeActivity } from "@/lib/activityText";
 import type { MeData } from "@/lib/settings";
 import { useLoad } from "@/lib/useLoad";
 
 interface AuditRow {
   id: string;
   actor_user_id: string | null;
+  actor_name?: string | null;
   action: string;
   entity_type: string;
   created_at: string;
@@ -33,12 +34,8 @@ async function loadHub(): Promise<HubData> {
   const me = await loadMe();
   const counted = await apiFetch<PaginatedResponse<Employee>>("/employees?limit=1", { method: "GET" });
   let activity: AuditRow[] = [];
-  let names: Record<string, string> = {};
+  const names: Record<string, string> = {};
   if (canReadAuditLog(me.role)) {
-    // Login names first; employee names are added over them below.
-    if (isHrRole(me.role)) {
-      names = await loadLoginNames();
-    }
     try {
       const results = await Promise.all([
         apiFetch<{ data: AuditRow[] }>("/audit-log?entity_type=employee&limit=8", { method: "GET" }),
@@ -64,7 +61,7 @@ export default function EmployeesPage() {
   function actor(row: AuditRow): string {
     if (!data || !row.actor_user_id) return "The system";
     if (row.actor_user_id === data.me.userId) return "You";
-    return data.names[row.actor_user_id] || "Someone";
+    return row.actor_name || data.names[row.actor_user_id] || "Someone";
   }
 
   return (

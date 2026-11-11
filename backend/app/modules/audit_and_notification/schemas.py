@@ -16,6 +16,9 @@ class AuditLogResponse(BaseModel):
     id: UUID
     organization_id: UUID
     actor_user_id: UUID | None
+    # The actor's full name, so the screen does not have to look it up (a business executive
+    # cannot read the team list). None for system actions or a user that no longer exists.
+    actor_name: str | None = None
     action: str
     entity_type: str
     entity_id: UUID

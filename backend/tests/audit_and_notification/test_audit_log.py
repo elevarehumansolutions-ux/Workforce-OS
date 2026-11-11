@@ -79,6 +79,41 @@ async def test_list_audit_log_allows_business_executive_role(client, monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_audit_log_rows_carry_the_actors_name_for_an_executive(client, db_session, monkeypatch):
+    """A business executive (who cannot read the team list) still sees who did each thing."""
+    from tests.conftest import register_verified_and_login, set_org_context
+
+    owner = await register_verified_and_login(client, email="audit_owner_names@example.com")
+    exec_ = await _invite_and_accept(
+        client, monkeypatch, owner, "audit_exec_names@example.com", "business_executive"
+    )
+
+    await set_org_context(db_session, owner["organization"]["id"])
+    service = AuditService(db_session)
+    await service.log_action(
+        organization_id=owner["organization"]["id"],
+        actor_user_id=owner["user"]["id"],
+        action="create",
+        entity_type="department",
+        entity_id=uuid4(),
+    )
+    await service.log_action(
+        organization_id=owner["organization"]["id"],
+        actor_user_id=None,
+        action="auto_close",
+        entity_type="attendance_record",
+        entity_id=uuid4(),
+    )
+
+    resp = await client.get(AUDIT_LOG, headers=_auth_header(exec_["access_token"]))
+    assert resp.status_code == 200
+    rows = resp.json()["data"]
+    by_action = {row["action"]: row for row in rows}
+    assert by_action["create"]["actor_name"] == owner["user"]["full_name"]
+    assert by_action["auto_close"]["actor_name"] is None
+
+
+@pytest.mark.asyncio
 async def test_list_audit_log_returns_org_scoped_entries(client, db_session):
     """RLS proof: an admin only ever sees their own org's audit trail.
 

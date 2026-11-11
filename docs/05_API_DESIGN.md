@@ -124,7 +124,7 @@ After a company FIRST saves its Business DNA, the AI proposes its departments, p
 
 ## Audit Log
 
-- `GET /audit-log` (filter: `entity_type`, `entity_id`, `actor_user_id`, `date_from`, `date_to`; `cursor`/`limit`, cursor-paginated) — **HR Administrator or Business Executive only**, not open to every member. No dedicated viewer screen required for MVP, but reachable via API for support/debugging use.
+- `GET /audit-log` (filter: `entity_type`, `entity_id`, `actor_user_id`, `date_from`, `date_to`; `cursor`/`limit`, cursor-paginated) — **HR Administrator or Business Executive only**, not open to every member. No dedicated viewer screen required for MVP, but reachable via API for support/debugging use. (2026-11-11) Every row carries `actor_name` (the actor's full name, looked up only among members of the caller's own organization; `null` for system actions), so the Settings audit log, the dashboard's Recent activity and the Employees hub name people without reading the HR-only team list. A business executive therefore sees names too. The screens turn `action` + `entity_type` into a sentence with `frontend/src/lib/activityText.ts`.
 
 ## Notifications
 
