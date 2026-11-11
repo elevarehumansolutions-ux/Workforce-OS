@@ -25,9 +25,12 @@ from .schemas import (
     BlueprintItemResponse,
     BlueprintMergeRequest,
     GenerateResponse,
+    UndoPreviewResponse,
+    UndoResponse,
 )
 from .reshape import BlueprintReshaper
 from .service import BlueprintService
+from .undo import BlueprintUndo
 
 router = APIRouter()
 
@@ -137,6 +140,38 @@ async def reject_item(
     response = BlueprintItemResponse.model_validate(item)
     await db.commit()
     return response
+
+
+@router.get("/blueprint/{item_id}/undo-preview", status_code=200)
+async def undo_preview(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_REVIEW_ROLES)),
+) -> UndoPreviewResponse:
+    """What undoing an added item would also remove (counts by kind). Changes nothing."""
+    item, counts = await BlueprintUndo(db).preview(item_id)
+    return UndoPreviewResponse(
+        title=item.reviewed_title or item.title,
+        kind=item.kind,
+        removes=counts,
+        total=sum(counts.values()),
+    )
+
+
+@router.post("/blueprint/{item_id}/undo", status_code=200)
+async def undo_item(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_REVIEW_ROLES)),
+) -> UndoResponse:
+    """Undo an added item: remove its real row and everything added under it, back to waiting.
+
+    If another module refuses a removal (a person still holds the role, a task still points at
+    it) the answer is that refusal (409 ``RESOURCE_IN_USE``) and nothing is changed.
+    """
+    undone = await BlueprintUndo(db).undo(item_id, caller.user_id)
+    await db.commit()
+    return UndoResponse(undone=undone)
 
 
 @router.post("/blueprint/{item_id}/add-separately", status_code=200)

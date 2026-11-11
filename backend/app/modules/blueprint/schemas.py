@@ -210,6 +210,25 @@ class AcceptAllResponse(BaseModel):
     skipped: list[AcceptAllSkipped]
 
 
+class UndoPreviewResponse(BaseModel):
+    """What undoing an added item would also remove, so the screen can warn before it happens.
+
+    ``removes`` counts the other things added under it, by kind (``position``, ``objective``,
+    ``key_result``, ``kpi``); kinds with none are left out.
+    """
+
+    title: str
+    kind: str
+    removes: dict[str, int]
+    total: int
+
+
+class UndoResponse(BaseModel):
+    """What an undo did: how many plan items went back to waiting (the item itself included)."""
+
+    undone: int
+
+
 class GenerateResponse(BaseModel):
     """Answer to 'generate my blueprint': queued, or already waiting for review."""
 
