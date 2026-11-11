@@ -88,6 +88,8 @@ interface UnlinkedMember {
 
 interface EmployeeResponse {
   id: string;
+  // Filled in by the server when the form left it empty and exactly one person holds the role above.
+  manager_id?: string | null;
   user_id: string | null;
   invite_status: "pending" | "expired" | null;
   work_email: string;
@@ -135,7 +137,7 @@ export default function AddEmployeePage() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   // Shown after "Save and add another": who was just added, with a link to their profile.
-  const [savedNotice, setSavedNotice] = useState<{ name: string; id: string } | null>(null);
+  const [savedNotice, setSavedNotice] = useState<{ name: string; id: string; managerNote: string } | null>(null);
 
   // Reference data needed to fill in the dropdowns. All start empty so the
   // server and client render the same thing on first paint; the real lists
@@ -192,6 +194,12 @@ export default function AddEmployeePage() {
       suggestedManager = { id: holders[0].id, name: holders[0].first_name + " " + holders[0].last_name };
     }
   }
+
+  // Who already holds the chosen role. A role is one seat by default; adding a second person is
+  // allowed (shared role), but the form says so.
+  const holdersOfChosenRole = existingEmployees.filter(function (e) {
+    return form.positionId !== "" && e.position_id === form.positionId && e.status !== "inactive";
+  });
 
   // People who could be the manager: everyone not offboarded. Those who hold the role directly
   // above the chosen one come first (the likely managers), then the rest.
@@ -294,7 +302,16 @@ export default function AddEmployeePage() {
       // A login that was just linked can't be linked to a second person.
       setUnlinkedMembers(unlinkedMembers.filter(function (m) { return m.user.id !== form.linkedUserId; }));
 
-      setSavedNotice({ name: (form.firstName + " " + form.lastName).trim(), id: employee.id });
+      // When the manager field was left empty the server may have filled it in from the chart;
+      // say who, so it is not a surprise.
+      let managerNote = "";
+      if (form.managerId === "" && employee.manager_id) {
+        const boss = existingEmployees.find(function (p) { return p.id === employee.manager_id; });
+        if (boss) {
+          managerNote = " Reports to " + boss.first_name + " " + boss.last_name + " (filled in from the chart).";
+        }
+      }
+      setSavedNotice({ name: (form.firstName + " " + form.lastName).trim(), id: employee.id, managerNote: managerNote });
       // Keep where the next person usually sits (role, manager, location, type, start date);
       // clear what is personal to one individual.
       setForm({
@@ -349,7 +366,7 @@ export default function AddEmployeePage() {
             <form onSubmit={handleSubmit} className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-xl">
               {savedNotice ? (
                 <div className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-                  Added {savedNotice.name}. The form is ready for the next person.{" "}
+                  Added {savedNotice.name}.{savedNotice.managerNote} The form is ready for the next person.{" "}
                   <Link href={"/employees/" + savedNotice.id} className="font-medium underline hover:text-white">
                     View profile
                   </Link>
@@ -565,6 +582,14 @@ export default function AddEmployeePage() {
                           );
                         })}
                       </select>
+                      {holdersOfChosenRole.length > 0 && chosenPosition ? (
+                        <p className="mt-1.5 text-xs text-amber-300">
+                          {chosenPosition.title} already has{" "}
+                          {holdersOfChosenRole.map(function (e) { return e.first_name + " " + e.last_name; }).join(", ")}.
+                          You can still add this person: the role will then be shared. A shared role is never used to
+                          fill in a manager automatically.
+                        </p>
+                      ) : null}
                     </div>
 
                     <div>

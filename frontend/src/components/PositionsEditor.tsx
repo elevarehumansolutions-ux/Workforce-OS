@@ -269,6 +269,7 @@ export default function PositionsEditor(props: { departments: PositionsEditorDep
           {holders.length > 0 ? (
             <span className="text-xs text-emerald-300">
               {holders.map(function (person) { return person.first_name + " " + person.last_name; }).join(", ")}
+              {holders.length > 1 ? " (shared by " + holders.length + ")" : ""}
             </span>
           ) : (
             <span className="rounded border border-dashed border-white/15 px-1.5 text-[11px] text-gray-500">Vacant</span>

@@ -137,6 +137,7 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
             <p className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-400">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
               {departmentName[p.department_id] || ""}
+              {people.length > 1 ? <span className="rounded bg-amber-500/15 px-1 text-[11px] text-amber-300">shared by {people.length}</span> : null}
             </p>
           </div>
         )}
@@ -169,6 +170,7 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
         ) : people.length > 0 ? (
           <p className="mt-1.5 text-[11px] text-gray-500">
             {people.map(function (e) { return e.first_name + " " + e.last_name; }).join(", ")}
+            {people.length > 1 ? <span className="ml-1 rounded bg-amber-500/15 px-1 text-amber-300">shared by {people.length}</span> : null}
           </p>
         ) : null}
       </div>
