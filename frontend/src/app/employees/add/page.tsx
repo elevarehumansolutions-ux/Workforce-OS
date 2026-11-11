@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
+import Link from "next/link";
 import OrgChartPicker from "@/components/OrgChartPicker";
 import { personLabel } from "@/lib/personLabel";
 
@@ -130,6 +131,8 @@ export default function AddEmployeePage() {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  // Shown after "Save and add another": who was just added, with a link to their profile.
+  const [savedNotice, setSavedNotice] = useState<{ name: string; id: string } | null>(null);
 
   // Reference data needed to fill in the dropdowns. All start empty so the
   // server and client render the same thing on first paint; the real lists
@@ -216,9 +219,16 @@ export default function AddEmployeePage() {
     return department ? department.name : "Unknown department";
   }
 
-  async function handleSubmit(e: FormEvent) {
+  // The form's own submit (pressing Enter) means "save and finish".
+  function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    saveEmployee("finish");
+  }
+
+  // "another": stay on this page ready for the next person. "finish": go to the directory.
+  async function saveEmployee(next: "another" | "finish") {
     setFormError("");
+    setSavedNotice(null);
 
     if (!form.positionId) {
       setFormError("Position is required. Pick one below.");
@@ -263,7 +273,35 @@ export default function AddEmployeePage() {
         method: "POST",
         body: payload,
       });
-      router.push("/employees/" + employee.id);
+      if (next === "finish") {
+        router.push("/employees/directory");
+        return;
+      }
+
+      // Add another: the new person can now be someone's manager, so add them to the choices.
+      setExistingEmployees(existingEmployees.concat([{
+        id: employee.id,
+        first_name: form.firstName.trim(),
+        last_name: form.lastName.trim(),
+        work_email: form.workEmail.trim(),
+        position_id: form.positionId,
+        status: "active",
+      }]));
+      // A login that was just linked can't be linked to a second person.
+      setUnlinkedMembers(unlinkedMembers.filter(function (m) { return m.user.id !== form.linkedUserId; }));
+
+      setSavedNotice({ name: (form.firstName + " " + form.lastName).trim(), id: employee.id });
+      // Keep where the next person usually sits (role, manager, location, type, start date);
+      // clear what is personal to one individual.
+      setForm({
+        ...INITIAL_FORM,
+        positionId: form.positionId,
+        managerId: form.managerId,
+        locationId: form.locationId,
+        employmentType: form.employmentType,
+        startDate: form.startDate,
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : "Couldn't save this employee. Please try again.");
     } finally {
@@ -304,6 +342,14 @@ export default function AddEmployeePage() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-xl">
+              {savedNotice ? (
+                <div className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                  Added {savedNotice.name}. The form is ready for the next person.{" "}
+                  <Link href={"/employees/" + savedNotice.id} className="font-medium underline hover:text-white">
+                    View profile
+                  </Link>
+                </div>
+              ) : null}
               {formError ? (
                 <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                   {formError}
@@ -678,11 +724,19 @@ export default function AddEmployeePage() {
                   Cancel
                 </button>
                 <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={function () { saveEmployee("another"); }}
+                  className="rounded-lg border border-indigo-400/60 px-5 py-2.5 text-sm font-semibold text-indigo-200 transition hover:bg-indigo-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting ? "Saving…" : "Save and add another"}
+                </button>
+                <button
                   type="submit"
                   disabled={submitting}
                   className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {submitting ? "Saving…" : "Save Employee"}
+                  {submitting ? "Saving…" : "Save and finish"}
                 </button>
               </div>
             </form>
