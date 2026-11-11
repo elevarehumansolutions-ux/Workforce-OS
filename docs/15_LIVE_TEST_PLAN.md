@@ -43,6 +43,21 @@ company, never a real customer's.
 6. Press Accept all. Expect: everything is created, nothing is lost, errors (if any) are listed.
 7. Continue to Invite Team. Expect: no old Organization / OKR / KPI steps in the way.
 
+### Stage 2b: Invite Team (the last onboarding step)
+
+Invite Team is about LOGINS, not about the positions accepted in the plan. An invite is an email
+plus a system role; the person's department, position and manager are set later, when they are
+added as an employee (Stage 3). So you do NOT need one person per accepted role.
+1. Send four invites, using plus-addresses that all arrive in your own inbox: `+hr2` as HR
+   Administrator, `+manager` as Manager, `+chidi` as Employee, `+exec` as Business Executive.
+   Expect: "4 invites sent", each marked "Invite Pending".
+2. Try an invite with the email or the role left empty. Expect: a clear message, nothing sent.
+3. Invite the same email twice, and invite an email that is already registered. Expect: a clear
+   message each time, no crash, no duplicate.
+4. Press Finish. Expect: you land inside the app (dashboard), and onboarding does not come back.
+5. In a second browser profile open one invite email, accept, set a password, log in. Expect: that
+   person lands in the app and sees only what their role allows (compare HR, manager, employee).
+
 ## Stage 3: People, roles and the org-chart picker (M4)
 
 1. Add an employee with "Choose on chart" for position and manager. Expect: the chart opens, the
@@ -96,7 +111,10 @@ company, never a real customer's.
 ## Stage 9: Scoring and dashboards (M12): needs the time helper
 
 Scoring works in quarters, so this stage uses a small helper (written when we reach it) that
-creates tasks in the last closed quarter and runs the scoring job by hand. Expect afterwards:
+creates tasks in the last closed quarter and runs the scoring job by hand. The idea (to verify
+first): a company's quarters come from its fiscal-year start month, so changing that month on the
+TEST company makes a quarter "just have ended" without waiting three months; restore it after.
+It also lets us test the quarter-start KPI weight check (`09_PROGRESS.md` item 7). Expect afterwards:
 a person's performance card, the department summary with its two numbers, the leaderboard (HR,
 executives and managers only), and "no data yet" shown where there is no data, never zeros.
 
