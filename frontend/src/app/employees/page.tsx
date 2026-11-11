@@ -5,7 +5,8 @@ import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
 import { fetchAllPages, formatDateTime, fullName, roleLabel } from "@/lib/tasks";
 import type { Employee, PaginatedResponse } from "@/lib/tasks";
-import { canReadAuditLog, loadMe, titleCase } from "@/lib/settings";
+import { canReadAuditLog, isHrRole, loadMe } from "@/lib/settings";
+import { describeActivity, loadLoginNames } from "@/lib/activityText";
 import type { MeData } from "@/lib/settings";
 import { useLoad } from "@/lib/useLoad";
 
@@ -24,26 +25,20 @@ interface HubData {
   names: Record<string, string>;
 }
 
-const ACTION_TEXT: Record<string, string> = {
-  create: "added an employee",
-  update: "updated an employee",
-  delete: "removed an employee",
-  offboard: "offboarded an employee",
-  reinstate: "reinstated an employee",
-  link_user: "linked a login to an employee",
-  grant_login: "gave an employee login access",
-};
-
 function actionText(row: AuditRow): string {
-  return ACTION_TEXT[row.action] || titleCase(row.action).toLowerCase() + " (" + titleCase(row.entity_type).toLowerCase() + ")";
+  return describeActivity(row.action, row.entity_type);
 }
 
 async function loadHub(): Promise<HubData> {
   const me = await loadMe();
   const counted = await apiFetch<PaginatedResponse<Employee>>("/employees?limit=1", { method: "GET" });
   let activity: AuditRow[] = [];
-  const names: Record<string, string> = {};
+  let names: Record<string, string> = {};
   if (canReadAuditLog(me.role)) {
+    // Login names first; employee names are added over them below.
+    if (isHrRole(me.role)) {
+      names = await loadLoginNames();
+    }
     try {
       const results = await Promise.all([
         apiFetch<{ data: AuditRow[] }>("/audit-log?entity_type=employee&limit=8", { method: "GET" }),

@@ -9,9 +9,10 @@ import AppShell from "@/components/AppShell";
 import ValueAtRiskCard from "@/components/ValueAtRiskCard";
 import { fetchAllPages, fullName, roleLabel, formatDateTime } from "@/lib/tasks";
 import type { Department, Employee, PaginatedResponse, Position } from "@/lib/tasks";
-import { canReadAuditLog, isHrRole, loadMe, titleCase } from "@/lib/settings";
+import { canReadAuditLog, isHrRole, loadMe } from "@/lib/settings";
 import type { MeData } from "@/lib/settings";
 import { useLoad } from "@/lib/useLoad";
+import { describeActivity, loadLoginNames } from "@/lib/activityText";
 
 interface MeResponse {
   user: { id: string; account_status: string };
@@ -185,6 +186,11 @@ async function loadDashboard(): Promise<DashboardData> {
   const active = employees.filter(function (e) {
     return e.status === "active";
   });
+  // Login names first (covers the owner and HR accounts with no employee record);
+  // employee names then fill in or replace them. Only HR can read the team list.
+  if (isHrRole(me.role)) {
+    result.actors = await loadLoginNames();
+  }
   const nameById: Record<string, string> = {};
   for (const e of employees) {
     nameById[e.id] = fullName(e);
@@ -368,8 +374,7 @@ function DashboardBody() {
                         <div key={row.id} className="flex items-start gap-3 text-sm">
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-400" />
                           <span className="text-gray-300">
-                            <span className="font-medium text-white">{actorOf(row)}</span> {titleCase(row.action).toLowerCase()}{" "}
-                            {titleCase(row.entity_type).toLowerCase()}
+                            <span className="font-medium text-white">{actorOf(row)}</span> {describeActivity(row.action, row.entity_type)}
                           </span>
                           <span className="ml-auto shrink-0 text-xs text-gray-600">{formatDateTime(row.created_at)}</span>
                         </div>
