@@ -187,6 +187,22 @@ async def add_separately(
     return response
 
 
+@router.post("/blueprint/{item_id}/undo-merge", status_code=200)
+async def undo_merge(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_REVIEW_ROLES)),
+) -> BlueprintItemResponse:
+    """Reverse a merge: a left-out note becomes its own department or role again, with its things back.
+
+    Only while everything the merge touched is still waiting; 422 once any of it was added.
+    """
+    item = await BlueprintReshaper(db).undo_merge(item_id, caller.user_id)
+    response = BlueprintItemResponse.model_validate(item)
+    await db.commit()
+    return response
+
+
 @router.post("/blueprint/{item_id}/merge", status_code=200)
 async def merge_item(
     item_id: uuid.UUID,

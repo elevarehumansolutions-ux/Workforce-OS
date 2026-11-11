@@ -24,6 +24,7 @@ from sqlalchemy import (
     Text,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import BaseModel
@@ -185,3 +186,17 @@ class BlueprintItem(BaseModel):
         nullable=True,
         doc="The real department, position, OKR or key result this item became",
     )
+
+    merge_record: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc=(
+            "Only on a left-out note made by a merge: what the merge changed on the plan's items "
+            "(their old values), so 'Undo merge' can put everything back exactly"
+        ),
+    )
+
+    @property
+    def can_undo_merge(self) -> bool:
+        """True when this left-out note remembers the merge that made it."""
+        return self.merge_record is not None

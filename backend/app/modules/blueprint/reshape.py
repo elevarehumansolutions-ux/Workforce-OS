@@ -6,6 +6,7 @@ the router owns the transaction.
 """
 
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,10 +17,12 @@ from app.core.exceptions import (
     ValidationException,
 )
 
+from app.modules.audit_and_notification.service import AuditService
 from app.modules.kpis.repository import KPIRepository
 
 from .enums import BlueprintKind, BlueprintStatus
 from .generation import _cut_reporting_loops, normalize_weights
+from .merge_record import changes_since, restore, take_snapshot
 from .models import BlueprintItem
 from .repository import BlueprintRepository
 from .service import BlueprintService
@@ -75,6 +78,7 @@ class BlueprintReshaper:
 
         item.ref = new_ref
         item.folded_into_ref = None
+        item.merge_record = None  # it is its own item again: the merge it came from no longer applies
         await self._db.flush()
         return item
 
@@ -102,6 +106,7 @@ class BlueprintReshaper:
             )
 
         batch = await self._repo.list_batch_items(source.batch_id)
+        before = take_snapshot(batch)  # so "Undo merge" can put everything back
         others = [i for i in batch if i.id != source.id and i.id != target.id]
         if source.kind == BlueprintKind.DEPARTMENT.value:
             self._merge_departments(source, target, others)
@@ -113,8 +118,67 @@ class BlueprintReshaper:
             if other.kind == BlueprintKind.FOLDED.value and other.folded_into_ref == source.ref:
                 other.folded_into_ref = target.ref
         self._turn_into_a_left_out_note(source, target.title, target.ref)
+        source.merge_record = {
+            "target_id": str(target.id),
+            "merged_at": datetime.now(UTC).isoformat(),
+            "changes": changes_since(before, batch),
+        }
         await self._db.flush()
         return source
+
+    async def undo_merge(self, note_id: uuid.UUID, actor_user_id: uuid.UUID) -> BlueprintItem:
+        """Reverse a merge: the left-out note becomes the department or role it was, with its things back.
+
+        Everything the merge changed goes back to what it was before, using what the merge
+        remembered. Only possible while it is all still a suggestion: once the merged item, or
+        anything that moved with it, has been added, it is real and moving it back would mean
+        changing real rows. Returns the restored item.
+        """
+        note = await self._repo.get_item(note_id)
+        if note is None:
+            raise BlueprintItemNotFoundException()
+        if note.kind != BlueprintKind.FOLDED.value or note.merge_record is None:
+            raise ValidationException(message="This was not left out by a merge, so there is nothing to undo.")
+
+        record = note.merge_record
+        batch = await self._repo.list_batch_items(note.batch_id)
+        by_id = {str(item.id): item for item in batch}
+
+        too_late = ValidationException(
+            message="Part of this has already been added, so the merge can no longer be undone."
+        )
+        # An item that was already added BEFORE the merge (a real department the merge moved
+        # things into) is fine: only its plan figures were touched. One added AFTER the merge is
+        # not: it was built with what the merge moved.
+        merged_at = datetime.fromisoformat(record["merged_at"])
+        added = (BlueprintStatus.APPROVED.value, BlueprintStatus.EDITED.value)
+        for item_id in record["changes"]:
+            item = by_id.get(item_id)
+            if item is None or item.status not in added:
+                continue
+            if item.reviewed_at is not None and item.reviewed_at >= merged_at:
+                raise too_late
+        target = by_id.get(record.get("target_id") or "")
+        if record.get("target_id") and (target is None or target.status != BlueprintStatus.PENDING.value):
+            raise too_late
+
+        for item_id, old_values in record["changes"].items():
+            item = by_id.get(item_id)
+            if item is not None:
+                restore(item, old_values)
+        note.merge_record = None
+        await self._db.flush()
+        await AuditService(self._db).log_action(
+            organization_id=note.organization_id,
+            actor_user_id=actor_user_id,
+            action="undo_merge",
+            entity_type="blueprint_item",
+            entity_id=note.id,
+            changes={"old": {"kind": BlueprintKind.FOLDED.value}, "new": {"kind": note.kind}},
+        )
+        # The restored department takes its share of the capital back.
+        await BlueprintService(self._db)._rebalance_capital(note.batch_id, actor_user_id)
+        return note
 
     async def merge_into_existing(
         self, source_id: uuid.UUID, existing_id: uuid.UUID, actor_user_id: uuid.UUID
@@ -132,6 +196,7 @@ class BlueprintReshaper:
             raise ValidationException(message="Only a suggested department or role can be merged.")
 
         batch = await self._repo.list_batch_items(source.batch_id)
+        before = take_snapshot(batch)  # so "Undo merge" can put everything back
         others = [i for i in batch if i.id != source.id]
         if source.kind == BlueprintKind.DEPARTMENT.value:
             target_title, note = await self._merge_department_into_existing(
@@ -151,6 +216,11 @@ class BlueprintReshaper:
         self._turn_into_a_left_out_note(source, target_title, None, existing_id)
         if note:
             source.rationale = source.rationale + " " + note
+        source.merge_record = {
+            "existing_id": str(existing_id),
+            "merged_at": datetime.now(UTC).isoformat(),
+            "changes": changes_since(before, batch),
+        }
         await self._db.flush()
         # The source's capital share is gone from the split: hand it on to the others
         # (and, for a real department that came from this plan, to that department).

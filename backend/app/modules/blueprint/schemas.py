@@ -160,6 +160,8 @@ class BlueprintItemResponse(BaseModel):
     reviewed_title: str | None
     reviewed_at: datetime | None
     created_entity_id: uuid.UUID | None
+    # True on a left-out note that came from a merge made after this feature: "Undo merge" works on it.
+    can_undo_merge: bool = False
     created_at: datetime
 
 
