@@ -737,7 +737,64 @@ class EmployeeService:
             entity_id=employee.id,
             changes={"old": None, "new": jsonable_encoder(data)},
         )
+        await self._link_managers_automatically(employee, actor_user_id)
         return employee
+
+    async def _set_manager_automatically(
+        self, employee: Employee, manager: Employee, actor_user_id: uuid.UUID, reason: str
+    ) -> None:
+        """Give an employee who has no manager the given one, and record why in the audit log."""
+        await self._repo.update_employee(employee, {"manager_id": manager.id})
+        await self._audit.log_action(
+            organization_id=employee.organization_id,
+            actor_user_id=actor_user_id,
+            action="update",
+            entity_type="employee",
+            entity_id=employee.id,
+            changes={
+                "old": {"manager_id": None},
+                "new": {"manager_id": str(manager.id)},
+                "reason": reason,
+            },
+        )
+
+    async def _link_managers_automatically(self, employee: Employee, actor_user_id: uuid.UUID) -> None:
+        """Fill in empty "Reporting Manager" fields from the position chart, never overwriting one.
+
+        The chart already says which role reports to which, so who someone's manager is can usually
+        be read from it. Two things happen, and both only when it is unambiguous:
+
+        1. The new person has no manager: if exactly ONE active person holds the role above theirs,
+           that person becomes their manager.
+        2. If the new person is the ONLY holder of their role, everyone in the roles below it who has
+           no manager yet is linked to them (this is how a boss added last still gets their team).
+
+        A role held by several people is never used: which of them is the manager is a human
+        choice. A manager someone was given by hand is never changed.
+        """
+        if employee.position_id is None or employee.status != EmployeeStatus.ACTIVE:
+            return
+
+        # 1. This person's own manager.
+        if employee.manager_id is None:
+            position = await PositionRepository(self._db).get_position_by_id(employee.position_id)
+            if position is not None and position.reports_to_position_id is not None:
+                bosses = await self._repo.list_active_holders(position.reports_to_position_id)
+                bosses = [boss for boss in bosses if boss.id != employee.id]
+                if len(bosses) == 1:
+                    await self._set_manager_automatically(
+                        employee, bosses[0], actor_user_id, "the only person holding the role above"
+                    )
+
+        # 2. The people below this one.
+        holders = await self._repo.list_active_holders(employee.position_id)
+        if len(holders) != 1 or holders[0].id != employee.id:
+            return
+        for report in await self._repo.list_unmanaged_reports_of_role(employee.position_id):
+            if report.id != employee.id:
+                await self._set_manager_automatically(
+                    report, employee, actor_user_id, "the only person holding the role above, now filled"
+                )
 
     async def get_employee_by_id(self, employee_id: uuid.UUID) -> Employee:
         """Fetch an employee by id.
@@ -840,6 +897,9 @@ class EmployeeService:
             entity_id=employee.id,
             changes={"old": old_data, "new": jsonable_encoder(data)},
         )
+        if "position_id" in data:
+            # Moved to another role: the chart may now say who their manager is, or who reports to them.
+            await self._link_managers_automatically(employee, actor_user_id)
         return employee
 
     async def link_user(
