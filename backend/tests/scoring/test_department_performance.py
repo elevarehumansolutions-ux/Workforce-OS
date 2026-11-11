@@ -65,6 +65,7 @@ async def test_tunde_reads_dispatch_two_numbers_side_by_side_and_his_people(clie
     assert Decimal(card["kpi_results_score"]) == Decimal("79.00")
     assert (card["kpis_counted"], card["kpis_expected"]) == (2, 2)
     assert card["kpi_results_no_data_reason"] is None
+    assert Decimal(card["kpi_weights_total"]) == Decimal("100")  # 70 + 30: fully allocated
     assert Decimal(card["punctuality_score"]) == Decimal("71.43")
     assert (card["punctuality_on_time"], card["punctuality_late"], card["punctuality_not_done"]) == (4, 2, 1)
     assert card["punctuality_no_data_reason"] is None
@@ -80,6 +81,27 @@ async def test_tunde_reads_dispatch_two_numbers_side_by_side_and_his_people(clie
     assert card["people_pagination"] == {
         "page": 1, "limit": 20, "total": 4, "total_pages": 1, "has_next": False, "has_previous": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_a_department_short_of_100_says_how_much_of_its_weights_the_score_rests_on(
+    client, monkeypatch, db_session
+):
+    """Only Lead Follow-up (70%) exists: the score is its own 70, worked out on 70% of the weights."""
+    w = await _world(client, monkeypatch, "dp1b")
+    created = await client.post(
+        "/api/v1/kpis", json={"department_id": w.dispatch, "name": "Lead Follow-up", "weight": 70}, headers=w.hr
+    )
+    await set_org_context(db_session, w.owner["organization"]["id"])
+    await db_session.execute(update(KPI).values(created_at=datetime(2026, 6, 1, tzinfo=UTC)))
+    await _save_kpi_result(db_session, w, created.json()["id"], "70")
+    await _compute_q3(db_session, w)
+    await _compute(db_session, w)
+
+    card = (await client.get(summary_url(w.dispatch), params=Q3, headers=w.tunde.h)).json()
+
+    assert Decimal(card["kpi_weights_total"]) == Decimal("70")
+    assert Decimal(card["kpi_results_score"]) == Decimal("70.00")  # rescaled: a short total does not lower the score
 
 
 @pytest.mark.asyncio

@@ -6,6 +6,7 @@ can probe whether a colleague exists or what they scored
 (08_DECISIONS.md 2026-10-21, question 8).
 """
 
+import decimal
 import math
 import uuid
 from datetime import UTC, date, datetime
@@ -330,6 +331,19 @@ class PerformanceReadService:
             lambda page, limit: self._kpi_repo.list_kpis(organization_id, department_id, None, page, limit)
         )
         return {kpi.id for kpi in kpis if kpi.created_at.date() <= last_day}
+
+    async def _department_weight_total(
+        self, organization_id: uuid.UUID, department_id: uuid.UUID, last_day: date
+    ) -> decimal.Decimal:
+        """What the weights of the department's KPIs that count for the period add up to."""
+        kpis = await ScoringService._every_item(
+            lambda page, limit: self._kpi_repo.list_kpis(organization_id, department_id, None, page, limit)
+        )
+        total = decimal.Decimal(0)
+        for kpi in kpis:
+            if kpi.created_at.date() <= last_day:
+                total += kpi.weight
+        return total
 
     async def _people_lines(
         self,
@@ -840,6 +854,7 @@ class PerformanceReadService:
             kpis_counted=saved.kpis_counted if saved else 0,
             kpis_expected=saved.kpis_expected if saved else len(kpi_ids),
             kpi_results_no_data_reason=kpi_reason,
+            kpi_weights_total=await self._department_weight_total(caller.organization_id, department.id, last_day),
             punctuality_score=saved.punctuality_score if saved else None,
             punctuality_on_time=saved.punctuality_on_time if saved else 0,
             punctuality_late=saved.punctuality_late if saved else 0,

@@ -63,6 +63,9 @@ class DepartmentPerformanceResponse(BaseModel):
     kpis_counted: int
     kpis_expected: int
     kpi_results_no_data_reason: str | None
+    # What the KPI weights of the department add up to (100 when fully allocated). Below 100 the
+    # score is worked out on the weights that exist ("scored on 70% of its weights"), never zero.
+    kpi_weights_total: decimal.Decimal | None = None
     punctuality_score: decimal.Decimal | None
     punctuality_on_time: int
     punctuality_late: int
