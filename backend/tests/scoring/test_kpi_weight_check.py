@@ -41,7 +41,7 @@ async def test_a_department_short_of_100_is_reported_to_hr_once_for_the_quarter(
     reminders = await _weight_reminders(client, w)
     assert len(reminders) == 1
     assert "70%" in reminders[0]["body"] and "30%" in reminders[0]["body"]
-    assert reminders[0]["link_type"] == "department"
+    assert reminders[0]["link_type"] == "department_kpis"
     assert reminders[0]["link_id"] == w.dispatch
     assert first["closed_previous_period"] is True  # scoring itself still ran
 

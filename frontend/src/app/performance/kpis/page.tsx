@@ -9,6 +9,8 @@ import type { CallerContext } from "@/lib/tasks";
 import { loadObjectives } from "@/lib/strategy";
 import type { Objective } from "@/lib/strategy";
 import { useLoad } from "@/lib/useLoad";
+import { loadMe } from "@/lib/settings";
+import { nextQuarterStart } from "@/lib/quarter";
 import {
   createKpi,
   deleteKpi,
@@ -536,6 +538,21 @@ function KpisContent() {
   const list = kpis.data ? kpis.data : [];
   const total = weightTotal(list);
 
+  // In the two weeks before a scoring quarter begins, say if this department's weights fall short
+  // of 100: scoring still works on the weights it has, but part of its purpose would go unmeasured.
+  const company = useLoad("kpis-company", function () { return loadMe(); }, "Could not load your company.");
+  let quarterWarning = "";
+  if (company.data && company.data.organization && list.length > 0 && total < 100) {
+    const next = nextQuarterStart(company.data.organization.fiscal_year_start_month, new Date());
+    if (next.daysAway <= 14) {
+      const when = next.daysAway === 0 ? "today" : "in " + next.daysAway + (next.daysAway === 1 ? " day" : " days");
+      quarterWarning =
+        "A new scoring quarter begins " + when + ". This department's KPIs add up to " + total + "%, so " +
+        Math.round((100 - total) * 100) / 100 + "% of what it is for will not be measured. " +
+        "Scores are still worked out on the KPIs it has. Give the rest to a KPI, or add one.";
+    }
+  }
+
   function reload() {
     setReloads(reloads + 1);
   }
@@ -563,6 +580,10 @@ function KpisContent() {
           <button onClick={() => setAdding(!adding)} className={BUTTON + " ml-auto"}>{adding ? "Close" : "+ Add KPI"}</button>
         ) : null}
       </div>
+
+      {quarterWarning !== "" ? (
+        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">{quarterWarning}</p>
+      ) : null}
 
       {departmentReturn.data ? (
         <div className="rounded-xl border border-white/10 bg-[#0d1220]/80 p-4 text-sm">

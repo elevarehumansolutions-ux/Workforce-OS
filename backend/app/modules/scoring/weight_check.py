@@ -24,6 +24,9 @@ from app.modules.tenancy_identity.enums import MembershipRole
 from app.modules.tenancy_identity.service import MembershipService
 
 WEIGHT_CHECK_TITLE = "A department's KPI weights are not at 100%"
+# Its own link type: "department" already means "open that department's tasks" on the Notifications
+# screen. This one opens the KPIs screen for the department (link_id is the department's id).
+WEIGHT_CHECK_LINK_TYPE = "department_kpis"
 
 
 class KpiWeightCheck:
@@ -44,7 +47,7 @@ class KpiWeightCheck:
             .select_from(Notification)
             .where(
                 Notification.title == WEIGHT_CHECK_TITLE,
-                Notification.link_type == "department",
+                Notification.link_type == WEIGHT_CHECK_LINK_TYPE,
                 Notification.link_id == department_id,
                 Notification.created_at >= quarter_start,
             )
@@ -86,7 +89,7 @@ class KpiWeightCheck:
                         "Scores are still worked out on the KPIs it has. Give the remaining weight "
                         "to a KPI, or add one."
                     ),
-                    link_type="department",
+                    link_type=WEIGHT_CHECK_LINK_TYPE,
                     link_id=department.id,
                 )
                 reported += 1

@@ -48,6 +48,9 @@ export interface PageInfo {
 export interface DepartmentPerformance {
   department_id: string;
   department_name: string;
+  // What the department's KPI weights add up to (100 = fully allocated). Below 100 the score is
+  // worked out on the weights that exist. Absent from an older server response.
+  kpi_weights_total?: string | null;
   period_start: string;
   period_end: string;
   is_final: boolean;

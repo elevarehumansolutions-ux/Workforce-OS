@@ -88,6 +88,9 @@ function destinationOf(n: NotificationItem): string | null {
   if (n.link_type === "workflow_instance" && n.link_id) {
     return "/workflow/case-detail?id=" + n.link_id;
   }
+  if (n.link_type === "department_kpis" && n.link_id) {
+    return "/performance/kpis?department=" + n.link_id;
+  }
   if (n.link_type === "department" && n.link_id) {
     return "/tasks?department_id=" + n.link_id + "&status=open";
   }

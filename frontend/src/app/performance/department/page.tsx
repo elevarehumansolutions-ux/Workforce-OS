@@ -127,6 +127,12 @@ function DepartmentBody(props: { departmentId: string }) {
                   the team beat its target.
                 </p>
               )}
+              {data.kpi_weights_total !== undefined && data.kpi_weights_total !== null && Number(data.kpi_weights_total) < 100 ? (
+                <p className="mt-2 text-xs text-amber-300">
+                  Scored on {Number(data.kpi_weights_total)}% of its KPI weights. The other{" "}
+                  {Math.round((100 - Number(data.kpi_weights_total)) * 100) / 100}% is not measured by any KPI.
+                </p>
+              ) : null}
             </div>
 
             <div className="rounded-xl border border-white/10 bg-white/5 p-5">
