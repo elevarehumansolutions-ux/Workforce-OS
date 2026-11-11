@@ -139,12 +139,17 @@ export default function OwnObjectives(props: {
                       value={krText}
                       onChange={function (e) { setKrText(e.target.value); }}
                     />
-                    <input
-                      type="date"
-                      className={input + " [color-scheme:dark] sm:w-56"}
-                      value={krDate}
-                      onChange={function (e) { setKrDate(e.target.value); }}
-                    />
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-gray-400">
+                        Achieve this by (optional): the date the result should be reached
+                      </span>
+                      <input
+                        type="date"
+                        className={input + " [color-scheme:dark] sm:w-56"}
+                        value={krDate}
+                        onChange={function (e) { setKrDate(e.target.value); }}
+                      />
+                    </label>
                     <div className="flex gap-2">
                       <button type="submit" disabled={busy} className="rounded-lg bg-indigo-500 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-600 disabled:opacity-50">
                         {busy ? "Adding…" : "Add key result"}
