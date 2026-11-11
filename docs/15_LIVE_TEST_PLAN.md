@@ -58,8 +58,24 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 5. In a second browser profile open one invite email, accept, set a password, log in. Expect: that
    person lands in the app and sees only what their role allows (compare HR, manager, employee).
 
+### Stage 2c: Undo, merge undo and skip (added 2026-11-11)
+
+1. On the plan, press Add on a department, then **Undo** beside "Added". Expect a window that counts
+   what goes with it (roles, objectives, KPIs) with "Keep it left out"/"Undo"; after Undo everything is
+   waiting again and can be added a second time.
+2. Add a role by hand under an added department (Organization Structure), then Undo that department.
+   Expect a refusal that names the reason ("1 active position(s) still assigned") and NOTHING changed.
+3. Merge one suggested department into another. Expect "You merged X into this. Undo merge" on the
+   target. Press it: the plan is exactly as before (shares, KPI weights, roles). Then merge again, add the
+   target, and check Undo merge is refused ("already been added").
+4. Skip a department. Expect its roles, objectives, key results and KPIs to show "Skipped" at once.
+
 ## Stage 3: People, roles and the org-chart picker (M4)
 
+0. (2026-11-11) Add the boss LAST: add a Sales Rep first, then their Head of Sales. Expect the rep to
+   report to the head without you choosing it, and the green notice to say so when the manager was
+   filled in. Add two people to one role: the form warns the role will be shared, and the chart tags
+   it "shared by 2". Choose a manager by hand for someone, then add the boss: that person is NOT changed.
 1. Add an employee with "Choose on chart" for position and manager. Expect: the chart opens, the
    new person shows as a dashed box, clicking sets the field.
 2. Add three more people across two departments, each with a different manager.
@@ -110,13 +126,24 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 
 ## Stage 9: Scoring and dashboards (M12): needs the time helper
 
-Scoring works in quarters, so this stage uses a small helper (written when we reach it) that
-creates tasks in the last closed quarter and runs the scoring job by hand. The idea (to verify
-first): a company's quarters come from its fiscal-year start month, so changing that month on the
-TEST company makes a quarter "just have ended" without waiting three months; restore it after.
-It also lets us test the quarter-start KPI weight check (`09_PROGRESS.md` item 7). Expect afterwards:
-a person's performance card, the department summary with its two numbers, the leaderboard (HR,
-executives and managers only), and "no data yet" shown where there is no data, never zeros.
+Scoring works in quarters, so this stage uses the helper `backend/scripts/admin/stage9_time_helper.py`
+(commands, with line-by-line explanations, in `14_PRODUCTION_TROUBLESHOOTING.md` section 12). It runs
+the REAL nightly job as if it were another date, on the TEST company only. No fiscal month is changed.
+1. Before running it, have real data in the current quarter (Q4 2026, Oct to Dec): tasks done on time,
+   late and not done, linked to KPIs; manual KPI results; and one department whose KPI weights add up to
+   LESS than 100 (for example one KPI at 70%).
+2. Run `show`, then `run --on 2027-01-02`. Expect `closed_previous_period: True`.
+3. Open Performance for the quarter 2026-10-01 to 2026-12-31: a person's performance card, the
+   department summary with its two numbers (the short department says "Scored on 70% of its KPI
+   weights" and its score is not lowered), the leaderboard (HR, executives and managers only), and "no
+   data yet" wherever there is no data, never zeros.
+4. As an HR administrator open Notifications: ONE "A department's KPI weights are not at 100%" for the
+   short department; its link opens the KPIs screen on that department. Run `run --on 2027-01-03` again:
+   no second reminder.
+5. Two weeks before a quarter the KPIs screen shows an amber note for a short department (the real date
+   must be within 14 days of 1 Jan/Apr/Jul/Oct, so this is checked by reading the code and the unit test,
+   not live, unless you test in mid-December).
+6. `unfreeze --quarter-start 2026-10-01`, add one more task, `run` again: the figures change.
 
 ## Stage 10: Settings, roles and limits (M2, M13 not built)
 
