@@ -4,7 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import { fetchAllPages, fullName } from "@/lib/tasks";
-import type { Employee } from "@/lib/tasks";
+import type { Employee, Position } from "@/lib/tasks";
+import { personLabel } from "@/lib/personLabel";
 import { useLoad } from "@/lib/useLoad";
 import { SETTINGS_INPUT_CLASS, isHrRole } from "@/lib/settings";
 import type { SectionProps } from "./types";
@@ -20,6 +21,7 @@ interface DepartmentRow {
 interface DepartmentData {
   departments: DepartmentRow[];
   employees: Employee[];
+  positions: Position[];
 }
 
 export default function DepartmentsSection(props: SectionProps) {
@@ -28,8 +30,12 @@ export default function DepartmentsSection(props: SectionProps) {
   const state = useLoad<DepartmentData>(
     "departments|" + reloadCounter,
     async function () {
-      const results = await Promise.all([fetchAllPages<DepartmentRow>("/departments"), fetchAllPages<Employee>("/employees")]);
-      return { departments: results[0], employees: results[1] };
+      const results = await Promise.all([
+        fetchAllPages<DepartmentRow>("/departments"),
+        fetchAllPages<Employee>("/employees"),
+        fetchAllPages<Position>("/positions"),
+      ]);
+      return { departments: results[0], employees: results[1], positions: results[2] };
     },
     "Couldn't load the departments."
   );
@@ -38,6 +44,7 @@ export default function DepartmentsSection(props: SectionProps) {
 
   const departments = state.data ? state.data.departments : [];
   const employees = state.data ? state.data.employees : [];
+  const positions = state.data ? state.data.positions : [];
   const pickable = employees.filter(function (e) {
     return e.status !== "inactive";
   });
@@ -125,7 +132,7 @@ export default function DepartmentsSection(props: SectionProps) {
                             {pickable.map(function (e) {
                               return (
                                 <option key={e.id} value={e.id}>
-                                  {fullName(e)}
+                                  {personLabel(e, positions, departments)}
                                 </option>
                               );
                             })}
