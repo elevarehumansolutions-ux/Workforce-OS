@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { ApiError, apiFetch } from "@/lib/api";
-import { fetchAllPages, formatDateTime, fullName } from "@/lib/tasks";
-import type { Employee } from "@/lib/tasks";
-import { SETTINGS_INPUT_CLASS, SETTINGS_LABEL_CLASS, canReadAuditLog, titleCase } from "@/lib/settings";
+import { formatDateTime } from "@/lib/tasks";
+import { SETTINGS_INPUT_CLASS, SETTINGS_LABEL_CLASS, canReadAuditLog } from "@/lib/settings";
+import { describeActivity } from "@/lib/activityText";
 import type { SectionProps } from "./types";
 
 interface AuditRow {
   id: string;
   actor_user_id: string | null;
+  actor_name?: string | null;
   action: string;
   entity_type: string;
   entity_id: string | null;
@@ -37,7 +38,6 @@ export default function AuditLogSection(props: SectionProps) {
   const [loadedKey, setLoadedKey] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
-  const [names, setNames] = useState<Record<string, string>>({});
 
   const key = [applied.entityType, applied.dateFrom, applied.dateTo].join("|");
   const loading = allowed && loadedKey !== key;
@@ -80,30 +80,6 @@ export default function AuditLogSection(props: SectionProps) {
     [allowed, key]
   );
 
-  // Names for the people behind each change; the log itself only has user ids.
-  useEffect(
-    function () {
-      if (!allowed) return;
-      let cancelled = false;
-      fetchAllPages<Employee>("/employees")
-        .then(function (list) {
-          if (cancelled) return;
-          const map: Record<string, string> = {};
-          for (const e of list) {
-            if (e.user_id) map[e.user_id] = fullName(e);
-          }
-          setNames(map);
-        })
-        .catch(function () {
-          // Without names the log still works; it just says "Someone".
-        });
-      return function () {
-        cancelled = true;
-      };
-    },
-    [allowed]
-  );
-
   async function loadMore() {
     if (!cursor) return;
     setLoadingMore(true);
@@ -118,10 +94,11 @@ export default function AuditLogSection(props: SectionProps) {
     }
   }
 
-  function actor(id: string | null): string {
-    if (!id) return "The system";
-    if (id === props.me.userId) return "You";
-    return names[id] || "Someone";
+  // The server sends the actor's name with every row, so this works for every role that can read the log.
+  function actor(row: AuditRow): string {
+    if (!row.actor_user_id) return "The system";
+    if (row.actor_user_id === props.me.userId) return "You";
+    return row.actor_name || "Someone";
   }
 
   if (!allowed) {
@@ -181,7 +158,7 @@ export default function AuditLogSection(props: SectionProps) {
                 <li key={r.id} className="px-4 py-3 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-gray-200">
-                      <span className="font-medium text-white">{actor(r.actor_user_id)}</span> · {titleCase(r.action)} · {titleCase(r.entity_type)}
+                      <span className="font-medium text-white">{actor(r)}</span> {describeActivity(r.action, r.entity_type)}
                     </p>
                     <span className="text-xs text-gray-500">{formatDateTime(r.created_at)}</span>
                   </div>

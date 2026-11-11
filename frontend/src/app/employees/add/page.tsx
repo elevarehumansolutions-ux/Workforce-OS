@@ -3,10 +3,14 @@
 import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
+import Link from "next/link";
 import OrgChartPicker from "@/components/OrgChartPicker";
+import { personLabel } from "@/lib/personLabel";
 
 import RoleSidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
+import MobileNav from "@/components/MobileNav";
+import UserMenu from "@/components/UserMenu";
 
 // The menu is shared (and filtered by role) in components/SidebarNav.tsx.
 function SidebarNav(activeLabel: string) {
@@ -22,6 +26,7 @@ function SidebarShell(activeLabel: string) {
         </div>
         {SidebarNav(activeLabel)}
       </div>
+      <UserMenu />
     </aside>
   );
 }
@@ -83,6 +88,8 @@ interface UnlinkedMember {
 
 interface EmployeeResponse {
   id: string;
+  // Filled in by the server when the form left it empty and exactly one person holds the role above.
+  manager_id?: string | null;
   user_id: string | null;
   invite_status: "pending" | "expired" | null;
   work_email: string;
@@ -129,6 +136,8 @@ export default function AddEmployeePage() {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  // Shown after "Save and add another": who was just added, with a link to their profile.
+  const [savedNotice, setSavedNotice] = useState<{ name: string; id: string; managerNote: string } | null>(null);
 
   // Reference data needed to fill in the dropdowns. All start empty so the
   // server and client render the same thing on first paint; the real lists
@@ -179,12 +188,41 @@ export default function AddEmployeePage() {
   if (chosenPosition && chosenPosition.reports_to_position_id) {
     const bossRole = chosenPosition.reports_to_position_id;
     const holders = existingEmployees.filter(function (e) {
-      return e.position_id === bossRole && e.status !== "offboarded";
+      return e.position_id === bossRole && e.status !== "inactive";
     });
     if (holders.length === 1) {
       suggestedManager = { id: holders[0].id, name: holders[0].first_name + " " + holders[0].last_name };
     }
   }
+
+  // Who already holds the chosen role. A role is one seat by default; adding a second person is
+  // allowed (shared role), but the form says so.
+  const holdersOfChosenRole = existingEmployees.filter(function (e) {
+    return form.positionId !== "" && e.position_id === form.positionId && e.status !== "inactive";
+  });
+
+  // People who could be the manager: everyone not offboarded. Those who hold the role directly
+  // above the chosen one come first (the likely managers), then the rest.
+  const bossRoleId = chosenPosition ? chosenPosition.reports_to_position_id : null;
+  const likelyManagers: EmployeeSummary[] = [];
+  const otherPeople: EmployeeSummary[] = [];
+  existingEmployees.forEach(function (e) {
+    // "inactive" is what the server calls someone who has been offboarded.
+    if (e.status === "inactive") return;
+    if (bossRoleId && e.position_id === bossRoleId) {
+      likelyManagers.push(e);
+    } else {
+      otherPeople.push(e);
+    }
+  });
+  const managerChoices = likelyManagers.concat(otherPeople);
+
+  // The role above the chosen one exists but nobody holds it yet: say so, so the person
+  // adding employees knows to add the boss first (or leave the manager empty).
+  const bossRole = bossRoleId
+    ? positions.find(function (p) { return p.id === bossRoleId; })
+    : undefined;
+  const bossRoleIsEmpty = bossRole !== undefined && likelyManagers.length === 0;
 
   function departmentNameFor(position: Position): string {
     const department = departments.find(function (d) {
@@ -193,9 +231,16 @@ export default function AddEmployeePage() {
     return department ? department.name : "Unknown department";
   }
 
-  async function handleSubmit(e: FormEvent) {
+  // The form's own submit (pressing Enter) means "save and finish".
+  function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    saveEmployee("finish");
+  }
+
+  // "another": stay on this page ready for the next person. "finish": go to the directory.
+  async function saveEmployee(next: "another" | "finish") {
     setFormError("");
+    setSavedNotice(null);
 
     if (!form.positionId) {
       setFormError("Position is required. Pick one below.");
@@ -240,7 +285,44 @@ export default function AddEmployeePage() {
         method: "POST",
         body: payload,
       });
-      router.push("/employees/" + employee.id);
+      if (next === "finish") {
+        router.push("/employees/directory");
+        return;
+      }
+
+      // Add another: the new person can now be someone's manager, so add them to the choices.
+      setExistingEmployees(existingEmployees.concat([{
+        id: employee.id,
+        first_name: form.firstName.trim(),
+        last_name: form.lastName.trim(),
+        work_email: form.workEmail.trim(),
+        position_id: form.positionId,
+        status: "active",
+      }]));
+      // A login that was just linked can't be linked to a second person.
+      setUnlinkedMembers(unlinkedMembers.filter(function (m) { return m.user.id !== form.linkedUserId; }));
+
+      // When the manager field was left empty the server may have filled it in from the chart;
+      // say who, so it is not a surprise.
+      let managerNote = "";
+      if (form.managerId === "" && employee.manager_id) {
+        const boss = existingEmployees.find(function (p) { return p.id === employee.manager_id; });
+        if (boss) {
+          managerNote = " Reports to " + boss.first_name + " " + boss.last_name + " (filled in from the chart).";
+        }
+      }
+      setSavedNotice({ name: (form.firstName + " " + form.lastName).trim(), id: employee.id, managerNote: managerNote });
+      // Keep where the next person usually sits (role, manager, location, type, start date);
+      // clear what is personal to one individual.
+      setForm({
+        ...INITIAL_FORM,
+        positionId: form.positionId,
+        managerId: form.managerId,
+        locationId: form.locationId,
+        employmentType: form.employmentType,
+        startDate: form.startDate,
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : "Couldn't save this employee. Please try again.");
     } finally {
@@ -252,7 +334,8 @@ export default function AddEmployeePage() {
     <div className="flex min-h-screen w-full bg-[#05070f] text-white">
       {SidebarShell("Employees")}
 
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <MobileNav activeLabel="Employees" />
         <div className="flex items-center justify-between border-b border-white/10 px-8 py-5">
           <div>
             <p className="text-xs text-gray-500">Employees &gt; Add Employee</p>
@@ -281,6 +364,14 @@ export default function AddEmployeePage() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-xl">
+              {savedNotice ? (
+                <div className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                  Added {savedNotice.name}.{savedNotice.managerNote} The form is ready for the next person.{" "}
+                  <Link href={"/employees/" + savedNotice.id} className="font-medium underline hover:text-white">
+                    View profile
+                  </Link>
+                </div>
+              ) : null}
               {formError ? (
                 <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                   {formError}
@@ -491,6 +582,14 @@ export default function AddEmployeePage() {
                           );
                         })}
                       </select>
+                      {holdersOfChosenRole.length > 0 && chosenPosition ? (
+                        <p className="mt-1.5 text-xs text-amber-300">
+                          {chosenPosition.title} already has{" "}
+                          {holdersOfChosenRole.map(function (e) { return e.first_name + " " + e.last_name; }).join(", ")}.
+                          You can still add this person: the role will then be shared. A shared role is never used to
+                          fill in a manager automatically.
+                        </p>
+                      ) : null}
                     </div>
 
                     <div>
@@ -514,14 +613,20 @@ export default function AddEmployeePage() {
                         className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-2.5 text-sm text-gray-300 outline-none focus:border-indigo-500"
                       >
                         <option value="">No manager</option>
-                        {existingEmployees.map(function (employee) {
+                        {managerChoices.map(function (employee) {
                           return (
                             <option key={employee.id} value={employee.id}>
-                              {employee.first_name} {employee.last_name}
+                              {personLabel(employee, positions, departments)}
                             </option>
                           );
                         })}
                       </select>
+                      {bossRoleIsEmpty && bossRole && form.managerId === "" ? (
+                        <p className="mt-1.5 text-xs text-amber-300">
+                          Nobody holds {bossRole.title} yet, the role above this one. Add that person first, or leave the
+                          manager empty and set it later.
+                        </p>
+                      ) : null}
                       {suggestedManager && form.managerId === "" ? (
                         <p className="mt-1.5 text-xs text-gray-400">
                           Usually reports to {suggestedManager.name}, who holds the role above this one.{" "}
@@ -649,11 +754,19 @@ export default function AddEmployeePage() {
                   Cancel
                 </button>
                 <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={function () { saveEmployee("another"); }}
+                  className="rounded-lg border border-indigo-400/60 px-5 py-2.5 text-sm font-semibold text-indigo-200 transition hover:bg-indigo-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting ? "Saving…" : "Save and add another"}
+                </button>
+                <button
                   type="submit"
                   disabled={submitting}
                   className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {submitting ? "Saving…" : "Save Employee"}
+                  {submitting ? "Saving…" : "Save and finish"}
                 </button>
               </div>
             </form>

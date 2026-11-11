@@ -5,13 +5,15 @@ import AppShell from "@/components/AppShell";
 import { apiFetch } from "@/lib/api";
 import { fetchAllPages, formatDateTime, fullName, roleLabel } from "@/lib/tasks";
 import type { Employee, PaginatedResponse } from "@/lib/tasks";
-import { canReadAuditLog, loadMe, titleCase } from "@/lib/settings";
+import { canReadAuditLog, loadMe } from "@/lib/settings";
+import { describeActivity } from "@/lib/activityText";
 import type { MeData } from "@/lib/settings";
 import { useLoad } from "@/lib/useLoad";
 
 interface AuditRow {
   id: string;
   actor_user_id: string | null;
+  actor_name?: string | null;
   action: string;
   entity_type: string;
   created_at: string;
@@ -24,18 +26,8 @@ interface HubData {
   names: Record<string, string>;
 }
 
-const ACTION_TEXT: Record<string, string> = {
-  create: "added an employee",
-  update: "updated an employee",
-  delete: "removed an employee",
-  offboard: "offboarded an employee",
-  reinstate: "reinstated an employee",
-  link_user: "linked a login to an employee",
-  grant_login: "gave an employee login access",
-};
-
 function actionText(row: AuditRow): string {
-  return ACTION_TEXT[row.action] || titleCase(row.action).toLowerCase() + " (" + titleCase(row.entity_type).toLowerCase() + ")";
+  return describeActivity(row.action, row.entity_type);
 }
 
 async function loadHub(): Promise<HubData> {
@@ -69,7 +61,7 @@ export default function EmployeesPage() {
   function actor(row: AuditRow): string {
     if (!data || !row.actor_user_id) return "The system";
     if (row.actor_user_id === data.me.userId) return "You";
-    return data.names[row.actor_user_id] || "Someone";
+    return row.actor_name || data.names[row.actor_user_id] || "Someone";
   }
 
   return (

@@ -16,7 +16,7 @@ export interface PickerEmployee {
   first_name: string;
   last_name: string;
   position_id?: string | null;
-  // "active" or "offboarded"; someone who has left is not offered as a manager.
+  // "active" or "inactive" (offboarded); someone who has left is not offered as a manager.
   status?: string | null;
 }
 
@@ -93,10 +93,12 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
 
   const peopleByPosition: Record<string, PickerEmployee[]> = {};
   props.employees.forEach(function (e) {
-    if (!e.position_id || e.status === "offboarded") return;
+    if (!e.position_id || e.status === "inactive") return;
     if (!peopleByPosition[e.position_id]) peopleByPosition[e.position_id] = [];
     peopleByPosition[e.position_id].push(e);
   });
+
+  const nobodyIsPlaced = Object.keys(peopleByPosition).length === 0;
 
   function renderBox(box: Box) {
     const p = box.position;
@@ -135,6 +137,7 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
             <p className="mt-0.5 flex items-center gap-1.5 text-xs text-gray-400">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
               {departmentName[p.department_id] || ""}
+              {people.length > 1 ? <span className="rounded bg-amber-500/15 px-1 text-[11px] text-amber-300">shared by {people.length}</span> : null}
             </p>
           </div>
         )}
@@ -142,7 +145,9 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
         {props.mode === "manager" ? (
           <div className="mt-2 space-y-1">
             {people.length === 0 ? (
-              <p className="text-[11px] text-gray-600">Nobody in this role yet</p>
+              <p className="rounded-md border border-dashed border-white/10 px-2 py-1 text-[11px] text-gray-500">
+                Vacant: no one holds this role yet
+              </p>
             ) : (
               people.map(function (e) {
                 const chosen = props.selectedId === e.id;
@@ -165,6 +170,7 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
         ) : people.length > 0 ? (
           <p className="mt-1.5 text-[11px] text-gray-500">
             {people.map(function (e) { return e.first_name + " " + e.last_name; }).join(", ")}
+            {people.length > 1 ? <span className="ml-1 rounded bg-amber-500/15 px-1 text-amber-300">shared by {people.length}</span> : null}
           </p>
         ) : null}
       </div>
@@ -210,6 +216,13 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
             Done
           </button>
         </div>
+
+        {props.mode === "manager" && nobodyIsPlaced ? (
+          <p className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+            No one has been added to any role yet, so there is nobody to choose. Close this window, finish adding this
+            person, then add the people below them. Or add the most senior person first, and come back to set managers.
+          </p>
+        ) : null}
 
         {props.positions.length === 0 ? (
           <p className="mt-6 rounded-lg border border-white/10 p-6 text-center text-sm text-gray-400">

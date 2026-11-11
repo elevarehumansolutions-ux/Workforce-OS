@@ -401,6 +401,55 @@ If other team members exist, their memberships/users are untouched; only their e
 
 ---
 
+## 12. Test scoring without waiting three months (test companies only)
+
+Scoring works in fiscal quarters, and a quarter only closes when a night runs after it ended. The
+helper `backend/scripts/admin/stage9_time_helper.py` runs the REAL nightly job as if it were another
+date. It does not change the company; it only changes the "now" the job uses.
+
+Step 1: find the company's id and exact name (the helper asks for both so it can never be pointed
+at a real customer by accident):
+
+```
+docker compose -f docker-compose.prod.yml exec -T db psql -U elevare -d elevare_db -c "SELECT id, name FROM organizations;"
+```
+`exec -T db` runs a command inside the database container (`-T` = no terminal, needed when
+scripting); `psql -U elevare -d elevare_db` opens the database as the `elevare` user; `-c` runs the one
+query and exits. Copy the id and the name of the TEST company (for example `Zenith Test Ltd`).
+
+Step 2: see where the company stands (read-only):
+
+```
+docker compose -f docker-compose.prod.yml exec -T api python scripts/admin/stage9_time_helper.py show --org <id> --name "Zenith Test Ltd"
+```
+It prints the company's fiscal year start month, and for the previous and the current quarter how
+many department rows exist and how many are **frozen** (closed for good).
+
+Step 3: close the quarter that contains the tasks you made (their deadlines are in November 2026,
+so that is Q4 2026, which ends on 31 December; pretend it is 2 January 2027):
+
+```
+docker compose -f docker-compose.prod.yml exec -T api python scripts/admin/stage9_time_helper.py run --org <id> --name "Zenith Test Ltd" --on 2027-01-02
+```
+It prints `{'closed_previous_period': True}`. Now open Performance, the department summary, the
+leaderboard and the company view and pick the quarter 2026-10-01 to 2026-12-31: the numbers are final.
+On the first night of the new quarter HR administrators also get the KPI-weight reminder for any
+department with weights below 100 (Notifications).
+
+Step 4: to add more data and close the quarter again, re-open it (only the "frozen" marks are cleared;
+nothing is deleted; manual KPI results you typed in are never touched), then run step 3 again:
+
+```
+docker compose -f docker-compose.prod.yml exec -T api python scripts/admin/stage9_time_helper.py unfreeze --org <id> --name "Zenith Test Ltd" --quarter-start 2026-10-01
+```
+Reading the evidence: `show` after step 3 should say `1 frozen`-or-more department rows for the closed
+quarter and `0 frozen` for the current one. If `run` prints `closed_previous_period: False`, the quarter
+was already frozen (run `unfreeze` first), or the company was created after that quarter ended.
+Rule to remember: **the job is safe to run twice; a frozen quarter is never rewritten**, which is why
+`unfreeze` exists.
+
+---
+
 ## Incident log
 
 ### 2026-10-07: `PUT /api/v1/business-dna` returns 500 (reported by Uche)

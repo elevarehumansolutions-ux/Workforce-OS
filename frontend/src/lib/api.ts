@@ -1,4 +1,6 @@
-﻿﻿const ACCESS_TOKEN_KEY = "elevare_access_token";
+﻿﻿import { buildValidationMessage } from "@/lib/validationMessage";
+
+const ACCESS_TOKEN_KEY = "elevare_access_token";
 
 export interface FastApiValidationItem {
   loc: (string | number)[];
@@ -46,6 +48,13 @@ export class ApiError extends Error {
         body.details.forEach(function (item) {
           fieldErrors[item.field] = item.message;
         });
+        // "Validation failed" alone tells nobody what to fix, so say which field and why.
+        if (code === "VALIDATION_ERROR") {
+          const readable = buildValidationMessage(body.details);
+          if (readable !== "") {
+            message = readable;
+          }
+        }
       }
     } else if (body && typeof body === "object" && body.detail) {
       // {detail} — plain FastAPI HTTPException / request-validation errors.

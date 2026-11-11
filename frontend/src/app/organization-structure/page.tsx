@@ -4,9 +4,12 @@ import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
 import PositionsEditor from "@/components/PositionsEditor";
 import { isHrRole, loadMe } from "@/lib/settings";
+import { personLabel } from "@/lib/personLabel";
 
 import RoleSidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
+import MobileNav from "@/components/MobileNav";
+import UserMenu from "@/components/UserMenu";
 
 // The menu is shared (and filtered by role) in components/SidebarNav.tsx.
 function SidebarNav(activeLabel: string) {
@@ -22,6 +25,7 @@ function SidebarShell(activeLabel: string) {
         </div>
         {SidebarNav(activeLabel)}
       </div>
+      <UserMenu />
     </aside>
   );
 }
@@ -40,6 +44,14 @@ interface Employee {
   first_name: string;
   last_name: string;
   status: string;
+  position_id?: string | null;
+}
+
+interface Position {
+  id: string;
+  title: string;
+  department_id: string;
+  reports_to_position_id: string | null;
 }
 
 interface PaginatedResponse<T> {
@@ -78,6 +90,7 @@ function fullName(employee: Employee): string {
 export default function OrganizationStructurePage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -92,12 +105,14 @@ export default function OrganizationStructurePage() {
       fetchAllPages<Department>("/departments"),
       fetchAllPages<Employee>("/employees"),
       loadMe(),
+      fetchAllPages<Position>("/positions"),
     ])
       .then(function (results) {
         if (cancelled) return;
         setDepartments(results[0]);
         setEmployees(results[1]);
         setCanEdit(isHrRole(results[2].role));
+        setPositions(results[3]);
       })
       .catch(function (err) {
         if (cancelled) return;
@@ -143,6 +158,43 @@ export default function OrganizationStructurePage() {
     return e.status !== "inactive";
   });
 
+  function departmentOfPosition(positionId: string | null | undefined): string {
+    const position = positions.find(function (p) { return p.id === positionId; });
+    return position ? position.department_id : "";
+  }
+
+  // Active people for the Head dropdown: this department's own people first, then everyone else.
+  function headChoices(department: Department): Employee[] {
+    const own: Employee[] = [];
+    const others: Employee[] = [];
+    activeEmployees.forEach(function (e) {
+      if (departmentOfPosition(e.position_id) === department.id) {
+        own.push(e);
+      } else {
+        others.push(e);
+      }
+    });
+    return own.concat(others);
+  }
+
+  // The person to suggest as head: the one holder of the department's top role, meaning a role
+  // whose boss is outside the department (or nobody). Only when exactly one person holds those
+  // roles, so it is never a guess; with several holders HR chooses.
+  function suggestedHead(department: Department): Employee | null {
+    const topRoleIds: string[] = [];
+    positions.forEach(function (p) {
+      if (p.department_id !== department.id) return;
+      const bossDepartment = departmentOfPosition(p.reports_to_position_id);
+      if (!p.reports_to_position_id || bossDepartment !== department.id) {
+        topRoleIds.push(p.id);
+      }
+    });
+    const holders = activeEmployees.filter(function (e) {
+      return e.position_id ? topRoleIds.indexOf(e.position_id) !== -1 : false;
+    });
+    return holders.length === 1 ? holders[0] : null;
+  }
+
   async function changeHead(department: Department, employeeId: string) {
     setActionError("");
     setNotice("");
@@ -186,7 +238,8 @@ export default function OrganizationStructurePage() {
     <div className="flex min-h-screen w-full bg-[#05070f] text-white">
       {SidebarShell("Organization Structure")}
 
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <MobileNav activeLabel="Organization Structure" />
         <div className="flex items-center justify-between border-b border-white/10 px-8 py-5">
           <div>
             <p className="text-xs text-gray-500">Dashboard &gt; Organization Structure</p>
@@ -277,15 +330,29 @@ export default function OrganizationStructurePage() {
                             {!headIsListed ? (
                               <option value={headId}>{employeeName(headId)} (no longer active)</option>
                             ) : null}
-                            {activeEmployees.map(function (e) {
+                            {headChoices(department).map(function (e) {
                               return (
                                 <option key={e.id} value={e.id}>
-                                  {fullName(e)}
+                                  {personLabel(e, positions, departments)}
                                 </option>
                               );
                             })}
                           </select>
                         </div>
+                        {headId === "" && canEdit && suggestedHead(department) ? (
+                          <p className="w-full text-xs text-gray-400">
+                            Suggested: {fullName(suggestedHead(department) as Employee)}, who holds this department&apos;s
+                            top role.{" "}
+                            <button
+                              type="button"
+                              disabled={isBusy}
+                              onClick={function () { changeHead(department, (suggestedHead(department) as Employee).id); }}
+                              className="font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
+                            >
+                              Make them head
+                            </button>
+                          </p>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -300,7 +367,7 @@ export default function OrganizationStructurePage() {
               </div>
 
               {canEdit ? (
-                <PositionsEditor departments={departments} />
+                <PositionsEditor departments={departments} people={employees} />
               ) : (
                 <p className="text-sm text-gray-400">The chart of roles is managed by HR administrators.</p>
               )}

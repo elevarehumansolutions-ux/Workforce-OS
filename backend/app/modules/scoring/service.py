@@ -22,6 +22,7 @@ from app.modules.tenancy_identity.repository import OrganizationRepository
 from .marking import TaskFacts, count_marks, mark_task, score_from_counts
 from .repository import ScoringRepository
 from .rollup import weighted_average
+from .weight_check import KpiWeightCheck
 
 
 # The most ``kpi_scores.score_percentage`` can hold (a DECIMAL(5,2) column).
@@ -89,6 +90,12 @@ class ScoringService:
             closed_previous_period = True
 
         await self.refresh_open_period(organization_id, current_start, current_end, now)
+
+        # A reminder, never a block: scoring above already ran on the weights that exist. Only
+        # for a company that already existed when this quarter began (a brand-new one is still
+        # drafting; the KPIs screen warns it ahead of its first quarter).
+        if organization.created_at < current_start:
+            await KpiWeightCheck(self._db).run(organization_id, current_start)
         return {"closed_previous_period": closed_previous_period}
 
     async def refresh_open_period(

@@ -3,11 +3,13 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.pagination import paginate
 from app.core.schemas import PaginationResponse
+from app.modules.kpis.models import KPI
+from app.modules.okrs.models import OKR
 from app.modules.organization.models import Department, Position
 
 from .enums import BlueprintKind, BlueprintStatus
@@ -57,6 +59,24 @@ class BlueprintRepository:
             .order_by(Position.created_at, Position.id)
         )
         return list((await self._db.execute(stmt)).scalars().all())
+
+    async def count_live_kpis_of_department(self, department_id: uuid.UUID) -> int:
+        """KPIs of a department that are not deleted."""
+        stmt = (
+            select(func.count())
+            .select_from(KPI)
+            .where(KPI.department_id == department_id, KPI.deleted_at.is_(None))
+        )
+        return int(await self._db.scalar(stmt) or 0)
+
+    async def count_live_objectives_of_department(self, department_id: uuid.UUID) -> int:
+        """Objectives of a department that are not deleted."""
+        stmt = (
+            select(func.count())
+            .select_from(OKR)
+            .where(OKR.department_id == department_id, OKR.deleted_at.is_(None))
+        )
+        return int(await self._db.scalar(stmt) or 0)
 
     # -- items ---------------------------------------------------------------
 

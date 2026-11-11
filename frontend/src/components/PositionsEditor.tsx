@@ -81,8 +81,18 @@ function collectDescendants(rootId: string, positions: Position[]): Set<string> 
   return found;
 }
 
-export default function PositionsEditor(props: { departments: PositionsEditorDepartment[] }) {
+// The people already placed, so the chart can show who holds each role.
+export interface PositionsEditorPerson {
+  id: string;
+  first_name: string;
+  last_name: string;
+  status: string;
+  position_id?: string | null;
+}
+
+export default function PositionsEditor(props: { departments: PositionsEditorDepartment[]; people?: PositionsEditorPerson[] }) {
   const departments = props.departments;
+  const people = props.people || [];
 
   const [positions, setPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
@@ -246,12 +256,24 @@ export default function PositionsEditor(props: { departments: PositionsEditorDep
     const nextSeen = new Set<string>(seen);
     nextSeen.add(position.id);
     const kids = childrenByParent[position.id] || [];
+    // Everyone still active who sits in this role (inactive = offboarded).
+    const holders = people.filter(function (person) {
+      return person.position_id === position.id && person.status !== "inactive";
+    });
     return (
       <li key={position.id}>
-        <div className="flex items-center gap-2 py-1">
+        <div className="flex flex-wrap items-center gap-2 py-1">
           <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
           <span className="text-sm font-medium text-white">{position.title}</span>
           <span className="text-xs text-gray-500">{departmentName(position.department_id)}</span>
+          {holders.length > 0 ? (
+            <span className="text-xs text-emerald-300">
+              {holders.map(function (person) { return person.first_name + " " + person.last_name; }).join(", ")}
+              {holders.length > 1 ? " (shared by " + holders.length + ")" : ""}
+            </span>
+          ) : (
+            <span className="rounded border border-dashed border-white/15 px-1.5 text-[11px] text-gray-500">Vacant</span>
+          )}
         </div>
         {kids.length > 0 ? (
           <ul className="ml-3 border-l border-white/10 pl-4">

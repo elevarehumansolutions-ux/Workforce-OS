@@ -17,6 +17,7 @@ from app.core.pagination import paginate
 from app.core.schemas import PaginationResponse
 from app.modules.tenancy_identity.models import Membership
 
+from .enums import EmployeeStatus
 from .models import Location, Department, Position, Employee
 
 
@@ -515,6 +516,36 @@ class EmployeeRepository:
     def __init__(self, db: AsyncSession):
         """Initialize the repository with an RLS-scoped async session."""
         self._db = db
+
+    async def list_active_holders(self, position_id: uuid.UUID) -> list[Employee]:
+        """Employees who currently hold a position: not deleted and not offboarded.
+
+        Used to pick a manager automatically (only when exactly one person holds the role above).
+        """
+        stmt = select(Employee).where(
+            Employee.position_id == position_id,
+            Employee.deleted_at.is_(None),
+            Employee.status == EmployeeStatus.ACTIVE,
+        )
+        return list((await self._db.execute(stmt)).scalars().all())
+
+    async def list_unmanaged_reports_of_role(self, position_id: uuid.UUID) -> list[Employee]:
+        """Active employees with no manager whose role reports to the given role.
+
+        These are the people who can be linked to whoever now holds that role.
+        """
+        stmt = (
+            select(Employee)
+            .join(Position, Position.id == Employee.position_id)
+            .where(
+                Position.reports_to_position_id == position_id,
+                Position.deleted_at.is_(None),
+                Employee.manager_id.is_(None),
+                Employee.deleted_at.is_(None),
+                Employee.status == EmployeeStatus.ACTIVE,
+            )
+        )
+        return list((await self._db.execute(stmt)).scalars().all())
 
     async def create_employee(self, employee: dict) -> Employee:
         """Insert a new employee, flush, and refresh it from the database.

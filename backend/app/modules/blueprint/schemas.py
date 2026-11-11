@@ -160,6 +160,8 @@ class BlueprintItemResponse(BaseModel):
     reviewed_title: str | None
     reviewed_at: datetime | None
     created_entity_id: uuid.UUID | None
+    # True on a left-out note that came from a merge made after this feature: "Undo merge" works on it.
+    can_undo_merge: bool = False
     created_at: datetime
 
 
@@ -208,6 +210,25 @@ class AcceptAllResponse(BaseModel):
 
     accepted: int
     skipped: list[AcceptAllSkipped]
+
+
+class UndoPreviewResponse(BaseModel):
+    """What undoing an added item would also remove, so the screen can warn before it happens.
+
+    ``removes`` counts the other things added under it, by kind (``position``, ``objective``,
+    ``key_result``, ``kpi``); kinds with none are left out.
+    """
+
+    title: str
+    kind: str
+    removes: dict[str, int]
+    total: int
+
+
+class UndoResponse(BaseModel):
+    """What an undo did: how many plan items went back to waiting (the item itself included)."""
+
+    undone: int
 
 
 class GenerateResponse(BaseModel):

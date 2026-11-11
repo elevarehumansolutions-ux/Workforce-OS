@@ -9,9 +9,10 @@ import AppShell from "@/components/AppShell";
 import ValueAtRiskCard from "@/components/ValueAtRiskCard";
 import { fetchAllPages, fullName, roleLabel, formatDateTime } from "@/lib/tasks";
 import type { Department, Employee, PaginatedResponse, Position } from "@/lib/tasks";
-import { canReadAuditLog, isHrRole, loadMe, titleCase } from "@/lib/settings";
+import { canReadAuditLog, isHrRole, loadMe } from "@/lib/settings";
 import type { MeData } from "@/lib/settings";
 import { useLoad } from "@/lib/useLoad";
+import { describeActivity } from "@/lib/activityText";
 
 interface MeResponse {
   user: { id: string; account_status: string };
@@ -99,6 +100,8 @@ interface AttendanceRow {
 interface AuditRow {
   id: string;
   actor_user_id: string | null;
+  // Sent by the server with every row, so it works for every role that can read the log.
+  actor_name?: string | null;
   action: string;
   entity_type: string;
   created_at: string;
@@ -265,7 +268,7 @@ function DashboardBody() {
   function actorOf(row: AuditRow): string {
     if (!data || !row.actor_user_id) return "The system";
     if (row.actor_user_id === data.me.userId) return "You";
-    return data.actors[row.actor_user_id] || "Someone";
+    return row.actor_name || data.actors[row.actor_user_id] || "Someone";
   }
 
   const stats: { label: string; value: string; note: string; tone?: string }[] = [];
@@ -368,8 +371,7 @@ function DashboardBody() {
                         <div key={row.id} className="flex items-start gap-3 text-sm">
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-400" />
                           <span className="text-gray-300">
-                            <span className="font-medium text-white">{actorOf(row)}</span> {titleCase(row.action).toLowerCase()}{" "}
-                            {titleCase(row.entity_type).toLowerCase()}
+                            <span className="font-medium text-white">{actorOf(row)}</span> {describeActivity(row.action, row.entity_type)}
                           </span>
                           <span className="ml-auto shrink-0 text-xs text-gray-600">{formatDateTime(row.created_at)}</span>
                         </div>

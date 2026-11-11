@@ -309,7 +309,8 @@ The AI-proposed starting structure, held until HR reviews it. One row per propos
 | `department_ref`, `reports_to_ref`, `objective_ref` | parents that are other items of the same batch, not yet real |
 | `status` | `pending` / `approved` / `edited` / `rejected` (CHECK) |
 | `reviewed_title`, `reviewed_by_user_id`, `reviewed_at` | the decision |
-| `created_entity_id` | the real department/position/OKR/key result it became (no FK: it points at four different tables) |
+| `created_entity_id` | the real department/position/OKR/key result it became (no FK: it points at four different tables). Cleared again when the item is undone |
+| `merge_record` | JSONB, only on a `folded` note made by a merge (migration `d52b8e1f7a39`, 2026-11-11): `{"target_id" or "existing_id", "merged_at", "changes": {item id: {column: OLD value}}}`: the old value of every column the merge changed on any item of the plan. "Undo merge" puts them back exactly. Null on the AI's own notes and on merges made before this column existed (those cannot be undone). Cleared by "add separately" |
 
 A CHECK makes a rename item carry the id it renames. The organogram is `reports_to_position_id` / `reports_to_ref` between positions (the real `positions.reports_to_position_id` is set on approval).
 

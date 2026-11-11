@@ -7,6 +7,8 @@ import { apiFetch, ApiError } from "@/lib/api";
 import RoleSidebarNav from "@/components/SidebarNav";
 import { isHrRole, loadMe } from "@/lib/settings";
 import Logo from "@/components/Logo";
+import MobileNav from "@/components/MobileNav";
+import UserMenu from "@/components/UserMenu";
 
 // The menu is shared (and filtered by role) in components/SidebarNav.tsx.
 function SidebarNav(activeLabel: string) {
@@ -22,6 +24,7 @@ function SidebarShell(activeLabel: string) {
         </div>
         {SidebarNav(activeLabel)}
       </div>
+      <UserMenu />
     </aside>
   );
 }
@@ -232,7 +235,8 @@ export default function EmployeeDirectoryPage() {
     <div className="flex min-h-screen w-full bg-[#05070f] text-white">
       {SidebarShell("Employees")}
 
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <MobileNav activeLabel="Employees" />
         <div className="flex items-center justify-between border-b border-white/10 px-8 py-5">
           <div>
             <p className="text-xs text-gray-500">Dashboard &gt; Employees</p>

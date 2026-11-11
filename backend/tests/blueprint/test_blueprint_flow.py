@@ -268,15 +268,55 @@ async def test_approving_twice_is_a_409_and_an_unknown_id_a_404(client, db_sessi
 
 
 @pytest.mark.asyncio
-async def test_a_child_of_a_rejected_department_cannot_be_approved(client, db_session, monkeypatch):
-    """Adaeze rejects Operations, then tries its Director: refused with a clear reason."""
+async def test_skipping_a_department_skips_everything_under_it_in_the_same_step(client, db_session, monkeypatch):
+    """Adaeze skips Operations: its roles, objective, key results and KPIs are skipped with it, none left waiting."""
     _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_rej@example.com")
+
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'Operations').id}/reject", headers=headers)
+
+    rows = (await client.get(BLUEPRINT, headers=headers)).json()["data"]
+    assert {row["status"] for row in rows} == {"rejected"}
+    assert len(rows) == 8
+    assert (await client.get(POSITIONS, headers=headers)).json()["data"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_child_of_a_skipped_department_cannot_be_added_afterwards(client, db_session, monkeypatch):
+    """Trying its Director after the skip is refused: it was already skipped with its department."""
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_rej2@example.com")
     await client.post(f"{BLUEPRINT}/{_by_title(items, 'Operations').id}/reject", headers=headers)
 
     resp = await client.post(f"{BLUEPRINT}/{_by_title(items, 'Operations Director').id}/approve", headers=headers)
 
-    assert (resp.status_code, resp.json()["code"]) == (409, "BLUEPRINT_PARENT_REJECTED")
+    assert (resp.status_code, resp.json()["code"]) == (409, "BLUEPRINT_ITEM_ALREADY_REVIEWED")
     assert (await client.get(POSITIONS, headers=headers)).json()["data"] == []
+
+
+@pytest.mark.asyncio
+async def test_skipping_an_objective_skips_its_key_results_but_not_its_kpis(client, db_session, monkeypatch):
+    """The KPI's link to a key result is optional, so the KPIs stay waiting."""
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_rej3@example.com")
+
+    await client.post(f"{BLUEPRINT}/{_by_title(items, 'Deliver on time').id}/reject", headers=headers)
+
+    rows = (await client.get(BLUEPRINT, headers=headers)).json()["data"]
+    status_of = {row["title"]: row["status"] for row in rows}
+    assert status_of["95% on-time deliveries"] == "rejected"
+    assert status_of["Cut average transit time to 2 days"] == "rejected"
+    assert status_of["On-time delivery rate"] == "pending"
+    assert status_of["Operations"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_a_department_cannot_be_skipped_once_one_of_its_roles_was_added(client, db_session, monkeypatch):
+    """Adding the Director added Operations too, so Operations is real and can no longer be skipped."""
+    _, headers, _, items = await _generate(client, db_session, monkeypatch, "bp_rej4@example.com")
+    director = _by_title(items, "Operations Director")
+    await client.post(f"{BLUEPRINT}/{director.id}/approve", headers=headers)
+
+    resp = await client.post(f"{BLUEPRINT}/{_by_title(items, 'Operations').id}/reject", headers=headers)
+
+    assert resp.status_code == 409
 
 
 @pytest.mark.asyncio

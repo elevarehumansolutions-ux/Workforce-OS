@@ -387,9 +387,60 @@ class BlueprintService:
                 "new": {"status": BlueprintStatus.REJECTED.value},
             },
         )
+        # What hangs under a skipped department or objective can never be added (the parent was
+        # refused), so it is skipped in the same step instead of being left to fail later.
+        await self._skip_what_depends_on(rejected, actor_user_id)
         # A skipped department hands its share of the capital to the others.
         await self._rebalance_capital(rejected.batch_id, actor_user_id)
         return rejected
+
+    async def _skip_what_depends_on(self, parent: BlueprintItem, actor_user_id: uuid.UUID) -> None:
+        """Skip the waiting items under a skipped department, or under a skipped objective.
+
+        A department: its roles, objectives and KPIs, and the key results of those objectives.
+        An objective: its key results. KPIs that measured a skipped key result stay: that link
+        is optional, so they are still useful. Items already added or already skipped are left.
+        """
+        if parent.ref is None:
+            return
+        batch = await self._repo.list_batch_items(parent.batch_id)
+        waiting = [item for item in batch if item.status == BlueprintStatus.PENDING.value]
+
+        under: list[BlueprintItem] = []
+        if parent.kind == BlueprintKind.DEPARTMENT.value:
+            under = [item for item in waiting if item.department_ref == parent.ref]
+            skipped_objective_refs = {
+                item.ref for item in under if item.kind == BlueprintKind.OBJECTIVE.value and item.ref
+            }
+            under += [
+                item
+                for item in waiting
+                if item.kind == BlueprintKind.KEY_RESULT.value and item.objective_ref in skipped_objective_refs
+            ]
+        elif parent.kind == BlueprintKind.OBJECTIVE.value:
+            under = [
+                item
+                for item in waiting
+                if item.kind == BlueprintKind.KEY_RESULT.value and item.objective_ref == parent.ref
+            ]
+
+        for item in under:
+            skipped = await self._repo.review_pending_item(
+                item.id, actor_user_id, BlueprintStatus.REJECTED.value, None
+            )
+            if skipped is None:
+                continue
+            await self._audit.log_action(
+                organization_id=skipped.organization_id,
+                actor_user_id=actor_user_id,
+                action="reject",
+                entity_type="blueprint_item",
+                entity_id=skipped.id,
+                changes={
+                    "old": {"status": BlueprintStatus.PENDING.value},
+                    "new": {"status": BlueprintStatus.REJECTED.value, "because": "its parent was skipped"},
+                },
+            )
 
     async def accept_all(
         self, organization_id: uuid.UUID, actor_user_id: uuid.UUID
