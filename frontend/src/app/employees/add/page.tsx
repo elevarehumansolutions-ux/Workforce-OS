@@ -183,7 +183,7 @@ export default function AddEmployeePage() {
   if (chosenPosition && chosenPosition.reports_to_position_id) {
     const bossRole = chosenPosition.reports_to_position_id;
     const holders = existingEmployees.filter(function (e) {
-      return e.position_id === bossRole && e.status !== "offboarded";
+      return e.position_id === bossRole && e.status !== "inactive";
     });
     if (holders.length === 1) {
       suggestedManager = { id: holders[0].id, name: holders[0].first_name + " " + holders[0].last_name };
@@ -196,7 +196,8 @@ export default function AddEmployeePage() {
   const likelyManagers: EmployeeSummary[] = [];
   const otherPeople: EmployeeSummary[] = [];
   existingEmployees.forEach(function (e) {
-    if (e.status === "offboarded") return;
+    // "inactive" is what the server calls someone who has been offboarded.
+    if (e.status === "inactive") return;
     if (bossRoleId && e.position_id === bossRoleId) {
       likelyManagers.push(e);
     } else {

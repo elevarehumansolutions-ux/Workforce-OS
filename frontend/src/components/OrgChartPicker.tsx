@@ -16,7 +16,7 @@ export interface PickerEmployee {
   first_name: string;
   last_name: string;
   position_id?: string | null;
-  // "active" or "offboarded"; someone who has left is not offered as a manager.
+  // "active" or "inactive" (offboarded); someone who has left is not offered as a manager.
   status?: string | null;
 }
 
@@ -93,7 +93,7 @@ export default function OrgChartPicker(props: OrgChartPickerProps) {
 
   const peopleByPosition: Record<string, PickerEmployee[]> = {};
   props.employees.forEach(function (e) {
-    if (!e.position_id || e.status === "offboarded") return;
+    if (!e.position_id || e.status === "inactive") return;
     if (!peopleByPosition[e.position_id]) peopleByPosition[e.position_id] = [];
     peopleByPosition[e.position_id].push(e);
   });
