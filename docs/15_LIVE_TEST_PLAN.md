@@ -58,24 +58,8 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 5. In a second browser profile open one invite email, accept, set a password, log in. Expect: that
    person lands in the app and sees only what their role allows (compare HR, manager, employee).
 
-### Stage 2c: Undo, merge undo and skip (added 2026-11-11)
-
-1. On the plan, press Add on a department, then **Undo** beside "Added". Expect a window that counts
-   what goes with it (roles, objectives, KPIs) with "Keep it left out"/"Undo"; after Undo everything is
-   waiting again and can be added a second time.
-2. Add a role by hand under an added department (Organization Structure), then Undo that department.
-   Expect a refusal that names the reason ("1 active position(s) still assigned") and NOTHING changed.
-3. Merge one suggested department into another. Expect "You merged X into this. Undo merge" on the
-   target. Press it: the plan is exactly as before (shares, KPI weights, roles). Then merge again, add the
-   target, and check Undo merge is refused ("already been added").
-4. Skip a department. Expect its roles, objectives, key results and KPIs to show "Skipped" at once.
-
 ## Stage 3: People, roles and the org-chart picker (M4)
 
-0. (2026-11-11) Add the boss LAST: add a Sales Rep first, then their Head of Sales. Expect the rep to
-   report to the head without you choosing it, and the green notice to say so when the manager was
-   filled in. Add two people to one role: the form warns the role will be shared, and the chart tags
-   it "shared by 2". Choose a manager by hand for someone, then add the boss: that person is NOT changed.
 1. Add an employee with "Choose on chart" for position and manager. Expect: the chart opens, the
    new person shows as a dashed box, clicking sets the field.
 2. Add three more people across two departments, each with a different manager.
@@ -150,6 +134,59 @@ the REAL nightly job as if it were another date, on the TEST company only. No fi
 1. As each role (HR, manager, employee) open Settings and the menu. Expect: HR-only screens hidden
    or refused for others, never half shown.
 2. Billing and usage: HR only; the usage list shows the plan-generation calls.
+
+## Stage 11: Re-test of the problems found during testing (do this AFTER Stage 10)
+
+Each one is a problem found in a live test and fixed on 2026-11-11 (numbers refer to the to-do in
+`09_PROGRESS.md`). Do them last so they do not change the flow of the stages above. Deploy the branch
+first (`alembic upgrade head`, restart the API and Celery, hard refresh the browser). For each: do
+what is described, and send what you saw.
+
+**A. Messages and labels**
+1. (9) Add an employee with the work email left empty or typed without an "@". Expect "Work email: Enter
+   a valid email address, for example name@company.com", NOT "Validation failed". Try the same in Invite
+   Team with `ssssss`.
+2. (4) Add your own objective, then "+ Add a key result". Expect the date field to be labelled "Achieve
+   this by (optional)".
+3. (11) As a SECOND HR account, and as a business executive, open the dashboard "Recent activity" and
+   Settings > Audit Log. Expect sentences with real names ("Ada sent a team invite"), not "Someone
+   invite invite".
+
+**B. Adding people**
+4. (12, 13) Add an employee. Expect "Save and add another" to stay on the form with a green "Added X" and
+   keep the role and start date, and "Save and finish" to go to the directory (not the profile page).
+5. (12) In the manager dropdown expect "Name, Position (Department)". With the boss role empty expect a
+   note "Nobody holds ... yet", and in "Choose on chart" empty roles marked "Vacant".
+6. (12 step 2) Add the boss LAST: add a Sales Rep first, then their Head of Sales. Expect the rep to
+   report to the head without you choosing it, and the green notice to say so. Give someone a manager by
+   hand, then add their boss: that person must NOT change.
+7. (14) Add two people to one role. Expect a warning "the role will then be shared", the chart tag "shared
+   by 2", and no automatic manager link through that role.
+8. (15) Organization Structure: the roles chart at the bottom lists who holds each role (or "Vacant"); each
+   department with no head and one person in its top role shows "Suggested: X ... Make them head"; the Head
+   dropdown shows "Name, Position".
+
+**C. The business plan (onboarding wizard, or "Prepare a new set")**
+9. (1) Add a department, then press **Undo** beside "Added". Expect a window counting what goes with it;
+   after Undo everything is waiting again and can be added a second time.
+10. (1) Add a role by hand under an added department, then Undo that department. Expect a refusal naming
+    the reason, and nothing changed.
+11. (2) Merge one suggested department into another. Expect "You merged X into this. Undo merge" on the
+    target. Press it: the plan is exactly as before. Merge again, add the target: Undo merge is refused.
+12. (3) Skip a department. Expect its roles, objectives, key results and KPIs to show "Skipped" at once.
+13. (5, 6, earlier) KPI step: make the weights of one department add up to less than 100, then delete the
+    last KPI. Expect it to be allowed, with "X% unused".
+
+**D. Menu, profile and phone**
+14. (10) Click your name at the bottom of the menu. Expect "My profile" and "Sign out". Open My profile:
+    your details, change password, sign out.
+15. (10) Make the browser window narrow (or use a phone). Expect a top bar with a ☰ button that opens the
+    menu. Walk every screen at that width and write down each one that breaks (tables, org chart, wizard,
+    KPI forms): each becomes its own to-do. This is the one item that is not finished: it needs your eyes.
+
+**E. Scoring (needs the helper in Stage 9)**
+16. (7, 8) Done inside Stage 9: the reminder for a department below 100% and "Scored on X% of its KPI
+    weights".
 
 ## What to send me after each stage
 
