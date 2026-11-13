@@ -36,6 +36,8 @@ interface InviteResponse {
 export default function InviteTeammatePage() {
   const me = useLoad("invite-me", loadMe, "Couldn't load your account. Check your connection and try again.");
   const [email, setEmail] = useState("");
+  // Optional: shown filled in on their accept page, so they do not type it again.
+  const [personName, setPersonName] = useState("");
   const [role, setRole] = useState("employee");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -54,10 +56,12 @@ export default function InviteTeammatePage() {
     setDeactivated(false);
     setSending(true);
     try {
-      const res = await apiFetch<InviteResponse>("/memberships", { method: "POST", body: { email: trimmed, role: role } });
+      const body = personName.trim() === "" ? { email: trimmed, role: role } : { email: trimmed, role: role, full_name: personName.trim() };
+      const res = await apiFetch<InviteResponse>("/memberships", { method: "POST", body: body });
       const shown = (res.invite && res.invite.email) || (res.membership && res.membership.user.email) || trimmed;
       setSent([{ id: shown + "|" + sent.length, email: shown, role: role, status: res.status }].concat(sent));
       setEmail("");
+      setPersonName("");
     } catch (err) {
       if (err instanceof ApiError && err.code === "MEMBERSHIP_DEACTIVATED") {
         setDeactivated(true);
@@ -91,7 +95,7 @@ export default function InviteTeammatePage() {
         <div className="mx-auto max-w-3xl">
           <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-xl">
             <p className="text-sm text-gray-400">
-              They get an email with a link to set a password and join your organization. Their department and reporting manager are set on their employee record,
+              They get an email with a link to join your organization: a new person sets a password; someone who already has an account confirms with their own password. Their department and reporting manager are set on their employee record,
               under <Link href="/employees/add" className="text-indigo-400 hover:text-indigo-300">Add Employee</Link>.
             </p>
 
@@ -107,7 +111,20 @@ export default function InviteTeammatePage() {
               </div>
             ) : null}
 
-            <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-[2fr_1.2fr_auto] sm:items-end">
+            <div className="mt-6">
+              <label className={SETTINGS_LABEL_CLASS}>
+                Name <span className="font-normal text-gray-500">(optional, shown filled in when they accept)</span>
+              </label>
+              <input
+                type="text"
+                value={personName}
+                placeholder="e.g. Ngozi Eze"
+                onChange={function (e) { setPersonName(e.target.value); }}
+                className={SETTINGS_INPUT_CLASS}
+              />
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[2fr_1.2fr_auto] sm:items-end">
               <div>
                 <label className={SETTINGS_LABEL_CLASS}>Email address</label>
                 <input

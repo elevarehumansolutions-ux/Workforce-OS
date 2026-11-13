@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
+import { fetchAllPages } from "@/lib/tasks";
+import type { Employee } from "@/lib/tasks";
 
 import RoleSidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
@@ -82,6 +84,22 @@ export default function TeamManagementPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; text: string } | null>(null);
   const [rowNotice, setRowNotice] = useState<{ id: string; text: string } | null>(null);
+  // Which logins have an employee record (null until known), so the table can say who still needs one.
+  const [withRecord, setWithRecord] = useState<string[] | null>(null);
+
+  useEffect(function () {
+    fetchAllPages<Employee>("/employees")
+      .then(function (list) {
+        setWithRecord(
+          list
+            .filter(function (e) { return e.user_id !== null && e.status !== "inactive"; })
+            .map(function (e) { return e.user_id as string; })
+        );
+      })
+      .catch(function () {
+        // The column is a convenience; the table works without it.
+      });
+  }, []);
 
   function load() {
     setLoading(true);
@@ -239,6 +257,7 @@ export default function TeamManagementPage() {
                     <th className="px-6 py-3 font-medium">Member</th>
                     <th className="px-6 py-3 font-medium">Role</th>
                     <th className="px-6 py-3 font-medium">Status</th>
+                    <th className="px-6 py-3 font-medium">Employee record</th>
                     <th className="px-6 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -296,6 +315,17 @@ export default function TeamManagementPage() {
                         <td className="px-6 py-4">
                           <span className={statusBadgeClass}>{isDeactivated ? "Deactivated" : "Active"}</span>
                         </td>
+                        <td className="px-6 py-4 text-xs">
+                          {withRecord === null ? (
+                            <span className="text-gray-600">…</span>
+                          ) : withRecord.indexOf(membership.user.id) !== -1 ? (
+                            <span className="text-emerald-400">Yes</span>
+                          ) : (
+                            <Link href={"/employees/add?member=" + membership.user.id} className="text-amber-300 underline hover:text-amber-200">
+                              No, create one
+                            </Link>
+                          )}
+                        </td>
                         <td className="px-6 py-4">
                           <div className="flex flex-col items-start gap-1">
                             {isDeactivated ? (
@@ -334,7 +364,7 @@ export default function TeamManagementPage() {
                   })}
                   {memberships.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-8 text-center text-sm text-gray-500">
+                      <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-500">
                         No one on this page.
                       </td>
                     </tr>

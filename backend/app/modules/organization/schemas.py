@@ -175,6 +175,10 @@ class EmployeeCreateRequest(BaseModel):
     employment_type: EmploymentType | None = None
     grant_login_access: bool = False
     role: MembershipRole | None = None
+    # The Add Employee checkbox "Make this person head of <department>": the department of the
+    # chosen position gets this person as its head, in the same all-or-nothing call. It REPLACES
+    # an existing head (the screen asks first).
+    make_department_head: bool = False
 
     @model_validator(mode="after")
     def _check_login_access_fields(self) -> "EmployeeCreateRequest":

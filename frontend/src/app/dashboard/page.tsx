@@ -102,6 +102,7 @@ interface AuditRow {
   actor_user_id: string | null;
   // Sent by the server with every row, so it works for every role that can read the log.
   actor_name?: string | null;
+  subject?: string | null;
   action: string;
   entity_type: string;
   created_at: string;
@@ -371,7 +372,7 @@ function DashboardBody() {
                         <div key={row.id} className="flex items-start gap-3 text-sm">
                           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-400" />
                           <span className="text-gray-300">
-                            <span className="font-medium text-white">{actorOf(row)}</span> {describeActivity(row.action, row.entity_type)}
+                            <span className="font-medium text-white">{actorOf(row)}</span> {describeActivity(row.action, row.entity_type, row.subject)}
                           </span>
                           <span className="ml-auto shrink-0 text-xs text-gray-600">{formatDateTime(row.created_at)}</span>
                         </div>

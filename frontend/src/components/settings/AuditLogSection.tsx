@@ -11,6 +11,7 @@ interface AuditRow {
   id: string;
   actor_user_id: string | null;
   actor_name?: string | null;
+  subject?: string | null;
   action: string;
   entity_type: string;
   entity_id: string | null;
@@ -158,7 +159,7 @@ export default function AuditLogSection(props: SectionProps) {
                 <li key={r.id} className="px-4 py-3 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-gray-200">
-                      <span className="font-medium text-white">{actor(r)}</span> {describeActivity(r.action, r.entity_type)}
+                      <span className="font-medium text-white">{actor(r)}</span> {describeActivity(r.action, r.entity_type, r.subject)}
                     </p>
                     <span className="text-xs text-gray-500">{formatDateTime(r.created_at)}</span>
                   </div>

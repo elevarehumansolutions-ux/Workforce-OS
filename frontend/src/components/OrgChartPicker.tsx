@@ -25,16 +25,16 @@ export interface PickerDepartment {
   name: string;
 }
 
-interface Box {
+export interface Box {
   position: PickerPosition;
   children: Box[];
 }
 
-const COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#8b5cf6", "#ef4444", "#84cc16"];
+export const COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ec4899", "#06b6d4", "#8b5cf6", "#ef4444", "#84cc16"];
 
 // Turns the flat list of roles into a tree. A role whose boss is not in the list, and a
 // role in a reporting ring, becomes a top, so the drawing can never loop.
-function buildBoxes(positions: PickerPosition[]): Box[] {
+export function buildBoxes(positions: PickerPosition[]): Box[] {
   const boxes: Record<string, Box> = {};
   positions.forEach(function (p) {
     boxes[p.id] = { position: p, children: [] };

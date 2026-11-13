@@ -218,7 +218,7 @@ class ResendEmailService(EmailService):
         if company_name:
             subject = f"You've been invited to join {company_name} on Elevare Workforce OS"
             heading = "You're invited to join a team"
-            copy = f"You've been invited to join <strong>{company_name}</strong> on Elevare Workforce OS. Click below to accept and set up your account."
+            copy = f"You've been invited to join <strong>{company_name}</strong> on Elevare Workforce OS. Click below to accept. If you are new you will set a password; if you already have an account you will just confirm with your existing password."
         else:
             subject = "You've been invited to Elevare Workforce OS"
             heading = "You're invited to Elevare Workforce OS"

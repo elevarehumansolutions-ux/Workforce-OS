@@ -740,6 +740,19 @@ class EmployeeService:
         await self._link_managers_automatically(employee, actor_user_id)
         return employee
 
+    async def make_head_of_their_department(self, employee: Employee, actor_user_id: uuid.UUID) -> None:
+        """Name this employee the head of the department their position belongs to.
+
+        Replaces any current head (the Add Employee screen asks first). Goes through the
+        department service, so its own rules and its audit entry apply.
+        """
+        position = await PositionRepository(self._db).get_position_by_id(employee.position_id)
+        if position is None:
+            return
+        await DepartmentService(self._db).update_department(
+            position.department_id, actor_user_id, {"head_employee_id": employee.id}
+        )
+
     async def _set_manager_automatically(
         self, employee: Employee, manager: Employee, actor_user_id: uuid.UUID, reason: str
     ) -> None:
@@ -1013,6 +1026,8 @@ class EmployeeService:
             email=email,
             role=role,
             employee_id=employee.id,
+            # The employee record already has the name: the accept page shows it, nobody types it twice.
+            invitee_name=f"{employee.first_name} {employee.last_name}".strip(),
         )
         if outcome == "added":
             employee = await self._attach_user(employee, result.user_id, actor_user_id)

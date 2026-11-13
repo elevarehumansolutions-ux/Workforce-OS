@@ -366,10 +366,13 @@ class MembershipService:
         email: str,
         role: str,
         employee_id: uuid.UUID | None = None,
+        invitee_name: str | None = None,
     ) -> tuple[str, Membership | Invite]:
-        """Add an existing user to the org immediately, or create a pending invite.
+        """Create a pending invite (always), for an email with or without an account.
 
-        A pending Invite is created for an email with no account yet. An
+        Changed 2026-11-13: an email that already has an account is no longer added to the
+        organization at once; it gets an invite and must accept it. ``invitee_name`` is the
+        name the inviter typed (or the employee record's), prefilled on the accept page. An
         email whose membership in this org is deactivated is refused:
         bringing someone back is ``reactivate_membership``, not an invite.
 
@@ -414,25 +417,10 @@ class MembershipService:
                     )
                 )
 
-            membership = await self._repo.create_membership({
-                "user_id": existing_user.id,
-                "organization_id": organization_id,
-                "role": role,
-                "is_owner": False,
-            })
-            # create_membership's own refresh() only reloads column
-            # attributes, not relationships — without this, serializing
-            # membership.user hits a synchronous lazy-load (MissingGreenlet).
-            await self._db.refresh(membership, attribute_names=["user"])
-            await self._audit.log_action(
-                organization_id=organization_id,
-                actor_user_id=invited_by_user_id,
-                action="add",
-                entity_type="membership",
-                entity_id=membership.id,
-                changes={"old": None, "new": {**_membership_snapshot(membership), "email": email}},
-            )
-            return "added", membership
+            # An account that already exists (it may belong to another company, or the person
+            # may have signed up by mistake) is NOT added silently any more (2026-11-13): it
+            # gets a pending invite like everyone else and joins only by accepting it. One
+            # login can then belong to several companies. Falls through to the invite below.
 
         raw_token = generate_token()
         invite = await self._invite_repo.create_invite({
@@ -441,6 +429,7 @@ class MembershipService:
             "role": role,
             "invited_by_user_id": invited_by_user_id,
             "employee_id": employee_id,
+            "invitee_name": invitee_name.strip() if invitee_name and invitee_name.strip() else None,
             "token": hash_token(raw_token),
             "expires_at": datetime.now(UTC) + timedelta(days=settings.invite_expiry),
         })
@@ -461,9 +450,11 @@ class MembershipService:
                     "email": email,
                     "role": role,
                     "employee_id": str(employee_id) if employee_id else None,
+                    "has_account": existing_user is not None,
                 },
             },
         )
+        invite.has_account = existing_user is not None  # for the caller's answer; not stored
         return "invited", invite
 
     async def get_invite_by_token(self, hashed_token: str) -> Invite | None:

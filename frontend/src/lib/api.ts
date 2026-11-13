@@ -86,6 +86,38 @@ export function getAccessToken(): string | null {
   return window.localStorage.getItem(ACCESS_TOKEN_KEY);
 }
 
+// The company this session acts for: the access token carries it (`org_id`). Read here so screens
+// pick the membership (and so the role) that matches it when a person belongs to several companies.
+export function currentOrganizationId(): string | null {
+  const token = getAccessToken();
+  if (!token) return null;
+  try {
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const parsed = JSON.parse(window.atob(payload));
+    return typeof parsed.org_id === "string" ? parsed.org_id : null;
+  } catch {
+    return null;
+  }
+}
+
+// From a person's memberships, the active one for the company in the current token; if the token
+// names none of them (or cannot be read), the first active one.
+export function pickActiveMembership<T extends { deactivated_at: string | null; organization: { id: string } }>(
+  memberships: T[]
+): T | null {
+  const active = memberships.filter(function (m) {
+    return !m.deactivated_at;
+  });
+  const orgId = currentOrganizationId();
+  if (orgId) {
+    const match = active.find(function (m) {
+      return m.organization.id === orgId;
+    });
+    if (match) return match;
+  }
+  return active.length > 0 ? active[0] : null;
+}
+
 export function setAccessToken(token: string): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(ACCESS_TOKEN_KEY, token);

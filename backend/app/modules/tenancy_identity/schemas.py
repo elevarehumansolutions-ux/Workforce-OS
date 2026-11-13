@@ -13,6 +13,7 @@ from uuid import UUID
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
     field_validator,
 )
 
@@ -114,14 +115,19 @@ class InviteResponse(BaseModel):
     email: str
     role: MembershipRole
     expires_at: datetime
+    invitee_name: str | None = None
+    # True when the email already has an account (it may belong to another company): the person
+    # accepts with their existing password instead of creating an account. Not stored: set when
+    # the invite is created, so only the answer to the creating call carries it.
+    has_account: bool = False
 
 
 class InviteTeammateResponse(BaseModel):
     """Response for POST /memberships.
 
-    Tells the caller whether the teammate was added immediately (already
-    had an account) or a pending invite was created and emailed (no account
-    yet).
+    Since 2026-11-13 the status is always ``"invited"``: an email that already has an account
+    also gets a pending invite and joins by accepting it (``invite.has_account`` says so).
+    ``"added"`` is kept in the type only so older clients do not break.
     """
 
     status: Literal["added", "invited"]
@@ -138,6 +144,8 @@ class InviteTeammateRequest(BaseModel):
 
     email: NormalizedEmail
     role: MembershipRole
+    # Optional: prefilled (and editable) on the accept page, so the invitee does not type it again.
+    full_name: str | None = Field(default=None, max_length=255)
 
 
 class ReactivateMembershipRequest(BaseModel):

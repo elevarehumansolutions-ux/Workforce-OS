@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch, ApiError, pickActiveMembership } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 
 interface MeResponse {
   user: { id: string; full_name: string };
-  memberships: { role: string; deactivated_at: string | null }[];
+  memberships: { role: string; deactivated_at: string | null; organization: { id: string } }[];
 }
 
 interface BillingRecord {
@@ -159,13 +159,8 @@ export default function BillingAiUsagePage() {
     apiFetch<MeResponse>("/auth/me", { method: "GET" })
       .then(function (me) {
         if (cancelled) return;
-        let role = "";
-        for (const m of me.memberships) {
-          if (!m.deactivated_at) {
-            role = m.role;
-            break;
-          }
-        }
+        const activeMembership = pickActiveMembership(me.memberships);
+        const role = activeMembership ? activeMembership.role : "";
         setUserName(me.user.full_name);
         setAllowed(role === "hr_administrator");
       })

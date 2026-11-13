@@ -20,6 +20,9 @@ from app.modules.auth.schemas import (
     ResetPasswordRequest,
     MeResponse,
     AcceptInviteRequest,
+    AcceptInviteExistingRequest,
+    InvitePreviewResponse,
+    SwitchOrganizationRequest,
 )
 from .service import AuthService
 
@@ -146,6 +149,43 @@ async def me(
     """
     service = AuthService(db)
     return await service.get_me(current_user)
+
+
+@router.post("/invite-preview", status_code=200)
+async def invite_preview(
+    data: VerifyEmailRequest,
+    db: AsyncSession = Depends(get_db),
+) -> InvitePreviewResponse:
+    """What an invite link is for: the company, the role, the prefilled name, and whether the email
+    already has an account. Public (the link is the credential). A POST so the token stays out of URLs and logs.
+
+    Reuses the ``{token}`` body of verify-email.
+    """
+    return await AuthService(db).preview_invite(data.token)
+
+
+@router.post("/accept-invite-existing", status_code=200)
+async def accept_invite_existing(
+    data: AcceptInviteExistingRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> AuthResponse:
+    """Join a company with an account that already exists: invite token plus that account's password."""
+    return await AuthService(db).accept_invite_existing(data, response)
+
+
+@router.post("/switch-organization", status_code=200)
+async def switch_organization(
+    data: SwitchOrganizationRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    refresh_token: str | None = Cookie(default=None),
+) -> AuthResponse:
+    """Act for another company the caller belongs to: returns a new access token for it."""
+    return await AuthService(db).switch_organization(
+        current_user, data.organization_id, refresh_token, response
+    )
 
 
 @router.post("/accept-invite", status_code=200)

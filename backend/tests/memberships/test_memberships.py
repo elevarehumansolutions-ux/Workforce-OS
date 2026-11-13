@@ -12,39 +12,35 @@ def _auth_header(access_token: str) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_invite_teammate_adds_existing_user_immediately(client):
-    """Inviting an email that already belongs to a registered user adds them as a membership immediately, no invite step."""
+async def test_inviting_an_existing_account_makes_a_pending_invite_not_a_silent_member(client, monkeypatch):
+    """The person signed up by mistake (their own empty company). Inviting them does NOT add them: they must accept."""
     from tests.conftest import register_verified_and_login
+    from tests.memberships.join_helper import invite_existing
 
     owner = await register_verified_and_login(client, email="owner1@example.com")
     await register_verified_and_login(client, email="other1@example.com")  # owner of a separate org
 
-    resp = await client.post(
-        MEMBERSHIPS,
-        json={"email": "other1@example.com", "role": "manager"},
-        headers=_auth_header(owner["access_token"]),
-    )
+    resp, token = await invite_existing(client, monkeypatch, owner, "other1@example.com", "manager")
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "added"
-    assert body["membership"]["role"] == "manager"
-    assert body["membership"]["user"]["email"] == "other1@example.com"
+    assert body["status"] == "invited"
+    assert body["invite"]["has_account"] is True
+    assert token is not None  # the email with the accept link was sent
+    team = await client.get(MEMBERSHIPS, headers=_auth_header(owner["access_token"]))
+    assert [m["user"]["email"] for m in team.json()["data"]] == ["owner1@example.com"]  # not a member yet
 
 
 @pytest.mark.asyncio
-async def test_invite_teammate_rejects_duplicate_membership(client):
-    """Inviting the same email to the same org a second time is rejected with 409."""
+async def test_invite_teammate_rejects_duplicate_membership(client, monkeypatch):
+    """Inviting the same email to the same org a second time (after they joined) is rejected with 409."""
     from tests.conftest import register_verified_and_login
+    from tests.memberships.join_helper import join_existing
 
     owner = await register_verified_and_login(client, email="owner2@example.com")
     await register_verified_and_login(client, email="other2@example.com")
 
-    await client.post(
-        MEMBERSHIPS,
-        json={"email": "other2@example.com", "role": "manager"},
-        headers=_auth_header(owner["access_token"]),
-    )
+    await join_existing(client, monkeypatch, owner, "other2@example.com", "manager")
     resp = await client.post(
         MEMBERSHIPS,
         json={"email": "other2@example.com", "role": "employee"},
@@ -168,17 +164,14 @@ async def test_accept_invite_rejects_unknown_token(client):
 
 
 @pytest.mark.asyncio
-async def test_list_memberships_returns_team(client):
+async def test_list_memberships_returns_team(client, monkeypatch):
     """GET /memberships lists every member of the caller's org, with pagination totals reflecting the full team."""
     from tests.conftest import register_verified_and_login
+    from tests.memberships.join_helper import join_existing
 
     owner = await register_verified_and_login(client, email="owner6@example.com")
     await register_verified_and_login(client, email="other6@example.com")
-    await client.post(
-        MEMBERSHIPS,
-        json={"email": "other6@example.com", "role": "manager"},
-        headers=_auth_header(owner["access_token"]),
-    )
+    await join_existing(client, monkeypatch, owner, "other6@example.com", "manager")
 
     resp = await client.get(MEMBERSHIPS, headers=_auth_header(owner["access_token"]))
 
@@ -225,18 +218,15 @@ async def test_list_memberships_requires_hr_admin_role(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_patch_membership_changes_role(client):
+async def test_patch_membership_changes_role(client, monkeypatch):
     """PATCH /memberships/{id} updates the target membership's role."""
     from tests.conftest import register_verified_and_login
+    from tests.memberships.join_helper import join_existing
 
     owner = await register_verified_and_login(client, email="owner8@example.com")
     await register_verified_and_login(client, email="other8@example.com")
-    add_resp = await client.post(
-        MEMBERSHIPS,
-        json={"email": "other8@example.com", "role": "employee"},
-        headers=_auth_header(owner["access_token"]),
-    )
-    membership_id = add_resp.json()["membership"]["id"]
+    joined = await join_existing(client, monkeypatch, owner, "other8@example.com", "employee")
+    membership_id = joined["membership"]["id"]
 
     resp = await client.patch(
         f"{MEMBERSHIPS}/{membership_id}",
@@ -384,21 +374,17 @@ async def test_inviting_a_deactivated_member_is_refused_and_reactivate_restores_
 
 
 @pytest.mark.asyncio
-async def test_deactivation_does_not_affect_a_different_organization(client):
+async def test_deactivation_does_not_affect_a_different_organization(client, monkeypatch):
     """Deactivation is scoped per-membership: someone deactivated from Org A keeps full, working access to Org B."""
     from tests.conftest import register_verified_and_login
+    from tests.memberships.join_helper import join_existing
 
     owner_a = await register_verified_and_login(client, email="owner_a@example.com")
     owner_b = await register_verified_and_login(client, email="owner_b@example.com")
     await register_verified_and_login(client, email="shared_user@example.com")
 
     for owner in (owner_a, owner_b):
-        invite_resp = await client.post(
-            MEMBERSHIPS,
-            json={"email": "shared_user@example.com", "role": "employee"},
-            headers=_auth_header(owner["access_token"]),
-        )
-        assert invite_resp.status_code == 200, invite_resp.json()
+        await join_existing(client, monkeypatch, owner, "shared_user@example.com", "employee")
 
     # Deactivate shared_user from Org A only.
     memberships_in_a = await client.get(MEMBERSHIPS, headers=_auth_header(owner_a["access_token"]))
@@ -503,18 +489,15 @@ async def test_patch_membership_not_found_across_orgs(client):
 
 
 @pytest.mark.asyncio
-async def test_patch_membership_requires_at_least_one_field(client):
+async def test_patch_membership_requires_at_least_one_field(client, monkeypatch):
     """PATCH /memberships/{id} with an empty body is rejected with 422."""
     from tests.conftest import register_verified_and_login
+    from tests.memberships.join_helper import join_existing
 
     owner = await register_verified_and_login(client, email="owner12@example.com")
     await register_verified_and_login(client, email="other12@example.com")
-    add_resp = await client.post(
-        MEMBERSHIPS,
-        json={"email": "other12@example.com", "role": "employee"},
-        headers=_auth_header(owner["access_token"]),
-    )
-    membership_id = add_resp.json()["membership"]["id"]
+    joined = await join_existing(client, monkeypatch, owner, "other12@example.com", "employee")
+    membership_id = joined["membership"]["id"]
 
     resp = await client.patch(
         f"{MEMBERSHIPS}/{membership_id}",

@@ -6,7 +6,15 @@ what he sees; each finding is written into `09_PROGRESS.md` (a numbered to-do) a
 branch, one commit per item. Working mode: propose first, build when he says so, one small block at a time with a
 short explanation (see `CLAUDE.md`).
 
-## Where we are (2026-11-11)
+## Where we are (2026-11-13)
+
+Branch `people-flow` (off `main` after PR #64) holds the "one front door for adding a person" work: activity lines
+that name what was acted on, the optional invite name, "Make head of department" on Add Employee, an org chart in
+the Employees section, logins without employee records, and multi-company (invite an existing account, accept with
+its password, switch company). Committed, not pushed. Deploy needs `alembic upgrade head` (`e7a41c9b3d26`).
+Emmanuel tests it through Stage 11 D2 of `15_LIVE_TEST_PLAN.md`. Details: `09_PROGRESS.md` "DONE 2026-11-13".
+
+## Earlier (2026-11-11)
 
 - Branch `ux-fixes-live-testing` holds every fix from the live test so far (frontend: validation messages, manager
   dropdown and "Vacant" roles, "Save and add another", department heads, phone menu, My profile and Sign out;

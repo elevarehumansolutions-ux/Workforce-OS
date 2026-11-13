@@ -104,6 +104,59 @@ class AuditRepository:
 
         return await paginate_cursor(query, self._db, AuditLog, cursor=cursor, limit=limit)
 
+    async def get_current_labels(
+        self, entity_type: str, entity_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """Today's label for entities of one kind, including deleted ones (their row stays).
+
+        Used only for audit rows whose stored ``changes`` did not contain a name. Kinds with no
+        simple name (or no lookup yet) return nothing, and the screen falls back to the kind.
+        """
+        if not entity_ids:
+            return {}
+        # Imported here, not at the top: these modules import this one, so a top-level import
+        # could loop.
+        from app.modules.kpis.models import KPI
+        from app.modules.okrs.models import OKR, KeyResult
+        from app.modules.organization.models import Department, Employee, Location, Position
+        from app.modules.tasks.models import Task
+        from app.modules.workflow.models import WorkflowTemplate
+
+        simple = {
+            "department": (Department, Department.name),
+            "position": (Position, Position.title),
+            "location": (Location, Location.name),
+            "kpi": (KPI, KPI.name),
+            "okr": (OKR, OKR.title),
+            "key_result": (KeyResult, KeyResult.description),
+            "task": (Task, Task.title),
+            "workflow_template": (WorkflowTemplate, WorkflowTemplate.name),
+        }
+        labels: dict[uuid.UUID, str] = {}
+        if entity_type == "employee":
+            result = await self._db.execute(
+                select(Employee.id, Employee.first_name, Employee.last_name, Employee.work_email).where(
+                    Employee.id.in_(entity_ids)
+                )
+            )
+            for row_id, first, last, email in result.all():
+                labels[row_id] = f"{first} {last} ({email})"
+        elif entity_type == "membership":
+            result = await self._db.execute(
+                select(Membership.id, User.full_name, User.email)
+                .join(User, User.id == Membership.user_id)
+                .where(Membership.id.in_(entity_ids))
+            )
+            for row_id, name, email in result.all():
+                labels[row_id] = f"{name} ({email})"
+        elif entity_type in simple:
+            model, column = simple[entity_type]
+            result = await self._db.execute(select(model.id, column).where(model.id.in_(entity_ids)))
+            for row_id, text in result.all():
+                if text:
+                    labels[row_id] = str(text)
+        return labels
+
     async def get_actor_names(
         self, organization_id: uuid.UUID, user_ids: list[uuid.UUID]
     ) -> dict[uuid.UUID, str]:

@@ -299,3 +299,8 @@ class Invite(BaseModel):
         nullable=True,
         doc="Employee this invite was sent for, linked to the new user on acceptance — null for a plain teammate invite"
     )
+    invitee_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        doc="The invitee's name as the inviter typed it (or from the employee record); prefilled on the accept page so nobody types it twice",
+    )
