@@ -1,10 +1,12 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 import PositionsEditor from "@/components/PositionsEditor";
 import { isHrRole, loadMe } from "@/lib/settings";
 import { personLabel } from "@/lib/personLabel";
+import { roleLabel } from "@/lib/tasks";
 
 import RoleSidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
@@ -45,6 +47,14 @@ interface Employee {
   last_name: string;
   status: string;
   position_id?: string | null;
+  // The login this person signs in with, if they have one.
+  user_id?: string | null;
+}
+
+// One login's access level in this company. Only HR can read the list.
+interface Membership {
+  role: string;
+  user: { id: string };
 }
 
 interface Position {
@@ -87,6 +97,21 @@ function fullName(employee: Employee): string {
   return (employee.first_name + " " + employee.last_name).trim();
 }
 
+// Access level of each login, by user id. Only HR may read the team list, so for anyone else
+// (or if it fails) this is empty and the page just cannot name the old head's access level.
+async function loadAccessLevels(): Promise<Record<string, string>> {
+  const levels: Record<string, string> = {};
+  try {
+    const me = await loadMe();
+    if (!isHrRole(me.role)) return levels;
+    const rows = await fetchAllPages<Membership>("/memberships");
+    for (const row of rows) levels[row.user.id] = row.role;
+  } catch {
+    // Keep what we have.
+  }
+  return levels;
+}
+
 export default function OrganizationStructurePage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -98,6 +123,10 @@ export default function OrganizationStructurePage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   // Only HR can change a department's head; everyone else sees it read-only.
   const [canEdit, setCanEdit] = useState(false);
+  // Access level of each login, by user id (HR only). Used to say what the replaced head's level still is.
+  const [accessLevels, setAccessLevels] = useState<Record<string, string>>({});
+  // Set after a head was replaced: who it was and the access level they still have.
+  const [formerHead, setFormerHead] = useState<{ name: string; department: string; level: string } | null>(null);
 
   useEffect(function () {
     let cancelled = false;
@@ -106,6 +135,7 @@ export default function OrganizationStructurePage() {
       fetchAllPages<Employee>("/employees"),
       loadMe(),
       fetchAllPages<Position>("/positions"),
+      loadAccessLevels(),
     ])
       .then(function (results) {
         if (cancelled) return;
@@ -113,6 +143,7 @@ export default function OrganizationStructurePage() {
         setEmployees(results[1]);
         setCanEdit(isHrRole(results[2].role));
         setPositions(results[3]);
+        setAccessLevels(results[4]);
       })
       .catch(function (err) {
         if (cancelled) return;
@@ -195,10 +226,24 @@ export default function OrganizationStructurePage() {
     return holders.length === 1 ? holders[0] : null;
   }
 
+  // The old head keeps their access level (they may still manage people elsewhere), so we say so
+  // and let HR change it. Only for someone with a login: others have no access level.
+  function rememberFormerHead(oldHeadId: string, newHeadId: string, departmentName: string) {
+    if (oldHeadId === "" || oldHeadId === newHeadId) return;
+    const oldHead = employees.find(function (e) { return e.id === oldHeadId; });
+    if (!oldHead || !oldHead.user_id) return;
+    const level = accessLevels[oldHead.user_id];
+    if (!level) return;
+    setFormerHead({ name: fullName(oldHead), department: departmentName, level: roleLabel(level) });
+  }
+
   async function changeHead(department: Department, employeeId: string) {
     setActionError("");
     setNotice("");
+    setFormerHead(null);
     setBusyId(department.id);
+    // Read the old head BEFORE the change: after it, the department points at the new one.
+    const oldHeadId = department.head_employee_id || "";
     try {
       // null REMOVES the head; a uuid sets/changes it. Only this one field
       // is sent, so the department's other settings are never touched.
@@ -217,6 +262,7 @@ export default function OrganizationStructurePage() {
           ? employeeName(employeeId) + " is now the head of " + department.name + "."
           : department.name + " no longer has a head."
       );
+      rememberFormerHead(oldHeadId, employeeId, department.name);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Couldn't update that department's head.");
       // The picked person may have been offboarded (or removed) after this
@@ -280,6 +326,14 @@ export default function OrganizationStructurePage() {
                 {notice ? (
                   <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
                     {notice}
+                  </div>
+                ) : null}
+                {formerHead && notice ? (
+                  <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                    {formerHead.name} is no longer head of {formerHead.department}. Their access level is still {formerHead.level}.{" "}
+                    <Link href="/team-management" className="font-medium underline">
+                      Change it
+                    </Link>
                   </div>
                 ) : null}
 

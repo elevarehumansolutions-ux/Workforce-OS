@@ -240,7 +240,8 @@ what is described, and send what you saw.
 26. (23) In the org chart, make someone else head of a department that already has a head who has a login. Expect
     the green message plus "X is no longer head of Sales. Their access level is still Manager. Change it"; the
     button opens X so you can change the level. On Add Employee with "Save and add another" the saved message
-    says the same.
+    says the same. The same amber note (added later, to-do 29) also appears on Organization Structure when you
+    change a department's head in the Head dropdown; its "Change it" opens Team Management.
 27. (25) Onboarding, first page: the Business DNA box lists vision, mission, core values, business model, revenue
     drivers, operational drivers, customer value drivers and performance philosophy, in the label and in the
     placeholder.
