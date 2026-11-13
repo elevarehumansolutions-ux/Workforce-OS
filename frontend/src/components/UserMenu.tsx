@@ -66,15 +66,14 @@ export default function UserMenu() {
             >
               My profile
             </Link>
-            {me.companyCount > 1 ? (
-              <Link
-                href="/organizations"
-                onClick={function () { setOpen(false); }}
-                className="block rounded-lg px-3 py-2 text-sm text-gray-200 hover:bg-white/5"
-              >
-                Switch company ({me.companyCount})
-              </Link>
-            ) : null}
+            {/* Always there: with one company it is where a second one is created. */}
+            <Link
+              href="/organizations"
+              onClick={function () { setOpen(false); }}
+              className="block rounded-lg px-3 py-2 text-sm text-gray-200 hover:bg-white/5"
+            >
+              {me.companyCount > 1 ? "Switch company (" + me.companyCount + ")" : "Companies"}
+            </Link>
             <button
               type="button"
               disabled={signingOut}

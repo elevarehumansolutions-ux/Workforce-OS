@@ -45,6 +45,11 @@ export default function OrganizationsPage() {
   const [error, setError] = useState("");
   const [me, setMe] = useState<MeResponse | null>(null);
   const [switching, setSwitching] = useState<string | null>(null);
+  // "Create a new company": the form is hidden until asked for.
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [createError, setCreateError] = useState("");
 
   useEffect(function () {
     if (!getAccessToken()) {
@@ -88,6 +93,37 @@ export default function OrganizationsPage() {
     }
   }
 
+  // Matches the server's limit (MAX_OWNED_COMPANIES): companies this person started, not ones they joined.
+  const MAX_OWNED = 3;
+  const ownedCount = me
+    ? me.memberships.filter(function (m) { return m.is_owner && !m.deactivated_at; }).length
+    : 0;
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (saving) return; // a double click must not send two
+    setCreateError("");
+    if (newName.trim().length < 2) {
+      setCreateError("Give the company a name of at least 2 characters.");
+      return;
+    }
+    setSaving(true);
+    try {
+      // The answer is a session for the NEW company (POST /auth/create-organization).
+      const data = await apiFetch<{ access_token: string }>("/auth/create-organization", {
+        method: "POST",
+        body: { name: newName.trim() },
+      });
+      setAccessToken(data.access_token);
+      // A full page load into its onboarding, so every cached role and menu starts fresh.
+      window.location.assign("/onboarding/business-dna");
+    } catch (err) {
+      // 409: you already have one with that name, or you own the most allowed. The message says which.
+      setCreateError(err instanceof ApiError ? err.message : "Couldn't create the company. Please try again.");
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="min-h-screen w-full bg-[#05070f] text-white">
       <div className="mx-auto max-w-2xl px-6 py-16">
@@ -95,7 +131,7 @@ export default function OrganizationsPage() {
           <Logo size={44} textClassName="text-lg font-bold" />
         </div>
 
-        <h1 className="text-2xl font-bold">Switch organization</h1>
+        <h1 className="text-2xl font-bold">Your companies</h1>
         <p className="mt-1 text-sm text-gray-400">
           {me ? me.user.full_name + "'s workspaces" : "Choose which workspace you want to work in."}
         </p>
@@ -171,6 +207,67 @@ export default function OrganizationsPage() {
                 </button>
               );
             })}
+          </div>
+        ) : null}
+
+        {!loading && me ? (
+          <div className="mt-8 rounded-xl border border-white/10 bg-[#0d1220] px-5 py-4">
+            {!creating ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">Start another company</p>
+                  <p className="text-xs text-gray-400">
+                    {ownedCount >= MAX_OWNED
+                      ? "You own " + MAX_OWNED + " companies, the most one login can create."
+                      : "You own " + ownedCount + " of " + MAX_OWNED + ". It gets its own people, plan and settings."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={ownedCount >= MAX_OWNED}
+                  onClick={function () { setCreating(true); }}
+                  className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Create a new company
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleCreate} className="space-y-3">
+                <label htmlFor="new-company" className="block text-sm font-medium text-gray-200">
+                  Company name
+                </label>
+                <input
+                  id="new-company"
+                  type="text"
+                  value={newName}
+                  onChange={function (e) { setNewName(e.target.value); }}
+                  placeholder="e.g. Zenith Foods Ltd"
+                  autoFocus
+                  className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+                />
+                {createError ? <p className="text-xs text-red-300">{createError}</p> : null}
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-60"
+                  >
+                    {saving ? "Creating…" : "Create and open it"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={function () { setCreating(false); setCreateError(""); }}
+                    className="rounded-lg border border-white/15 px-4 py-2 text-sm text-gray-300 hover:border-white/30"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500">
+                  You will set it up from the start: its business details, plan and people.
+                </p>
+              </form>
+            )}
           </div>
         ) : null}
 

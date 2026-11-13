@@ -245,6 +245,12 @@ what is described, and send what you saw.
     drivers, operational drivers, customer value drivers and performance philosophy, in the label and in the
     placeholder.
 
+28. (28) With ONE company, open the name menu: "Companies" is there. Open it: "Start another company", "You own 1
+    of 3". Type a name and "Create and open it": you land on that company's Business DNA, empty. Open the menu
+    again: "Switch company (2)"; switching back shows the first company with its own people. Create the same
+    name again (any capitals): refused in words. Create a third company, then try a fourth: the button is
+    disabled at 3 and says why. Double click "Create and open it" once on a fresh name: only one company appears.
+
 **E. Scoring (needs the helper in Stage 9)**
 16. (7, 8) Done inside Stage 9: the reminder for a department below 100% and "Scored on X% of its KPI
     weights".

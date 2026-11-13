@@ -1323,3 +1323,13 @@ Raised in live testing: the owner merged several roles in the onboarding org cha
 - **The per-item Undo / Undo merge buttons are unchanged and not recorded.** A history line they reversed is shown as "undone from its card" and cannot be undone twice.
 - **`created_at` comes from the application clock.** The database's `now()` is the start of the transaction, so two changes in one transaction tie and the "later change" check would guess.
 - **Not built:** history outside onboarding (changes then touch real people and tasks); undoing a department or role merged away AFTER it was added (still needs the Organization module).
+
+## 2026-11-13 (round 2) — Create another company from inside the app (BUILT, branch `people-flow`)
+
+Raised by Emmanuel: the "Switch company" entry hid itself for one company, so a second could never be created, and there was no way to create one anyway (a company only came into being at sign-up).
+
+- **Any signed-in person may create a company** (Emmanuel's answer): sign-up is open to anyone, so a signed-in person is no riskier. They become its owner and HR administrator; it starts empty and they go through onboarding again for it.
+- **Limit of 3 owned companies per login** (Emmanuel's number; the sign-up company counts; companies joined by invite do not). Chosen over no limit to stop accidental duplicates and runaway creation; the figure is one constant (`MAX_OWNED_COMPANIES`) so billing (M13) can change it later.
+- **A name the person already owns is refused, case-insensitively**, so a double click cannot make two. Another person's company with the same name is fine. Chosen over a database unique index because names start empty (sign-up creates unnamed companies) and are renamed later in Business DNA, which an index on the name would have to cope with; a check plus a per-person advisory lock inside the request does the job.
+- **The menu entry is always shown** ("Companies" with one, "Switch company (N)" with several), because it is now also where a company is created.
+- **Rejected:** creating a company by registering again with a second email (the original workaround), and asking more than the name at creation (everything else is the normal onboarding).
