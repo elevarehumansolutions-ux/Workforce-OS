@@ -197,6 +197,36 @@ export function undoMergeBlueprintItem(id: string): Promise<BlueprintItem> {
   return apiFetch<BlueprintItem>("/blueprint/" + id + "/undo-merge", { method: "POST" });
 }
 
+// The change history of the plan review: the last 20 changes, newest first. "undone" can be
+// redone (only the most recently undone one at a time); "already_undone" means the Undo button on
+// a card reversed it. `reason` says why Undo or Redo is not offered, in words for the owner.
+export interface HistoryEntry {
+  id: string;
+  kind: string;
+  label: string;
+  created_at: string;
+  state: "done" | "undone" | "already_undone";
+  can_undo: boolean;
+  can_redo: boolean;
+  reason: string | null;
+}
+
+export async function fetchHistory(): Promise<HistoryEntry[]> {
+  const res = await apiFetch<{ data: HistoryEntry[] }>("/blueprint/history", { method: "GET" });
+  return res.data;
+}
+
+// Undo and redo answer with the whole updated history. A refusal is a 409 whose message is the reason.
+export async function undoChange(id: string): Promise<HistoryEntry[]> {
+  const res = await apiFetch<{ data: HistoryEntry[] }>("/blueprint/history/" + id + "/undo", { method: "POST" });
+  return res.data;
+}
+
+export async function redoChange(id: string): Promise<HistoryEntry[]> {
+  const res = await apiFetch<{ data: HistoryEntry[] }>("/blueprint/history/" + id + "/redo", { method: "POST" });
+  return res.data;
+}
+
 export function acceptAllBlueprint(): Promise<AcceptAllResult> {
   return apiFetch<AcceptAllResult>("/blueprint/accept-all", { method: "POST" });
 }

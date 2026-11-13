@@ -7,6 +7,7 @@ import ChartViewport from "@/components/ChartViewport";
 import OwnObjectives from "@/components/OwnObjectives";
 import KpiWeightsPanel from "@/components/KpiWeightsPanel";
 import { keepOnlyNumber } from "@/lib/numberInput";
+import PlanChanges from "@/components/PlanChanges";
 import {
   acceptAllBlueprint,
   addBlueprintItemSeparately,
@@ -117,6 +118,8 @@ export default function BlueprintPage() {
   const [forbidden, setForbidden] = useState(false);
   const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
+  // Goes up after every change to the plan, so the change history below reads itself again.
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [skipped, setSkipped] = useState<AcceptAllResult["skipped"]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -215,6 +218,7 @@ export default function BlueprintPage() {
   );
 
   async function refresh() {
+    setHistoryVersion(function (n) { return n + 1; });
     try {
       setItems(await fetchLatestBlueprint());
       // Approving creates real departments and positions, so re-read those too.
@@ -1240,6 +1244,11 @@ export default function BlueprintPage() {
                   {acceptingAll ? "Adding…" : "Accept all"}
                 </button>
               </div>
+            </div>
+
+            {/* The changes made here, with Undo and Redo, on every section including the org chart */}
+            <div className="mx-auto max-w-6xl">
+              <PlanChanges reloadKey={historyVersion} onChanged={refresh} />
             </div>
 
             <div className="mx-auto mt-6 grid max-w-6xl gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">

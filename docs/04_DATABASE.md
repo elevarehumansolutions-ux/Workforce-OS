@@ -312,6 +312,23 @@ The AI-proposed starting structure, held until HR reviews it. One row per propos
 | `created_entity_id` | the real department/position/OKR/key result it became (no FK: it points at four different tables). Cleared again when the item is undone |
 | `merge_record` | JSONB, only on a `folded` note made by a merge (migration `d52b8e1f7a39`, 2026-11-11): `{"target_id" or "existing_id", "merged_at", "changes": {item id: {column: OLD value}}}`: the old value of every column the merge changed on any item of the plan. "Undo merge" puts them back exactly. Null on the AI's own notes and on merges made before this column existed (those cannot be undone). Cleared by "add separately" |
 
+### `blueprint_actions` (added 2026-11-13, migration `f3b81d6a4e57`, RLS `tenant_isolation`)
+
+The change history of the plan review (onboarding): one row per change the owner made. Kept so a change can be undone and redone; see `08_DECISIONS.md` 2026-11-13 round 2 and `05_API_DESIGN.md`.
+
+| Column | Meaning |
+|---|---|
+| `organization_id`, `created_by_user_id` | owner; who made the change |
+| `kind` | `approve`, `edit`, `reject`, `merge`, `add_separately`, `accept_all` |
+| `label` | the line the owner reads ("Skipped role "Driver Lead"") |
+| `params` | JSONB, what redo needs to run the same change again (`item_id`, `title`, `details` as text, `target_id` / `existing_id`) |
+| `changes` | JSONB `{item id: {column: [old, new]}}` for every `blueprint_items` column the change touched (the merge columns plus `title`, `kpi_target_value`, `kpi_unit`, `kpi_is_inverse`, `created_entity_id`, `merge_record`). Undo puts the old values back after checking the current ones still equal the new |
+| `real_names` | JSONB `{rename item id: the real department or role's name before}`, so undoing a rename can put the name back |
+| `undone_at` | set while the change is undone (it can be redone); recording a new change deletes every undone row |
+| `created_at` | set from the application clock, NOT `now()`: two changes in one transaction would tie |
+
+At most the last 20 rows per organization are kept.
+
 A CHECK makes a rename item carry the id it renames. The organogram is `reports_to_position_id` / `reports_to_ref` between positions (the real `positions.reports_to_position_id` is set on approval).
 
 **`invites.invitee_name`** (2026-11-13, migration `e7a41c9b3d26`): optional text, the invitee's name as HR typed it (or taken from the employee record the invite is for), prefilled on the accept page so nobody types it twice. Invites are no longer only for emails without an account: an existing account also gets one and accepts it with its password (a person may then hold memberships in several organizations; the access token carries the one in use).
