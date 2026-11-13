@@ -208,6 +208,12 @@ class JoinedCompanyResponse(BaseModel):
     session_opened: bool = False
 
 
+class CreateOrganizationRequest(BaseModel):
+    """Start another company for the signed-in person: only its name is asked here."""
+
+    name: str = Field(min_length=2, max_length=255)
+
+
 class SwitchOrganizationRequest(BaseModel):
     """Pick which of the caller's organizations this session acts for."""
 

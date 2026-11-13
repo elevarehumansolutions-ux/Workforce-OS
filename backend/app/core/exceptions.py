@@ -905,6 +905,20 @@ class BlueprintItemNotFoundException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class CompanyLimitReachedException(PlatformError):
+    """Raised when someone who already owns the most companies allowed tries to create another."""
+
+    def __init__(
+        self,
+        message: str = "You already own the most companies allowed",
+        code: str = "COMPANY_LIMIT_REACHED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class BlueprintActionNotFoundException(PlatformError):
     """Raised when a plan-history entry id finds no row (or it was cleared by a newer change)."""
 

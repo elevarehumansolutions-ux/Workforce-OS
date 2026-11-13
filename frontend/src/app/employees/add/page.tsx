@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 import Link from "next/link";
 import OrgChartPicker from "@/components/OrgChartPicker";
+import FormerHeadDialog from "@/components/FormerHeadDialog";
+import { findFormerHead } from "@/lib/formerHead";
+import type { FormerHead } from "@/lib/formerHead";
 import { personLabel } from "@/lib/personLabel";
 
 import RoleSidebarNav from "@/components/SidebarNav";
@@ -80,6 +83,8 @@ interface EmployeeSummary {
   work_email: string;
   position_id?: string | null;
   status?: string | null;
+  // The login this person signs in with, if they have one.
+  user_id?: string | null;
 }
 
 interface UnlinkedMember {
@@ -143,6 +148,10 @@ export default function AddEmployeePage() {
   const [formError, setFormError] = useState("");
   // Shown after "Save and add another": who was just added, with a link to their profile.
   const [savedNotice, setSavedNotice] = useState<{ name: string; id: string; managerNote: string } | null>(null);
+  // Set when saving replaced a head who has a login: HR is asked about their access level.
+  // leaveWhenClosed: this was "Save and finish", so go to the directory once the question is answered.
+  const [formerHead, setFormerHead] = useState<FormerHead | null>(null);
+  const [leaveWhenClosed, setLeaveWhenClosed] = useState(false);
 
   // Reference data needed to fill in the dropdowns. All start empty so the
   // server and client render the same thing on first paint; the real lists
@@ -328,10 +337,23 @@ export default function AddEmployeePage() {
         method: "POST",
         body: payload,
       });
+      // A head was replaced: find out whether the old head has a login whose access level HR should decide on.
+      let former: FormerHead | null = null;
+      if (form.makeHead && currentHead && chosenDepartment) {
+        former = await findFormerHead(currentHead, chosenDepartment.name);
+      }
       if (next === "finish") {
-        router.push("/employees/directory");
+        if (former) {
+          // Ask first; the directory opens when the question is closed.
+          setFormerHead(former);
+          setLeaveWhenClosed(true);
+        } else {
+          router.push("/employees/directory");
+        }
         return;
       }
+      setFormerHead(former);
+      setLeaveWhenClosed(false);
 
       // They are now the head: remember it, so the next person added to this department is told who they would replace.
       if (form.makeHead && chosenDepartment) {
@@ -361,12 +383,11 @@ export default function AddEmployeePage() {
           managerNote = " Reports to " + boss.first_name + " " + boss.last_name + " (filled in from the chart).";
         }
       }
-      // A head was replaced: say that the old head's access level did not change with it.
+      // A head was replaced: say so (the access level question, if there is one, opens as a window).
       if (form.makeHead && currentHead && chosenDepartment) {
         managerNote =
           managerNote +
-          " " + currentHead.first_name + " " + currentHead.last_name + " is no longer head of " + chosenDepartment.name +
-          ". Their access level did not change; review it under Team Management or the org chart.";
+          " " + currentHead.first_name + " " + currentHead.last_name + " is no longer head of " + chosenDepartment.name + ".";
       }
       setSavedNotice({ name: (form.firstName + " " + form.lastName).trim(), id: employee.id, managerNote: managerNote });
       // Keep where the next person usually sits (role, manager, location, type, start date);
@@ -421,6 +442,15 @@ export default function AddEmployeePage() {
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-xl">
+              {formerHead ? (
+                <FormerHeadDialog
+                  former={formerHead}
+                  onClose={function () {
+                    setFormerHead(null);
+                    if (leaveWhenClosed) router.push("/employees/directory");
+                  }}
+                />
+              ) : null}
               {savedNotice ? (
                 <div className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
                   Added {savedNotice.name}.{savedNotice.managerNote} The form is ready for the next person.{" "}

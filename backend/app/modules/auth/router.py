@@ -21,6 +21,7 @@ from app.modules.auth.schemas import (
     MeResponse,
     AcceptInviteRequest,
     AcceptInviteExistingRequest,
+    CreateOrganizationRequest,
     JoinedCompanyResponse,
     InvitePreviewResponse,
     SwitchOrganizationRequest,
@@ -190,6 +191,22 @@ async def switch_organization(
     return await AuthService(db).switch_organization(
         current_user, data.organization_id, refresh_token, response
     )
+
+
+@router.post("/create-organization", status_code=200)
+async def create_organization(
+    data: CreateOrganizationRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    refresh_token: str | None = Cookie(default=None),
+) -> AuthResponse:
+    """Start another company: the caller owns it, and the answer is a session for it.
+
+    At most 3 owned companies per login (409 ``COMPANY_LIMIT_REACHED``); a name the caller
+    already owns is refused (409), so a double click cannot make two.
+    """
+    return await AuthService(db).create_company(current_user, data.name, refresh_token, response)
 
 
 @router.post("/accept-invite", status_code=200)

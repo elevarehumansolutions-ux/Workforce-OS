@@ -225,7 +225,10 @@ async def update_membership(
         role=data.role.value if data.role else None,
         is_deactivated=data.is_deactivated,
     )
-    await db.commit()
+    # Load the user and build the reply BEFORE commit(): the tenant setting ends with the commit,
+    # and after it row-level security hides the membership, so a re-read there fails (a 500).
     await db.refresh(updated, attribute_names=["user"])
+    response = MembershipWithUserResponse.model_validate(updated)
+    await db.commit()
 
-    return MembershipWithUserResponse.model_validate(updated)
+    return response

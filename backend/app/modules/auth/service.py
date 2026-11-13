@@ -55,11 +55,17 @@ from app.core.exceptions import (
     AccountDeactivatedException,
     NoActiveMembershipException,
     MembershipDeactivatedException,
+    CompanyLimitReachedException,
+    ValidationException,
 )
 from app.modules.auth.repository import AuthRepository
 from .tasks import dispatch_verification_email, dispatch_password_reset_email
 
 logger = logging.getLogger(__name__)
+
+# The most companies one login may create (the one made at sign-up counts). Companies someone
+# only joined by invite do not count. Decided with Emmanuel 2026-11-13.
+MAX_OWNED_COMPANIES = 3
 
 
 class AuthService:
@@ -774,6 +780,65 @@ class AuthService:
             {"org_id": str(organization_id)},
         )
         org = await self._org_service.get_organization_by_id(organization_id)
+        return await self._open_session(user, org, membership, response, raw_refresh_token)
+
+    async def create_company(
+        self,
+        user: User,
+        name: str,
+        raw_refresh_token: str | None,
+        response: Response,
+    ) -> AuthResponse:
+        """Start another company for a signed-in person, and move this session into it.
+
+        The person becomes its owner and HR administrator, exactly like sign-up. Two rules:
+        at most ``MAX_OWNED_COMPANIES`` companies per person, and never two with the same name
+        (so a double click cannot make two).
+        """
+        clean_name = name.strip()
+        if len(clean_name) < 2:
+            raise ValidationException(message="Give the company a name of at least 2 characters.")
+
+        # One create at a time per person. Without this, a double click sends two requests that
+        # both look, both see "no company called that", and both create one. The lock is held
+        # until this request commits, so the second request waits and then sees the first.
+        await self._db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "create-company:" + str(user.id)},
+        )
+        # Same bootstrap as login and switch: no company is chosen yet, so identify by user id.
+        await self._db.execute(text("SELECT set_config('app.current_org_id', '', true)"))
+        await self._db.execute(
+            text("SELECT set_config('app.current_user_id', :user_id, true)"),
+            {"user_id": str(user.id)},
+        )
+
+        owned_names = []
+        for existing in await self._membership_service.get_user_memberships(user.id):
+            if existing.is_owner and existing.deactivated_at is None:
+                owned_names.append((existing.organization.name or "").strip().casefold())
+        if len(owned_names) >= MAX_OWNED_COMPANIES:
+            raise CompanyLimitReachedException(
+                message=f"You already own {MAX_OWNED_COMPANIES} companies, the most one login can create."
+            )
+        if clean_name.casefold() in owned_names:
+            raise AlreadyExistsException(message="You already have a company with that name.")
+
+        org = await self._org_service.create_organization({"name": clean_name})
+        membership = await self._membership_service.create_membership({
+            "user_id": user.id,
+            "organization_id": org.id,
+            "role": MembershipRole.HR_ADMINISTRATOR.value,
+            "is_owner": True,
+        })
+        await AuditService(self._db).log_action(
+            organization_id=org.id,
+            actor_user_id=user.id,
+            action="create",
+            entity_type="organization",
+            entity_id=org.id,
+            changes={"old": None, "new": {"name": clean_name}},
+        )
         return await self._open_session(user, org, membership, response, raw_refresh_token)
 
     async def accept_invite(self, data: AcceptInviteRequest, response: Response) -> AuthResponse:

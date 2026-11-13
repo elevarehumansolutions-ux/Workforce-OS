@@ -5,6 +5,9 @@ import { apiFetch, ApiError } from "@/lib/api";
 import PositionsEditor from "@/components/PositionsEditor";
 import { isHrRole, loadMe } from "@/lib/settings";
 import { personLabel } from "@/lib/personLabel";
+import FormerHeadDialog from "@/components/FormerHeadDialog";
+import { findFormerHead } from "@/lib/formerHead";
+import type { FormerHead } from "@/lib/formerHead";
 
 import RoleSidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
@@ -45,6 +48,8 @@ interface Employee {
   last_name: string;
   status: string;
   position_id?: string | null;
+  // The login this person signs in with, if they have one.
+  user_id?: string | null;
 }
 
 interface Position {
@@ -98,6 +103,8 @@ export default function OrganizationStructurePage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   // Only HR can change a department's head; everyone else sees it read-only.
   const [canEdit, setCanEdit] = useState(false);
+  // Set after a head was replaced (and they have a login): HR is asked what to do with their access level.
+  const [formerHead, setFormerHead] = useState<FormerHead | null>(null);
 
   useEffect(function () {
     let cancelled = false;
@@ -198,7 +205,10 @@ export default function OrganizationStructurePage() {
   async function changeHead(department: Department, employeeId: string) {
     setActionError("");
     setNotice("");
+    setFormerHead(null);
     setBusyId(department.id);
+    // Read the old head BEFORE the change: after it, the department points at the new one.
+    const oldHeadId = department.head_employee_id || "";
     try {
       // null REMOVES the head; a uuid sets/changes it. Only this one field
       // is sent, so the department's other settings are never touched.
@@ -217,6 +227,11 @@ export default function OrganizationStructurePage() {
           ? employeeName(employeeId) + " is now the head of " + department.name + "."
           : department.name + " no longer has a head."
       );
+      // The old head keeps their access level (they may still manage people elsewhere): ask HR about it.
+      if (oldHeadId !== "" && oldHeadId !== employeeId) {
+        const oldHead = employees.find(function (e) { return e.id === oldHeadId; });
+        setFormerHead(await findFormerHead(oldHead, department.name));
+      }
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "Couldn't update that department's head.");
       // The picked person may have been offboarded (or removed) after this
@@ -281,6 +296,15 @@ export default function OrganizationStructurePage() {
                   <div className="mt-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
                     {notice}
                   </div>
+                ) : null}
+                {formerHead ? (
+                  <FormerHeadDialog
+                    former={formerHead}
+                    onClose={function (changed) {
+                      setFormerHead(null);
+                      if (changed) setNotice("Access level changed.");
+                    }}
+                  />
                 ) : null}
 
                 <div className="mt-4 space-y-3">
