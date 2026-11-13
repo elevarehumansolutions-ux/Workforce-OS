@@ -52,8 +52,10 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
    Administrator, `+manager` as Manager, `+chidi` as Employee, `+exec` as Business Executive.
    Expect: "4 invites sent", each marked "Invite Pending".
 2. Try an invite with the email or the role left empty. Expect: a clear message, nothing sent.
-3. Invite the same email twice, and invite an email that is already registered. Expect: a clear
-   message each time, no crash, no duplicate.
+3. Invite the same email twice, and invite an email that is already registered. Expect: no crash. An email
+   that already has an account (changed 2026-11-13) is NOT added at once: it shows "Invite pending: already has
+   an account" and they join by accepting (see Stage 11, step 19). Inviting someone who is already a member of
+   your company gives a clear "already a member" message.
 4. Press Finish. Expect: you land inside the app (dashboard), and onboarding does not come back.
 5. In a second browser profile open one invite email, accept, set a password, log in. Expect: that
    person lands in the app and sees only what their role allows (compare HR, manager, employee).
@@ -183,6 +185,31 @@ what is described, and send what you saw.
 15. (10) Make the browser window narrow (or use a phone). Expect a top bar with a ☰ button that opens the
     menu. Walk every screen at that width and write down each one that breaks (tables, org chart, wizard,
     KPI forms): each becomes its own to-do. This is the one item that is not finished: it needs your eyes.
+
+**D2. The people flow (added 2026-11-13; use plus-address emails you can read)**
+17. (16) Open the dashboard's Recent activity and Settings > Audit Log after adding an employee and sending an
+    invite. Expect "added employee Chidi Okafor (chidi@x.com)" and "invited chidi@x.com", never just "added an
+    employee".
+18. (17) Invite a teammate WITH a name ("Ngozi Eze"). Open the invite email: the page says "Join <company>" and
+    shows the name already filled in; you only choose a password. Invite another WITHOUT a name: the page asks for it.
+    From Add Employee, tick "give login access": the accept page shows the employee's name too.
+19. (21) Make a mistaken account: sign up a plus-address as a new company, verify it. As HR of your test
+    company, invite THAT email. Expect: "Invite pending: already has an account, they confirm with their
+    password"; the person is NOT in Team Management yet. Open the invite email: the page asks only for the
+    existing password. After joining, their name menu shows "Switch company (2)" and the company name; the
+    switch screen opens either company. In the new company they have the role you gave, in their own one they
+    are still HR.
+20. (21) Invite the same email again: "already a member". Deactivate them in Team Management: their switch into
+    that company is refused.
+21. (19) Invite a teammate from Invite Team (no employee record). Open Employees: the amber box says "1 person has a
+    login but no employee record" with "Create employee record"; the button opens Add Employee with the name and
+    email filled in and the login already linked. Team Management shows "No, create one" before and "Yes" after.
+22. (18) On Add Employee choose a department's top role, tick "Make this person head of <department>". Expect, if
+    the department already has a head, "currently headed by X. Ticking this replaces them", and the login role
+    set to Manager. Save, open Organization Structure: the head is shown.
+23. (5, 18) Open Employees > Org chart. Expect every role with its people, "Vacant", "shared by 2", a star on
+    each head. Click a person: open profile, make head of their department, change their access level; the
+    chart updates.
 
 **E. Scoring (needs the helper in Stage 9)**
 16. (7, 8) Done inside Stage 9: the reminder for a department below 100% and "Scored on X% of its KPI

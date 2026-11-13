@@ -314,6 +314,8 @@ The AI-proposed starting structure, held until HR reviews it. One row per propos
 
 A CHECK makes a rename item carry the id it renames. The organogram is `reports_to_position_id` / `reports_to_ref` between positions (the real `positions.reports_to_position_id` is set on approval).
 
+**`invites.invitee_name`** (2026-11-13, migration `e7a41c9b3d26`): optional text, the invitee's name as HR typed it (or taken from the employee record the invite is for), prefilled on the accept page so nobody types it twice. Invites are no longer only for emails without an account: an existing account also gets one and accepts it with its password (a person may then hold memberships in several organizations; the access token carries the one in use).
+
 ## Cluster 5: KPIs
 
 ```sql
