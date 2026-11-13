@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
+import { apiFetch, ApiError, currentOrganizationId, getAccessToken, setAccessToken } from "@/lib/api";
 import Logo from "@/components/Logo";
 
 interface Organization {
@@ -24,8 +24,6 @@ interface MeResponse {
   memberships: Membership[];
 }
 
-const ACTIVE_ORG_KEY = "elevare_active_org_id";
-
 const ROLE_LABELS: Record<string, string> = {
   hr_administrator: "HR Administrator",
   manager: "Manager",
@@ -46,10 +44,6 @@ export default function OrganizationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [me, setMe] = useState<MeResponse | null>(null);
-  const [activeOrgId, setActiveOrgId] = useState<string | null>(function () {
-    if (typeof window === "undefined") return null;
-    return window.localStorage.getItem(ACTIVE_ORG_KEY);
-  });
   const [switching, setSwitching] = useState<string | null>(null);
 
   useEffect(function () {
@@ -60,10 +54,6 @@ export default function OrganizationsPage() {
     apiFetch<MeResponse>("/auth/me", { method: "GET" })
       .then(function (data) {
         setMe(data);
-        if (typeof window !== "undefined" && !window.localStorage.getItem(ACTIVE_ORG_KEY) && data.memberships.length > 0) {
-          window.localStorage.setItem(ACTIVE_ORG_KEY, data.memberships[0].organization.id);
-          setActiveOrgId(data.memberships[0].organization.id);
-        }
       })
       .catch(function (err) {
         setError(err instanceof ApiError ? err.message : "Couldn't load your organizations. Please try again.");
@@ -74,23 +64,28 @@ export default function OrganizationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleSwitch(membership: Membership) {
-    if (membership.organization.id === activeOrgId) {
+  async function handleSwitch(membership: Membership) {
+    if (membership.organization.id === currentOrganizationId()) {
       router.push("/dashboard");
       return;
     }
     setSwitching(membership.organization.id);
-    // NOTE: 05_API_DESIGN.md doesn't yet define a "switch active org" endpoint —
-    // org_id is currently baked into the JWT at /auth/login and never re-issued
-    // mid-session. Until that endpoint exists, this records the chosen org
-    // locally and sends the person through login again so a fresh token gets
-    // issued for it. Flag this gap to Emmanuel; a real switch-org endpoint
-    // (re-issuing access_token scoped to the new org_id) would let this skip
-    // the login round-trip.
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(ACTIVE_ORG_KEY, membership.organization.id);
+    setError("");
+    try {
+      // The server issues a new access token for the chosen company (POST /auth/switch-organization).
+      const data = await apiFetch<{ access_token: string }>("/auth/switch-organization", {
+        method: "POST",
+        body: { organization_id: membership.organization.id },
+      });
+      setAccessToken(data.access_token);
+      if (typeof window !== "undefined") {
+        // A full page load, so the menu and every cached role start fresh for the new company.
+        window.location.assign("/dashboard");
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't switch company. Please try again.");
+      setSwitching(null);
     }
-    router.push("/login?org=" + membership.organization.id);
   }
 
   return (
@@ -129,7 +124,7 @@ export default function OrganizationsPage() {
           <div className="mt-8 space-y-3">
             {me.memberships.map(function (membership) {
               const org = membership.organization;
-              const isActive = org.id === activeOrgId;
+              const isActive = org.id === currentOrganizationId();
               const isDeactivated = Boolean(membership.deactivated_at);
               return (
                 <button

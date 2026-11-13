@@ -66,6 +66,15 @@ export default function UserMenu() {
             >
               My profile
             </Link>
+            {me.companyCount > 1 ? (
+              <Link
+                href="/organizations"
+                onClick={function () { setOpen(false); }}
+                className="block rounded-lg px-3 py-2 text-sm text-gray-200 hover:bg-white/5"
+              >
+                Switch company ({me.companyCount})
+              </Link>
+            ) : null}
             <button
               type="button"
               disabled={signingOut}
@@ -89,7 +98,10 @@ export default function UserMenu() {
         </span>
         <span className="min-w-0">
           <span className="block truncate text-sm font-medium text-white">{me.fullName}</span>
-          <span className="block truncate text-xs text-gray-500">{roleLabel(me.role)}</span>
+          <span className="block truncate text-xs text-gray-500">
+            {roleLabel(me.role)}
+            {me.organization && me.organization.name ? " · " + me.organization.name : ""}
+          </span>
         </span>
       </button>
     </div>

@@ -18,6 +18,8 @@ interface SentInvite {
   email: string;
   role: string;
   status: SentStatus;
+  // The email already had an account: they join by confirming with their existing password.
+  hasAccount?: boolean;
 }
 
 const ONBOARDING_STEPS = ["Business DNA", "OS Structure", "Invite Team"];
@@ -48,12 +50,14 @@ interface InviteTeammateResponse {
   // of the typed value is what keeps the confirmation list accurate once
   // the backend started normalizing emails.
   membership?: { id: string; user: { email: string } } | null;
-  invite?: { id: string; email: string; role: string } | null;
+  invite?: { id: string; email: string; role: string; has_account?: boolean } | null;
 }
 
 export default function InviteTeamPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
+  // Optional: shown filled in on their accept page, so they do not type it again.
+  const [personName, setPersonName] = useState("");
   const [role, setRole] = useState("");
   const [sending, setSending] = useState(false);
   const [formError, setFormError] = useState("");
@@ -75,14 +79,15 @@ export default function InviteTeamPage() {
     try {
       const result = await apiFetch<InviteTeammateResponse>("/memberships", {
         method: "POST",
-        body: { email: email.trim(), role },
+        body: personName.trim() === "" ? { email: email.trim(), role } : { email: email.trim(), role, full_name: personName.trim() },
       });
       const sentEmail = result.invite?.email || result.membership?.user.email || email.trim();
       setSentInvites([
         ...sentInvites,
-        { id: makeId(), email: sentEmail, role, status: result.status },
+        { id: makeId(), email: sentEmail, role, status: result.status, hasAccount: result.invite?.has_account === true },
       ]);
       setEmail("");
+      setPersonName("");
       setRole("");
     } catch (err) {
       if (err instanceof ApiError && err.code === "MEMBERSHIP_DEACTIVATED") {
@@ -209,6 +214,21 @@ export default function InviteTeamPage() {
             </div>
           </div>
 
+          <div>
+            <label className="mb-2 block text-sm font-medium text-gray-200">
+              Name <span className="font-normal text-gray-500">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={personName}
+              onChange={function (e: React.ChangeEvent<HTMLInputElement>) {
+                setPersonName(e.target.value);
+              }}
+              placeholder="e.g. Ngozi Eze, shown filled in when they accept"
+              className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
+            />
+          </div>
+
           <p className="text-xs text-gray-500">
             Department and reporting manager aren&apos;t part of a team invite. Those get set when
             the person is added as an employee from the Employee Directory, after they&apos;ve joined.
@@ -243,7 +263,7 @@ export default function InviteTeamPage() {
                     {invite.status === "invited" ? (
                       <span className="flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-400">
                         <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                        Invite Pending
+                        {invite.hasAccount ? "Invite pending: already has an account, they confirm with their password" : "Invite Pending"}
                       </span>
                     ) : (
                       <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-400">

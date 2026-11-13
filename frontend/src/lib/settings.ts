@@ -1,4 +1,4 @@
-﻿import { apiFetch } from "@/lib/api";
+﻿import { apiFetch, pickActiveMembership } from "@/lib/api";
 
 export interface MeOrganization {
   id: string;
@@ -17,6 +17,8 @@ export interface MeData {
   lastLoginAt: string | null;
   role: string;
   organization: MeOrganization | null;
+  // How many companies this login actively belongs to (the menu offers "Switch company" above 1).
+  companyCount: number;
 }
 
 interface MeResponse {
@@ -34,13 +36,11 @@ export async function loadMe(): Promise<MeData> {
   const res = await apiFetch<MeResponse>("/auth/me", { method: "GET" });
   let role = "";
   let organization: MeOrganization | null = null;
-  // The first active membership is used until an organization switcher exists.
-  for (const m of res.memberships) {
-    if (!m.deactivated_at) {
-      role = m.role;
-      organization = m.organization;
-      break;
-    }
+  // The membership for the company this session acts for (a person can belong to several).
+  const active = pickActiveMembership(res.memberships);
+  if (active) {
+    role = active.role;
+    organization = active.organization;
   }
   return {
     userId: res.user.id,
@@ -50,6 +50,9 @@ export async function loadMe(): Promise<MeData> {
     lastLoginAt: res.user.last_login_at,
     role: role,
     organization: organization,
+    companyCount: res.memberships.filter(function (m) {
+      return !m.deactivated_at;
+    }).length,
   };
 }
 

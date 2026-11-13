@@ -1,4 +1,4 @@
-﻿import { apiFetch, ApiError } from "@/lib/api";
+﻿import { apiFetch, ApiError, pickActiveMembership } from "@/lib/api";
 
 export type TaskStatus = "open" | "in_progress" | "completed" | "cancelled";
 
@@ -122,7 +122,7 @@ export async function fetchAllPages<T>(path: string): Promise<T[]> {
 
 interface MeResponse {
   user: { id: string; full_name: string };
-  memberships: { role: string; deactivated_at: string | null }[];
+  memberships: { role: string; deactivated_at: string | null; organization: { id: string } }[];
 }
 
 // Everything the task screens need to know about the person looking at them,
@@ -152,15 +152,10 @@ export async function loadCaller(): Promise<CallerContext> {
   const employees = results[2];
   const positions = results[3];
 
-  // A person can belong to several organizations; the first active
-  // membership is used for the role until an organization switcher exists.
-  let role = "";
-  for (const m of me.memberships) {
-    if (!m.deactivated_at) {
-      role = m.role;
-      break;
-    }
-  }
+  // A person can belong to several organizations; the role is the one in the company
+  // this session acts for.
+  const activeMembership = pickActiveMembership(me.memberships);
+  const role = activeMembership ? activeMembership.role : "";
 
   let employee: Employee | null = null;
   for (const e of employees) {

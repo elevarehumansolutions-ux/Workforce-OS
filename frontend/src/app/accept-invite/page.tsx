@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { Suspense, useState, FormEvent } from "react";
+import { Suspense, useEffect, useState, FormEvent } from "react";
 import type { ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -20,6 +20,14 @@ function passwordProblems(password: string): string[] {
   if (!/\d/.test(password)) problems.push("One number");
   if (!SPECIAL_CHARACTERS.test(password)) problems.push("One special character, such as ! @ # $ %");
   return problems;
+}
+
+interface InvitePreview {
+  email: string;
+  company_name: string | null;
+  role: string;
+  invitee_name: string | null;
+  account_exists: boolean;
 }
 
 interface AcceptInviteResponse {
@@ -44,8 +52,73 @@ function AcceptInviteContent() {
   const [submitting, setSubmitting] = useState(false);
   const [joined, setJoined] = useState(false);
   const [joinedOrg, setJoinedOrg] = useState("");
+  // What the link is for: the company, the role, the name HR already typed, and whether this email
+  // already has an account (then only the existing password is asked).
+  const [preview, setPreview] = useState<InvitePreview | null>(null);
+
+  useEffect(
+    function () {
+      if (!token) return;
+      let cancelled = false;
+      apiFetch<InvitePreview>("/auth/invite-preview", { method: "POST", body: { token: token }, skipAuth: true })
+        .then(function (data) {
+          if (cancelled) return;
+          setPreview(data);
+          // The name was typed once already (on the invite or the employee record): show it filled in.
+          if (data.invitee_name) setFullName(data.invitee_name);
+        })
+        .catch(function (err) {
+          if (cancelled) return;
+          if (err instanceof ApiError && err.code) setLinkProblem(err.code);
+          else setLinkProblem("TOKEN_INVALID");
+        });
+      return function () {
+        cancelled = true;
+      };
+    },
+    [token]
+  );
 
   const problems = passwordProblems(password);
+
+  // An account that already exists joins with its own password: nobody is added without saying yes.
+  async function handleJoinExisting(e: FormEvent) {
+    e.preventDefault();
+    setFormError("");
+    if (password === "") {
+      setErrors({ password: "Enter your password." });
+      return;
+    }
+    setErrors({});
+    setSubmitting(true);
+    try {
+      const data = await apiFetch<AcceptInviteResponse>("/auth/accept-invite-existing", {
+        method: "POST",
+        body: { token: token, password: password },
+        skipAuth: true,
+      });
+      setAccessToken(data.access_token);
+      setJoinedOrg(data.organization ? data.organization.name : "");
+      setJoined(true);
+      setTimeout(function () {
+        // A full load: this person may already be signed in to another company in this tab, and
+        // the menu and role cached for that company must not survive the switch.
+        window.location.assign("/dashboard");
+      }, 1500);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.code === "TOKEN_INVALID" || err.code === "TOKEN_ALREADY_USED" || err.code === "VERIFICATION_TOKEN_EXPIRED") {
+          setLinkProblem(err.code);
+        } else {
+          setFormError(err.message);
+        }
+      } else {
+        setFormError(NETWORK_ERROR_MESSAGE);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -199,11 +272,68 @@ function AcceptInviteContent() {
   const inputClass =
     "w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500";
 
+  // Until the link has been read there is nothing to show yet.
+  if (preview === null) {
+    return shell(<p className="text-center text-sm text-gray-400">Checking your invite…</p>);
+  }
+
+  const companyName = preview.company_name ? preview.company_name : "your team";
+
+  // This email already has an account (maybe in another company, maybe signed up by mistake):
+  // no new account, no name to type, just the existing password to say yes.
+  if (preview.account_exists) {
+    return shell(
+      <>
+        <h1 className="text-2xl font-bold">Join {companyName}</h1>
+        <p className="mt-1 text-sm text-gray-400">
+          You already have an account with <span className="text-gray-200">{preview.email}</span>. Enter your password
+          to join. You keep the same login; you will be able to switch between your companies from your name menu.
+        </p>
+        <form onSubmit={handleJoinExisting} className="mt-6 space-y-5">
+          {formError ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{formError}</div>
+          ) : null}
+          <div>
+            <label htmlFor="existing-password" className="mb-2 block text-sm font-medium text-gray-200">
+              Your password
+            </label>
+            <input
+              id="existing-password"
+              type="password"
+              value={password}
+              onChange={function (e) {
+                setPassword(e.target.value);
+              }}
+              autoComplete="current-password"
+              className={inputClass}
+            />
+            {errors.password ? <p className="mt-1 text-xs text-red-400">{errors.password}</p> : null}
+          </div>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full rounded-lg bg-indigo-500 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {submitting ? "Joining…" : "Join " + companyName}
+          </button>
+          <p className="text-center text-sm text-gray-400">
+            Forgot your password?{" "}
+            <Link href="/forgot-password" className="font-medium text-indigo-400 hover:text-indigo-300">
+              Reset it
+            </Link>
+          </p>
+        </form>
+      </>
+    );
+  }
+
   return shell(
     <>
-      <h1 className="text-2xl font-bold">Join your team</h1>
+      <h1 className="text-2xl font-bold">Join {companyName}</h1>
       <p className="mt-1 text-sm text-gray-400">
-        You&apos;ve been invited to Elevare. Set up your account to get started.
+        {preview.invitee_name
+          ? "Check your name, then choose a password to get started."
+          : "Set up your account to get started."}
       </p>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-5">
