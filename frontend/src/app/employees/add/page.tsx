@@ -171,6 +171,24 @@ export default function AddEmployeePage() {
         setLocations(locationsRes.data);
         setExistingEmployees(employeesRes.data);
         setUnlinkedMembers(unlinkedRes.data);
+
+        // Opened from "Create employee record" on the Employees page: fill in the name and email
+        // of that login and link it, so nothing is typed again.
+        const wanted = new URLSearchParams(window.location.search).get("member");
+        const login = wanted ? unlinkedRes.data.find(function (m) { return m.user.id === wanted; }) : undefined;
+        if (login) {
+          const parts = login.user.full_name.trim().split(/\s+/);
+          setForm(function (prev) {
+            return {
+              ...prev,
+              firstName: parts[0],
+              lastName: parts.slice(1).join(" "),
+              workEmail: login.user.email,
+              loginMode: "link",
+              linkedUserId: login.user.id,
+            };
+          });
+        }
       })
       .catch(function (err) {
         setRefDataError(err instanceof ApiError ? err.message : "Couldn't load the form's reference data.");
