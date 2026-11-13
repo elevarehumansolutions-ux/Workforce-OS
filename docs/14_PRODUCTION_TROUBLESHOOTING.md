@@ -539,3 +539,29 @@ Rule to remember: **the job is safe to run twice; a frozen quarter is never rewr
 - **Rule to remember:** when the whole API is unreachable, ask three questions in order before
   touching code: (1) is the bill paid and the VPS on, (2) does the domain still point at the
   right IP, (3) is Caddy running (`ps`). Also set a calendar reminder for the VPS renewal date.
+
+### 2026-11-13: changing a teammate's access level shows a 500, but the change is saved
+
+- **Report (Emmanuel, live testing):** choosing Manager or Employee for a person in Team
+  Management showed a 500 error. After a reload the new role was there.
+- **Symptom pattern to remember:** *an error, yet the change is saved after reload*. That means
+  the failure happens AFTER the `COMMIT`, not before it.
+- **Cause (reproduced by a test):** `PATCH /memberships/{id}` committed and then called
+  `db.refresh(updated, attribute_names=["user"])` to build the reply. The tenant setting
+  (`app.current_org_id`, set with `set_config(..., true)`) lives only until the commit, and
+  `memberships` has row-level security, so the re-read found no row and SQLAlchemy raised
+  `InvalidRequestError: Could not refresh instance '<Membership ...>'`. This is the same family as the
+  2026-10-07 `PUT /business-dna` incident.
+- **How it was found:** the first hypothesis came straight from the symptom pattern above and
+  the incident log. The proof was a test using `commit_like_production` (`tests/conftest.py`),
+  which makes the test database forget the tenant setting on commit like the real one does. It
+  failed with exactly that error. On the server the same error line would sit just above the
+  `"PATCH /api/v1/memberships/... 500"` access line, after a `COMMIT`.
+- **Why it was missed:** the ordinary tests run inside one outer transaction, so a commit never
+  ends it and the tenant setting survives. Only a test with `commit_like_production` sees it.
+- **Fix:** `update_membership` in `tenancy_identity/router.py` now loads the user and builds the
+  response BEFORE `commit()`. Test: `tests/memberships/test_role_change_commit_context.py`. A search
+  of every router found no other read after a commit.
+- **Rule to remember (second time):** never read anything tenant-scoped after `commit()`. Build
+  the reply first, commit last. Any new endpoint that returns data should get a test with
+  `commit_like_production`.
