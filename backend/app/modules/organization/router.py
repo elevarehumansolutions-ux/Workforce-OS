@@ -587,21 +587,23 @@ async def create_employee(
             to another employee (translates to a 409 response).
     """
     service = EmployeeService(db)
-    fields = data.model_dump(exclude={"grant_login_access", "role"})
+    fields = data.model_dump(exclude={"grant_login_access", "role", "make_department_head"})
     raw_token = None
     company_name = None
-    if not data.grant_login_access:
+    if not data.grant_login_access and not data.make_department_head:
         employee = await service.create_employee(caller.organization_id, caller.user_id, fields)
     else:
-        # SAVEPOINT: if granting login fails, the employee created a moment
-        # earlier is rolled back with it, without discarding the
-        # transaction-scoped RLS org context (same reasoning as the
-        # business_dna upsert).
+        # SAVEPOINT: if granting login (or naming the department head) fails, the employee
+        # created a moment earlier is rolled back with it, without discarding the
+        # transaction-scoped RLS org context (same reasoning as the business_dna upsert).
         async with db.begin_nested():
             employee = await service.create_employee(caller.organization_id, caller.user_id, fields)
-            _, employee, raw_token = await service.grant_login(
-                employee.id, data.role.value, caller.user_id
-            )
+            if data.grant_login_access:
+                _, employee, raw_token = await service.grant_login(
+                    employee.id, data.role.value, caller.user_id
+                )
+            if data.make_department_head:
+                await service.make_head_of_their_department(employee, caller.user_id)
         if raw_token is not None:
             company_name = await _company_name(db, caller.organization_id)
     await db.commit()
