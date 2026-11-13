@@ -4,6 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import OrgChartView from "@/components/OrgChartView";
+import Modal from "@/components/Modal";
+import FormerHeadDialog from "@/components/FormerHeadDialog";
+import { ACCESS_LEVELS, findFormerHead } from "@/lib/formerHead";
+import type { FormerHead } from "@/lib/formerHead";
 import { ApiError, apiFetch } from "@/lib/api";
 import { fetchAllPages, fullName, roleLabel } from "@/lib/tasks";
 import type { Employee, Position } from "@/lib/tasks";
@@ -36,8 +40,6 @@ interface ChartData {
   members: Record<string, MemberRow>;
 }
 
-const ACCESS_LEVELS = ["employee", "manager", "business_executive", "hr_administrator"];
-
 async function loadChart(): Promise<ChartData> {
   const me = await loadMe();
   const canEdit = isHrRole(me.role);
@@ -65,8 +67,8 @@ export default function EmployeeChartPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  // Set after a head was replaced: the person who was head before, so we can say their access level did not change.
-  const [formerHead, setFormerHead] = useState<{ id: string; name: string; department: string; level: string } | null>(null);
+  // Set after a head was replaced: the person who was head before, so HR can decide on their access level.
+  const [formerHead, setFormerHead] = useState<FormerHead | null>(null);
 
   const data = state.data;
   const person = data ? data.employees.find(function (e) { return e.id === pickedId; }) : undefined;
@@ -97,15 +99,15 @@ export default function EmployeeChartPage() {
     if (!person || !data || !department) return;
     // Read the old head BEFORE the change: after it, the department points at the new one.
     const oldHead = data.employees.find(function (e) { return e.id === department.head_employee_id; });
-    const oldMember = oldHead && oldHead.user_id ? data.members[oldHead.user_id] : undefined;
+    const departmentName = department.name;
     setFormerHead(null);
     run(function () {
       return apiFetch("/departments/" + department.id, { method: "PATCH", body: { head_employee_id: person.id } });
-    }, fullName(person) + " is now the head of " + department.name + ".").then(function (saved) {
-      // Only for someone who has a login: their access level is the thing that did not move.
-      if (saved && oldHead && oldMember) {
-        setFormerHead({ id: oldHead.id, name: fullName(oldHead), department: department.name, level: roleLabel(oldMember.role) });
-      }
+    }, fullName(person) + " is now the head of " + departmentName + ".").then(async function (saved) {
+      if (!saved) return;
+      // Close the person's window; the green message shows on the page, and the old head's question opens on top.
+      setPickedId("");
+      setFormerHead(await findFormerHead(oldHead, departmentName));
     });
   }
 
@@ -139,26 +141,29 @@ export default function EmployeeChartPage() {
             />
           </div>
 
-          {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}
-          {message ? <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">{message}</p> : null}
-          {formerHead && message ? (
-            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              {formerHead.name} is no longer head of {formerHead.department}. Their access level is still {formerHead.level}.{" "}
-              <button
-                type="button"
-                onClick={function () { setPickedId(formerHead.id); setFormerHead(null); }}
-                className="font-medium underline"
-              >
-                Change it
-              </button>
-            </p>
+          {/* While a person's window is open the messages show inside it, so they are never hidden behind it. */}
+          {!person && error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}
+          {!person && message ? <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">{message}</p> : null}
+
+          {formerHead ? (
+            <FormerHeadDialog
+              former={formerHead}
+              onClose={function (changed) {
+                setFormerHead(null);
+                if (changed) {
+                  setMessage("Access level changed.");
+                  setReload(reload + 1);
+                }
+              }}
+            />
           ) : null}
 
           {person ? (
-            <div className="rounded-2xl border border-indigo-400/30 bg-[#0a0e1a] p-5">
+            <Modal title={fullName(person)} onClose={function () { setPickedId(""); }}>
+              {error ? <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</p> : null}
+              {message ? <p className="mb-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300">{message}</p> : null}
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="text-base font-semibold text-white">{fullName(person)}</p>
                   <p className="text-xs text-gray-400">{personLabel(person, data.positions, data.departments)}</p>
                   {isHead && department ? <p className="mt-1 text-xs font-semibold text-amber-300">★ Head of {department.name}</p> : null}
                 </div>
@@ -207,7 +212,7 @@ export default function EmployeeChartPage() {
                   </button>
                 </p>
               ) : null}
-            </div>
+            </Modal>
           ) : null}
         </>
       ) : null}

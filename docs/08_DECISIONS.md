@@ -1324,6 +1324,16 @@ Raised in live testing: the owner merged several roles in the onboarding org cha
 - **`created_at` comes from the application clock.** The database's `now()` is the start of the transaction, so two changes in one transaction tie and the "later change" check would guess.
 - **Not built:** history outside onboarding (changes then touch real people and tasks); undoing a department or role merged away AFTER it was added (still needs the Organization module).
 
+## 2026-11-13 (round 2) — A window for "the head was replaced" and for the org chart person panel (BUILT, to-do 30)
+
+Raised by Emmanuel: notes that appear below the page are missed, and on the org chart he did not know a panel had opened under the chart.
+
+- **A decision gets a window, not a banner.** When a head is replaced, the old head's access level is a decision HR should make or consciously skip, so a window opens at once, with a dropdown to change it on the spot and "Keep <level>" to leave it. The same shared component is used on the org chart, Organization Structure and Add Employee, so the wording cannot drift.
+- **The org chart person panel is a window too.** Clicking a person opens it over the chart (X, outside click, Esc to close).
+- **The access level is still never changed automatically**: the old head may manage people through another role. The window only asks.
+- **Rejected:** a banner or toast at the top (can still be missed when scrolled, and cannot offer the change in place); scrolling to the panel automatically (surprising on a chart you are exploring); keeping the "Change it" link to Team Management (sends HR away and loses their place).
+- The question is skipped when the old head has no login, or the person making the change is not HR (only HR can read access levels).
+
 ## 2026-11-13 (round 2) — Create another company from inside the app (BUILT, branch `people-flow`)
 
 Raised by Emmanuel: the "Switch company" entry hid itself for one company, so a second could never be created, and there was no way to create one anyway (a company only came into being at sign-up).

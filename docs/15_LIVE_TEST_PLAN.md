@@ -240,8 +240,13 @@ what is described, and send what you saw.
 26. (23) In the org chart, make someone else head of a department that already has a head who has a login. Expect
     the green message plus "X is no longer head of Sales. Their access level is still Manager. Change it"; the
     button opens X so you can change the level. On Add Employee with "Save and add another" the saved message
-    says the same. The same amber note (added later, to-do 29) also appears on Organization Structure when you
-    change a department's head in the Head dropdown; its "Change it" opens Team Management.
+    says the same. UPDATED (to-do 30): the note is now a WINDOW that opens at once, "X is no longer head of Sales.
+    Their access level is still Manager", with a dropdown, **Save** and **Keep Manager**. Check it in all three places:
+    the org chart (after "Make head", the person's window closes first), the Head dropdown on Organization
+    Structure, and Add Employee with "Make this person head" ticked (with "Save and finish" the directory opens only
+    after you close the window). Pick a new level and Save: the person's level changes (check Team Management). Press
+    Esc or click outside: nothing changes. Replace a head who has NO login: no window.
+    Also in step 23: clicking a person on the org chart opens their details in a window (X, Esc, or a click outside closes it).
 27. (25) Onboarding, first page: the Business DNA box lists vision, mission, core values, business model, revenue
     drivers, operational drivers, customer value drivers and performance philosophy, in the label and in the
     placeholder.
