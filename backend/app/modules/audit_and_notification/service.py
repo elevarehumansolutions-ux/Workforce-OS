@@ -10,6 +10,7 @@ from .enums import NotificationCategory
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .repository import AuditRepository, NotificationRepository
+from .subjects import label_from_changes
 from .models import AuditLog, Notification
 
 logger = logging.getLogger(__name__)
@@ -114,6 +115,28 @@ class AuditService:
             cursor=cursor,
             limit=limit,
         )
+
+    async def get_subject_labels(self, rows: list[AuditLog]) -> dict[uuid.UUID, str]:
+        """{audit row id: what the row was about}, as a readable label.
+
+        First from the row's own stored snapshot (free), then, for rows that did not store a name,
+        from the thing's name today (one query per kind of thing, not one per row).
+        """
+        labels: dict[uuid.UUID, str] = {}
+        missing_by_type: dict[str, list[AuditLog]] = {}
+        for row in rows:
+            label = label_from_changes(row.entity_type, row.changes)
+            if label:
+                labels[row.id] = label
+            else:
+                missing_by_type.setdefault(row.entity_type, []).append(row)
+
+        for entity_type, missing in missing_by_type.items():
+            current = await self._repo.get_current_labels(entity_type, [row.entity_id for row in missing])
+            for row in missing:
+                if row.entity_id in current:
+                    labels[row.id] = current[row.entity_id]
+        return labels
 
     async def get_actor_names(
         self, organization_id: uuid.UUID, rows: list[AuditLog]

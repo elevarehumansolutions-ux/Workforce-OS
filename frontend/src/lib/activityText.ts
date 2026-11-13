@@ -64,9 +64,29 @@ function plainWords(text: string): string {
   return text.replace(/_/g, " ");
 }
 
-export function describeActivity(action: string, entityType: string): string {
+// "an employee" -> "employee": the kind without its article, to put before a name.
+function kindWord(entityType: string): string {
+  const withArticle = THING[entityType] || "a " + plainWords(entityType);
+  return withArticle.replace(/^(a|an|the) /, "");
+}
+
+// ``subject`` is what the row was about, from the server ("Chidi Okafor (chidi@x.com)", "Sales").
+// With it the sentence names the thing: "added employee Chidi Okafor (chidi@x.com)".
+export function describeActivity(action: string, entityType: string, subject?: string | null): string {
   if (STANDALONE[action]) {
     return STANDALONE[action];
+  }
+
+  if (subject) {
+    // An invite is about an email address, a membership about a person added to the team.
+    if (entityType === "invite") {
+      return "invited " + subject;
+    }
+    if (entityType === "membership" && action === "add") {
+      return "added " + subject + " to the team";
+    }
+    const verb = DOING[action] || plainWords(action);
+    return verb + " " + kindWord(entityType) + " " + subject;
   }
 
   const thing = THING[entityType] || "a " + plainWords(entityType);

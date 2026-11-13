@@ -14,6 +14,7 @@ interface AuditRow {
   id: string;
   actor_user_id: string | null;
   actor_name?: string | null;
+  subject?: string | null;
   action: string;
   entity_type: string;
   created_at: string;
@@ -27,7 +28,7 @@ interface HubData {
 }
 
 function actionText(row: AuditRow): string {
-  return describeActivity(row.action, row.entity_type);
+  return describeActivity(row.action, row.entity_type, row.subject);
 }
 
 async function loadHub(): Promise<HubData> {

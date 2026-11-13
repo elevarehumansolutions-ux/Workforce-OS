@@ -19,6 +19,8 @@ class AuditLogResponse(BaseModel):
     # The actor's full name, so the screen does not have to look it up (a business executive
     # cannot read the team list). None for system actions or a user that no longer exists.
     actor_name: str | None = None
+    # What the row was about, in words: "Chidi Okafor (chidi@x.com)", "Sales". None when unknown.
+    subject: str | None = None
     action: str
     entity_type: str
     entity_id: UUID

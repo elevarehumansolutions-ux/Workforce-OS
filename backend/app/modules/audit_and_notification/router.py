@@ -52,10 +52,12 @@ async def list_audit_log(
         limit=limit,
     )
     names = await service.get_actor_names(caller.organization_id, result["items"])
+    subjects = await service.get_subject_labels(result["items"])
     data = []
     for item in result["items"]:
         row = AuditLogResponse.model_validate(item)
         row.actor_name = names.get(item.actor_user_id)
+        row.subject = subjects.get(item.id)
         data.append(row)
     return CursorPaginationResponse(
         message="OK",
