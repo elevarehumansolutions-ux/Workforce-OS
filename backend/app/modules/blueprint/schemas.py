@@ -231,6 +231,29 @@ class UndoResponse(BaseModel):
     undone: int
 
 
+class HistoryEntryResponse(BaseModel):
+    """One change the owner made to the plan, and what can be done with it now.
+
+    ``state`` is ``done``, ``undone`` (it can be redone), or ``already_undone`` (the per-item
+    Undo button on a card already reversed it). ``reason`` says why Undo or Redo is not offered.
+    """
+
+    id: uuid.UUID
+    kind: str
+    label: str
+    created_at: datetime
+    state: Literal["done", "undone", "already_undone"]
+    can_undo: bool
+    can_redo: bool
+    reason: str | None
+
+
+class HistoryResponse(BaseModel):
+    """The plan's change history, newest first (at most the last 20 changes)."""
+
+    data: list[HistoryEntryResponse]
+
+
 class GenerateResponse(BaseModel):
     """Answer to 'generate my blueprint': queued, or already waiting for review."""
 

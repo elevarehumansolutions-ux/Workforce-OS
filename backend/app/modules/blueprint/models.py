@@ -200,3 +200,40 @@ class BlueprintItem(BaseModel):
     def can_undo_merge(self) -> bool:
         """True when this left-out note remembers the merge that made it."""
         return self.merge_record is not None
+
+
+class BlueprintAction(BaseModel):
+    """One change the owner made to the plan while reviewing it, kept so it can be undone and redone.
+
+    Only the onboarding review writes these. ``changes`` holds, for every plan item the change
+    touched, each column's old and new value: undo puts the old ones back, and compares the
+    current ones with the new ones first, so a change is never undone on top of a later one.
+    """
+
+    __tablename__ = "blueprint_actions"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False, index=True
+    )
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(
+        String(30), nullable=False, doc="approve, edit, reject, merge, add_separately or accept_all"
+    )
+    label: Mapped[str] = mapped_column(Text, nullable=False, doc="What the owner reads in the history")
+    params: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, doc="What redo needs to run the same change again (item ids, wording)"
+    )
+    changes: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, doc="{item id: {column: [old value, new value]}} for every item touched"
+    )
+    real_names: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        doc="{rename item id: the real department or role's name before}, so a rename can be put back",
+    )
+    undone_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, doc="Set while the change is undone (it can be redone)"
+    )
