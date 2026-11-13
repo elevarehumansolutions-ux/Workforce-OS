@@ -57,6 +57,8 @@ interface PaginatedResponse<T> {
 interface Department {
   id: string;
   name: string;
+  // The department's current head, if any (so the form can say who a new head would replace).
+  head_employee_id?: string | null;
 }
 
 interface Position {
@@ -112,6 +114,8 @@ interface FormState {
   loginMode: LoginMode;
   role: string;
   linkedUserId: string;
+  // "Make this person head of <department>": the head of the chosen position's department.
+  makeHead: boolean;
 }
 
 const INITIAL_FORM: FormState = {
@@ -129,6 +133,7 @@ const INITIAL_FORM: FormState = {
   loginMode: "invite",
   role: "",
   linkedUserId: "",
+  makeHead: false,
 };
 
 export default function AddEmployeePage() {
@@ -185,6 +190,23 @@ export default function AddEmployeePage() {
   // Only offered when exactly one active person holds it, so it is never a guess.
   let suggestedManager: { id: string; name: string } | null = null;
   const chosenPosition = positions.find(function (p) { return p.id === form.positionId; });
+  // The department the chosen position belongs to, and who heads it now (a new head would replace them).
+  const chosenDepartment = chosenPosition
+    ? departments.find(function (d) { return d.id === chosenPosition.department_id; })
+    : undefined;
+  const currentHead =
+    chosenDepartment && chosenDepartment.head_employee_id
+      ? existingEmployees.find(function (e) { return e.id === chosenDepartment.head_employee_id; })
+      : undefined;
+
+  // Ticking "make head" suggests the Manager access level for the login (never forced, and never
+  // lowering a higher level HR already chose).
+  function toggleMakeHead(checked: boolean) {
+    updateField("makeHead", checked);
+    if (checked && form.loginMode === "invite" && (form.role === "" || form.role === "employee")) {
+      updateField("role", "manager");
+    }
+  }
   if (chosenPosition && chosenPosition.reports_to_position_id) {
     const bossRole = chosenPosition.reports_to_position_id;
     const holders = existingEmployees.filter(function (e) {
@@ -274,6 +296,9 @@ export default function AddEmployeePage() {
         address: form.address.trim() || null,
         employment_type: form.employmentType || null,
       };
+      if (form.makeHead) {
+        payload.make_department_head = true;
+      }
       if (form.loginMode === "invite") {
         payload.grant_login_access = true;
         payload.role = form.role;
@@ -288,6 +313,13 @@ export default function AddEmployeePage() {
       if (next === "finish") {
         router.push("/employees/directory");
         return;
+      }
+
+      // They are now the head: remember it, so the next person added to this department is told who they would replace.
+      if (form.makeHead && chosenDepartment) {
+        setDepartments(departments.map(function (d) {
+          return d.id === chosenDepartment.id ? { ...d, head_employee_id: employee.id } : d;
+        }));
       }
 
       // Add another: the new person can now be someone's manager, so add them to the choices.
@@ -589,6 +621,34 @@ export default function AddEmployeePage() {
                           You can still add this person: the role will then be shared. A shared role is never used to
                           fill in a manager automatically.
                         </p>
+                      ) : null}
+                      {chosenDepartment ? (
+                        <label className="mt-3 flex items-start gap-2 text-sm text-gray-200">
+                          <input
+                            type="checkbox"
+                            checked={form.makeHead}
+                            onChange={function (e) { toggleMakeHead(e.target.checked); }}
+                            className="mt-0.5 h-4 w-4 accent-indigo-500"
+                          />
+                          <span>
+                            Make this person head of <span className="font-medium">{chosenDepartment.name}</span>
+                            <span className="mt-0.5 block text-xs text-gray-500">
+                              The head is alerted when a task in the department is late, and gets tasks nobody was
+                              assigned. It shows on Organization Structure.
+                            </span>
+                            {form.makeHead && currentHead ? (
+                              <span className="mt-0.5 block text-xs text-amber-300">
+                                {chosenDepartment.name} is currently headed by {currentHead.first_name} {currentHead.last_name}.
+                                Ticking this replaces them.
+                              </span>
+                            ) : null}
+                            {form.makeHead && form.loginMode === "invite" && form.role === "manager" ? (
+                              <span className="mt-0.5 block text-xs text-indigo-300">
+                                Their login access level is set to Manager (suggested for a department head). You can change it below.
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
                       ) : null}
                     </div>
 
