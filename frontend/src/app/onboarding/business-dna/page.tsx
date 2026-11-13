@@ -250,16 +250,16 @@ export default function BusinessDnaPage() {
           <div>
             <label className="mb-2 block text-sm font-medium text-gray-200">
               Business DNA{" "}
-              <span className="text-sm font-normal text-gray-500">(e.g. vision, mission and core values)</span>
+              <span className="text-sm font-normal text-gray-500">(e.g. vision, mission, core values, business model, revenue drivers, operational drivers, customer value drivers, performance philosophy)</span>
             </label>
             <p className="mb-2 text-sm text-gray-500">
-              Describe what the company does and stands for: your vision, mission, core values, and the products or services you offer.
+              Describe what the company does and stands for. The more of these you cover, the better the plan we draft for you.
             </p>
             <textarea
               rows={9}
               value={formData.productsDescription}
               onChange={(e) => setFormData({ ...formData, productsDescription: e.target.value })}
-              placeholder={"e.g. Vision: To be Africa's leading technology solutions provider.\nMission: Empowering modern businesses through secure, innovative technology.\nCore values: Collaboration, Excellence, Integrity.\nWhat we do: Enterprise software, cloud infrastructure and managed IT services."}
+              placeholder={"e.g. Vision: To be Africa's leading technology solutions provider.\nMission: Empowering modern businesses through secure, innovative technology.\nCore values: Collaboration, Excellence, Integrity.\nWhat we do: Enterprise software, cloud infrastructure and managed IT services.\nBusiness model: Annual software subscriptions plus paid setup and support.\nRevenue drivers: New enterprise contracts, renewals, add-on modules.\nOperational drivers: Engineering delivery, customer support, cloud uptime.\nCustomer value drivers: Reliability, fast onboarding, local support.\nPerformance philosophy: Clear targets, weekly review, reward results."}
               className="w-full resize-y rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500"
             />
           </div>

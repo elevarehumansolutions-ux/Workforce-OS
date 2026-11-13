@@ -210,6 +210,20 @@ what is described, and send what you saw.
 23. (5, 18) Open Employees > Org chart. Expect every role with its people, "Vacant", "shared by 2", a star on
     each head. Click a person: open profile, make head of their department, change their access level; the
     chart updates.
+24. (24) With a second browser profile, sign up as a founder and stay on the Business DNA step. From another
+    company, invite that email. Open the invite link in the founder's browser and enter the password. Expect
+    "You've joined X. Nothing changed in the company you were working in". Go back to the Business DNA page and
+    save it: it must save without "insufficient permission". Name menu > Switch company (2) opens the other one,
+    and switching back works.
+25. (22) Employees page, signed in as the founder who has no employee record: your own row says "This is you" and
+    the button reads "Create your employee record"; it opens Add Employee with your details filled in.
+26. (23) In the org chart, make someone else head of a department that already has a head who has a login. Expect
+    the green message plus "X is no longer head of Sales. Their access level is still Manager. Change it"; the
+    button opens X so you can change the level. On Add Employee with "Save and add another" the saved message
+    says the same.
+27. (25) Onboarding, first page: the Business DNA box lists vision, mission, core values, business model, revenue
+    drivers, operational drivers, customer value drivers and performance philosophy, in the label and in the
+    placeholder.
 
 **E. Scoring (needs the helper in Stage 9)**
 16. (7, 8) Done inside Stage 9: the reminder for a department below 100% and "Scored on X% of its KPI
