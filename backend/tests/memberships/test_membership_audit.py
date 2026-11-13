@@ -49,29 +49,35 @@ async def test_inviting_a_new_email_is_logged_without_the_token(client, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_adding_an_existing_account_is_logged(client):
-    """Adding someone who already has an account logs an 'add' on the new membership."""
+async def test_an_existing_account_joining_is_logged_as_the_invite_and_then_their_own_acceptance(client, monkeypatch):
+    """The invite is logged (has_account true); when they accept, an 'add' is logged with them as the actor."""
+    from tests.memberships.join_helper import join_existing
+
     owner = await register_verified_and_login(client, email="aud_owner2@example.com")
-    await register_verified_and_login(client, email="aud_existing2@example.com")
+    existing = await register_verified_and_login(client, email="aud_existing2@example.com")
     h = _auth_header(owner["access_token"])
 
-    resp = await client.post(MEMBERSHIPS, json={"email": "aud_existing2@example.com", "role": "employee"}, headers=h)
+    joined = await join_existing(client, monkeypatch, owner, "aud_existing2@example.com", "employee")
 
-    assert resp.json()["status"] == "added"
+    invites = await _entries(client, h, "invite", "invite")
+    assert len(invites) == 1 and invites[0]["changes"]["new"]["has_account"] is True
     entries = await _entries(client, h, "membership", "add")
     assert len(entries) == 1
-    assert entries[0]["entity_id"] == resp.json()["membership"]["id"]
+    assert entries[0]["entity_id"] == joined["membership"]["id"]
     assert entries[0]["changes"]["new"]["role"] == "employee"
+    assert entries[0]["actor_user_id"] == existing["user"]["id"]
 
 
 @pytest.mark.asyncio
-async def test_role_change_deactivation_and_reactivation_are_logged(client):
+async def test_role_change_deactivation_and_reactivation_are_logged(client, monkeypatch):
     """PATCH logs 'update' and 'deactivate'; /reactivate logs 'reactivate'; each with old and new state."""
+    from tests.memberships.join_helper import join_existing
+
     owner = await register_verified_and_login(client, email="aud_owner3@example.com")
     await register_verified_and_login(client, email="aud_member3@example.com")
     h = _auth_header(owner["access_token"])
-    added = await client.post(MEMBERSHIPS, json={"email": "aud_member3@example.com", "role": "employee"}, headers=h)
-    membership_id = added.json()["membership"]["id"]
+    added = await join_existing(client, monkeypatch, owner, "aud_member3@example.com", "employee")
+    membership_id = added["membership"]["id"]
 
     await client.patch(f"{MEMBERSHIPS}/{membership_id}", json={"role": "manager"}, headers=h)
     await client.patch(f"{MEMBERSHIPS}/{membership_id}", json={"is_deactivated": True}, headers=h)

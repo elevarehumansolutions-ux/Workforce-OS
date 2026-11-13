@@ -1,5 +1,7 @@
 """Pydantic request/response schemas for the auth module's endpoints."""
 
+import uuid
+
 from pydantic import BaseModel, model_validator, Field
 import re
 from app.core.schemas import NormalizedEmail
@@ -172,6 +174,33 @@ class MeResponse(BaseModel):
 
     user: UserResponse
     memberships: list[MembershipWithOrganizationResponse]
+
+
+class InvitePreviewResponse(BaseModel):
+    """What the accept-invite page shows before anything is submitted.
+
+    ``account_exists`` decides which form the page draws: an existing account only confirms
+    with its password, a new one picks a name and a password. ``invitee_name`` is prefilled.
+    """
+
+    email: str
+    company_name: str | None
+    role: str
+    invitee_name: str | None
+    account_exists: bool
+
+
+class AcceptInviteExistingRequest(BaseModel):
+    """Accept an invite with an account that already exists: the token plus that account's password."""
+
+    token: str
+    password: str
+
+
+class SwitchOrganizationRequest(BaseModel):
+    """Pick which of the caller's organizations this session acts for."""
+
+    organization_id: uuid.UUID
 
 
 class AcceptInviteRequest(BaseModel):

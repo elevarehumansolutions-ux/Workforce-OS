@@ -119,8 +119,8 @@ async def test_grant_login_resend_replaces_the_pending_invite(client, invite_ema
 
 
 @pytest.mark.asyncio
-async def test_grant_login_to_an_existing_account_links_immediately_without_email(client, invite_emails):
-    """An email that already has an account elsewhere is added to the org and linked on the spot."""
+async def test_grant_login_to_an_existing_account_waits_for_them_to_accept(client, invite_emails):
+    """An email that already has an account (say they signed up by mistake) is INVITED, not added: they accept with their password, and only then are they linked."""
     owner, h = await _owner(client, "gl_owner3@example.com")
     other, _ = await _owner(client, "gl_existing3@example.com")
     position_id = await _setup_position(client, h)
@@ -129,9 +129,18 @@ async def test_grant_login_to_an_existing_account_links_immediately_without_emai
     resp = await client.post(f"{EMPLOYEES}/{emp['id']}/grant-login", json={"role": "manager"}, headers=h)
 
     assert resp.status_code == 200
-    assert resp.json()["outcome"] == "added"
-    assert resp.json()["employee"]["user_id"] == other["user"]["id"]
-    invite_emails.delay.assert_not_called()
+    assert resp.json()["outcome"] == "invited"
+    assert resp.json()["employee"]["user_id"] is None  # not linked until they accept
+    invite_emails.delay.assert_called_once()
+
+    accepted = await client.post(
+        f"{AUTH}/accept-invite-existing",
+        json={"token": _token_from(invite_emails), "password": "Password123#"},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["organization"]["id"] == owner["organization"]["id"]
+    fetched = await client.get(f"{EMPLOYEES}/{emp['id']}", headers=h)
+    assert fetched.json()["user_id"] == other["user"]["id"]
 
 
 @pytest.mark.asyncio

@@ -1013,6 +1013,8 @@ class EmployeeService:
             email=email,
             role=role,
             employee_id=employee.id,
+            # The employee record already has the name: the accept page shows it, nobody types it twice.
+            invitee_name=f"{employee.first_name} {employee.last_name}".strip(),
         )
         if outcome == "added":
             employee = await self._attach_user(employee, result.user_id, actor_user_id)

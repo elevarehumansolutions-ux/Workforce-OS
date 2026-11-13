@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .security import hash_password, verify_password
 from app.core.security import generate_token, hash_token
 from app.core.schemas import MessageResponse
+from app.modules.audit_and_notification.service import AuditService
 from app.modules.organization.service import EmployeeService
 from app.modules.tenancy_identity.service import UserService, OrganizationService, MembershipService
 from app.modules.tenancy_identity.schemas import (
@@ -27,6 +28,8 @@ from app.modules.auth.schemas import (
     ChangePasswordRequest,
     MeResponse,
     AcceptInviteRequest,
+    AcceptInviteExistingRequest,
+    InvitePreviewResponse,
 )
 from app.modules.tenancy_identity.schemas import MembershipWithOrganizationResponse
 from app.modules.tenancy_identity.models import User, Organization, Membership
@@ -50,6 +53,7 @@ from app.core.exceptions import (
     AccountBannedException,
     AccountDeactivatedException,
     NoActiveMembershipException,
+    MembershipDeactivatedException,
 )
 from app.modules.auth.repository import AuthRepository
 from .tasks import dispatch_verification_email, dispatch_password_reset_email
@@ -585,6 +589,171 @@ class AuthService:
                 MembershipWithOrganizationResponse.model_validate(m) for m in memberships
             ],
         )
+
+    # -- companies: one login can belong to several (2026-11-13) --------------------------
+
+    async def _open_session(
+        self,
+        user: User,
+        org: Organization,
+        membership: Membership,
+        response: Response,
+        old_refresh_token: str | None = None,
+    ) -> AuthResponse:
+        """Start a session for ONE company: a fresh token pair and refresh cookie, then commit.
+
+        The access token carries the company, so this is also how switching company works: the
+        old refresh token (if there is one) is revoked and a new pair is issued for the new company.
+        """
+        token_pair = create_token_pair(user_id=user.id, org_id=str(org.id), role=membership.role)
+        response.set_cookie(
+            key="refresh_token",
+            value=token_pair["refresh_token"],
+            httponly=True,
+            secure=settings.environment == "production",
+            samesite="lax",
+            max_age=settings.jwt_refresh_token_expire_days * 24 * 60 * 60,
+        )
+        await self._auth_repo.create_refresh_token(
+            user_id=user.id,
+            hashed_token=hash_token(token_pair["refresh_token"]),
+            expires_at=datetime.now(UTC) + timedelta(days=settings.jwt_refresh_token_expire_days),
+        )
+        if old_refresh_token:
+            old_record = await self._auth_repo.get_refresh_token(old_refresh_token)
+            if old_record is not None and not old_record.is_revoked:
+                await self._auth_repo.revoke_refresh_token(old_record)
+        await self._db.commit()
+        await self._db.refresh(user)
+        return AuthResponse(
+            user=self._build_user_response(user),
+            organization=self._build_organization_response(org),
+            membership=self._build_membership_response(membership),
+            access_token=token_pair["access_token"],
+            token_type=token_pair["token_type"],
+        )
+
+    async def _get_usable_invite(self, raw_token: str):
+        """The invite behind a link, or the right error: unknown (401), already used, or expired."""
+        invite = await self._membership_service.get_invite_by_token(hash_token(raw_token))
+        if not invite:
+            raise TokenInvalidException()
+        if invite.is_used:
+            raise TokenAlreadyUsedException()
+        if invite.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
+            raise VerificationTokenExpiredException()
+        return invite
+
+    async def preview_invite(self, raw_token: str) -> InvitePreviewResponse:
+        """What the accept page needs to draw itself: the company, the role, the prefilled name, and
+        whether the email already has an account (then only a password is asked)."""
+        invite = await self._get_usable_invite(raw_token)
+        await self._db.execute(
+            text("SELECT set_config('app.current_org_id', :org_id, true)"),
+            {"org_id": str(invite.organization_id)},
+        )
+        org = await self._org_service.get_organization_by_id(invite.organization_id)
+        existing = await self._user_service.get_user_by_email(invite.email)
+        return InvitePreviewResponse(
+            email=invite.email,
+            company_name=org.name if org else None,
+            role=str(getattr(invite.role, "value", invite.role)),
+            invitee_name=invite.invitee_name,
+            account_exists=existing is not None,
+        )
+
+    async def accept_invite_existing(
+        self, data: AcceptInviteExistingRequest, response: Response
+    ) -> AuthResponse:
+        """Join a company with an account that already exists: the invite token plus that account's password.
+
+        The link proves the person owns the inbox and the password proves it is their account, so
+        nobody can be added to a company without their own say-so. They keep one login for every
+        company they belong to; the session returned is for the company they just joined.
+        """
+        invite = await self._get_usable_invite(data.token)
+        user = await self._user_service.get_user_by_email(invite.email)
+        if user is None:
+            # Nobody has this email yet: that is the other form (name and password, new account).
+            raise TokenInvalidException()
+        if not verify_password(data.password, user.password_hash):
+            raise InvalidCredentialsException()
+        if user.account_status == AccountStatus.SUSPENDED.value:
+            raise AccountSuspendedException()
+        if user.account_status == AccountStatus.BANNED.value:
+            raise AccountBannedException()
+        if user.account_status == AccountStatus.DEACTIVATED.value:
+            raise AccountDeactivatedException()
+        if user.account_status == AccountStatus.PENDING_VERIFICATION.value:
+            # The invite email reached them, which is the proof a verification link would give.
+            user.account_status = AccountStatus.VERIFIED.value
+
+        await self._db.execute(
+            text("SELECT set_config('app.current_org_id', :org_id, true)"),
+            {"org_id": str(invite.organization_id)},
+        )
+        existing = await self._membership_service.get_membership(user.id, invite.organization_id)
+        if existing is not None:
+            if existing.deactivated_at is None:
+                raise AlreadyExistsException(message="You are already a member of this company")
+            raise MembershipDeactivatedException(
+                message="You were deactivated in this company; ask them to reactivate you"
+            )
+
+        membership = await self._membership_service.create_membership({
+            "user_id": user.id,
+            "organization_id": invite.organization_id,
+            "role": invite.role,
+            "is_owner": False,
+        })
+        org = await self._org_service.get_organization_by_id(invite.organization_id)
+        if invite.employee_id is not None:
+            await EmployeeService(self._db).link_accepted_invite(invite.employee_id, user.id)
+        await self._membership_service.mark_invite_used(invite.id)
+        # The person joined by their own act, so they are the actor.
+        await AuditService(self._db).log_action(
+            organization_id=invite.organization_id,
+            actor_user_id=user.id,
+            action="add",
+            entity_type="membership",
+            entity_id=membership.id,
+            changes={
+                "old": None,
+                "new": {
+                    "role": str(getattr(membership.role, "value", membership.role)),
+                    "email": user.email,
+                    "accepted_invite": True,
+                },
+            },
+        )
+        user.last_login_at = datetime.now(timezone.utc)
+        return await self._open_session(user, org, membership, response)
+
+    async def switch_organization(
+        self,
+        user: User,
+        organization_id: uuid.UUID,
+        raw_refresh_token: str | None,
+        response: Response,
+    ) -> AuthResponse:
+        """Make this session act for another of the caller's companies (new token, new cookie)."""
+        # Same bootstrap as login and /me: no company is chosen yet, so identify by user id.
+        await self._db.execute(text("SELECT set_config('app.current_org_id', '', true)"))
+        await self._db.execute(
+            text("SELECT set_config('app.current_user_id', :user_id, true)"),
+            {"user_id": str(user.id)},
+        )
+        membership = await self._membership_service.get_membership(user.id, organization_id)
+        if membership is None or membership.deactivated_at is not None:
+            # The same answer for "not a member" and "removed", as everywhere else.
+            raise InvalidCredentialsException("You are not an active member of that company")
+
+        await self._db.execute(
+            text("SELECT set_config('app.current_org_id', :org_id, true)"),
+            {"org_id": str(organization_id)},
+        )
+        org = await self._org_service.get_organization_by_id(organization_id)
+        return await self._open_session(user, org, membership, response, raw_refresh_token)
 
     async def accept_invite(self, data: AcceptInviteRequest, response: Response) -> AuthResponse:
         """Complete a teammate invite for an email with no prior account.

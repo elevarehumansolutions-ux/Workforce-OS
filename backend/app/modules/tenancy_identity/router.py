@@ -72,6 +72,7 @@ async def invite_teammate(
         invited_by_user_id=caller.user_id,
         email=data.email,
         role=data.role.value,
+        invitee_name=data.full_name,
     )
 
     # Read the company name before committing: the tenant context RLS needs is
