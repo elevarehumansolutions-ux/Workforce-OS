@@ -30,6 +30,7 @@ from app.modules.auth.schemas import (
     AcceptInviteRequest,
     AcceptInviteExistingRequest,
     InvitePreviewResponse,
+    JoinedCompanyResponse,
 )
 from app.modules.tenancy_identity.schemas import MembershipWithOrganizationResponse
 from app.modules.tenancy_identity.models import User, Organization, Membership
@@ -664,7 +665,7 @@ class AuthService:
 
     async def accept_invite_existing(
         self, data: AcceptInviteExistingRequest, response: Response
-    ) -> AuthResponse:
+    ) -> AuthResponse | JoinedCompanyResponse:
         """Join a company with an account that already exists: the invite token plus that account's password.
 
         The link proves the person owns the inbox and the password proves it is their account, so
@@ -687,6 +688,19 @@ class AuthService:
         if user.account_status == AccountStatus.PENDING_VERIFICATION.value:
             # The invite email reached them, which is the proof a verification link would give.
             user.account_status = AccountStatus.VERIFIED.value
+
+        # Ask this BEFORE pointing the connection at the invited company: it is the same
+        # "identify by user id" lookup login uses, and it only works while no company is set.
+        await self._db.execute(text("SELECT set_config('app.current_org_id', '', true)"))
+        await self._db.execute(
+            text("SELECT set_config('app.current_user_id', :user_id, true)"),
+            {"user_id": str(user.id)},
+        )
+        memberships_before = await self._membership_service.get_user_memberships(user.id)
+        already_in_a_company = False
+        for old in memberships_before:
+            if old.deactivated_at is None:
+                already_in_a_company = True
 
         await self._db.execute(
             text("SELECT set_config('app.current_org_id', :org_id, true)"),
@@ -726,6 +740,13 @@ class AuthService:
                 },
             },
         )
+        if data.keep_current_company and already_in_a_company:
+            # No new token and no new cookie: whatever company the person is working in stays
+            # the one they are working in. They open the new one themselves with "Switch company".
+            await self._db.commit()
+            return JoinedCompanyResponse(organization=self._build_organization_response(org))
+
+        # A brand-new account with no company of its own goes straight into this one.
         user.last_login_at = datetime.now(timezone.utc)
         return await self._open_session(user, org, membership, response)
 

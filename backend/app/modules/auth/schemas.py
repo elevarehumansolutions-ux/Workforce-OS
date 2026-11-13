@@ -195,6 +195,17 @@ class AcceptInviteExistingRequest(BaseModel):
 
     token: str
     password: str
+    # The web app always sends true: joining a second company must not move someone out of the
+    # company they are working in. Left false, the response is a session for the joined company.
+    keep_current_company: bool = False
+
+
+class JoinedCompanyResponse(BaseModel):
+    """Answer to "join" when the person's current session is left alone."""
+
+    organization: OrganizationResponse
+    # Always false here; lets the caller tell this apart from a full AuthResponse.
+    session_opened: bool = False
 
 
 class SwitchOrganizationRequest(BaseModel):

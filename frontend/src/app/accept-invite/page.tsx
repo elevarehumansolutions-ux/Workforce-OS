@@ -35,6 +35,13 @@ interface AcceptInviteResponse {
   organization: { id: string; name: string };
 }
 
+// What "join with an existing account" can answer: a session for the new company (a person with no
+// company of their own), or just "joined" (the person keeps working where they were).
+interface JoinExistingResponse {
+  access_token?: string;
+  organization: { id: string; name: string };
+}
+
 function AcceptInviteContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -52,6 +59,8 @@ function AcceptInviteContent() {
   const [submitting, setSubmitting] = useState(false);
   const [joined, setJoined] = useState(false);
   const [joinedOrg, setJoinedOrg] = useState("");
+  // True when the person already had a company, so nothing about their session changed.
+  const [stayedInOwnCompany, setStayedInOwnCompany] = useState(false);
   // What the link is for: the company, the role, the name HR already typed, and whether this email
   // already has an account (then only the existing password is asked).
   const [preview, setPreview] = useState<InvitePreview | null>(null);
@@ -92,17 +101,21 @@ function AcceptInviteContent() {
     setErrors({});
     setSubmitting(true);
     try {
-      const data = await apiFetch<AcceptInviteResponse>("/auth/accept-invite-existing", {
+      const data = await apiFetch<JoinExistingResponse>("/auth/accept-invite-existing", {
         method: "POST",
-        body: { token: token, password: password },
+        body: { token: token, password: password, keep_current_company: true },
         skipAuth: true,
       });
-      setAccessToken(data.access_token);
       setJoinedOrg(data.organization ? data.organization.name : "");
       setJoined(true);
+      if (!data.access_token) {
+        // Joined, but they already have a company: they stay in it and open this one themselves.
+        setStayedInOwnCompany(true);
+        return;
+      }
+      setAccessToken(data.access_token);
       setTimeout(function () {
-        // A full load: this person may already be signed in to another company in this tab, and
-        // the menu and role cached for that company must not survive the switch.
+        // A full load: the menu and role cached for any earlier company must not survive.
         window.location.assign("/dashboard");
       }, 1500);
     } catch (err) {
@@ -221,6 +234,29 @@ function AcceptInviteContent() {
       "This invite link is incomplete",
       "Open the link from your invitation email again. If it still doesn't work, ask whoever invited you to send a new one.",
       false
+    );
+  }
+
+  if (joined && stayedInOwnCompany) {
+    return shell(
+      <div className="text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M5 13l4 4L19 7" stroke="#34d399" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
+        <h1 className="mt-6 text-xl font-bold">You&apos;ve joined {joinedOrg ? joinedOrg : "the company"}</h1>
+        <p className="mt-2 text-sm text-gray-400">
+          Nothing changed in the company you were working in. To open {joinedOrg ? joinedOrg : "the new company"}, sign
+          in and choose Switch company from your name menu.
+        </p>
+        <Link
+          href="/dashboard"
+          className="mt-6 block w-full rounded-lg bg-indigo-500 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600"
+        >
+          Continue
+        </Link>
+      </div>
     );
   }
 
