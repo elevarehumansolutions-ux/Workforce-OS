@@ -21,6 +21,7 @@ from app.modules.auth.schemas import (
     MeResponse,
     AcceptInviteRequest,
     AcceptInviteExistingRequest,
+    JoinedCompanyResponse,
     InvitePreviewResponse,
     SwitchOrganizationRequest,
 )
@@ -169,8 +170,11 @@ async def accept_invite_existing(
     data: AcceptInviteExistingRequest,
     response: Response,
     db: AsyncSession = Depends(get_db),
-) -> AuthResponse:
-    """Join a company with an account that already exists: invite token plus that account's password."""
+) -> AuthResponse | JoinedCompanyResponse:
+    """Join a company with an account that already exists: invite token plus that account's password.
+
+    With ``keep_current_company`` the person's current session is left alone (see the service).
+    """
     return await AuthService(db).accept_invite_existing(data, response)
 
 

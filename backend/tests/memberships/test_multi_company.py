@@ -148,6 +148,31 @@ async def test_accepting_joins_the_company_and_the_session_is_for_that_company(c
 
 
 @pytest.mark.asyncio
+async def test_keep_current_company_joins_without_moving_the_session(client, monkeypatch):
+    """Chidi is mid-setup in his own company. Accepting Zenith's invite must not move him out of it."""
+    owner = await register_verified_and_login(client, email="mc_owner7b@example.com")
+    chidi = await register_verified_and_login(client, email="mc_chidi7b@example.com")
+    _, token = await invite_existing(client, monkeypatch, owner, "mc_chidi7b@example.com", "employee")
+
+    accepted = await client.post(
+        f"{AUTH}/accept-invite-existing",
+        json={"token": token, "password": "Password123#", "keep_current_company": True},
+    )
+
+    assert accepted.status_code == 200
+    body = accepted.json()
+    assert body["session_opened"] is False
+    assert "access_token" not in body  # no new token...
+    assert "refresh_token" not in accepted.headers.get("set-cookie", "")  # ...and no new cookie
+    assert body["organization"]["id"] == owner["organization"]["id"]
+    # He did join: both companies are on his list, and his own token still works for his own company.
+    me = await client.get(f"{AUTH}/me", headers=_h(chidi))
+    assert len([m for m in me.json()["memberships"] if m["deactivated_at"] is None]) == 2
+    own_team = await client.get(MEMBERSHIPS, headers=_h(chidi))
+    assert own_team.status_code == 200 and own_team.json()["pagination"]["total"] == 1
+
+
+@pytest.mark.asyncio
 async def test_the_same_invite_cannot_be_accepted_twice(client, monkeypatch):
     owner = await register_verified_and_login(client, email="mc_owner8@example.com")
     await register_verified_and_login(client, email="mc_chidi8@example.com")

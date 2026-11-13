@@ -65,6 +65,8 @@ export default function EmployeeChartPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  // Set after a head was replaced: the person who was head before, so we can say their access level did not change.
+  const [formerHead, setFormerHead] = useState<{ id: string; name: string; department: string; level: string } | null>(null);
 
   const data = state.data;
   const person = data ? data.employees.find(function (e) { return e.id === pickedId; }) : undefined;
@@ -73,7 +75,8 @@ export default function EmployeeChartPage() {
   const member = person && person.user_id && data ? data.members[person.user_id] : undefined;
   const isHead = person && department ? department.head_employee_id === person.id : false;
 
-  async function run(action: () => Promise<unknown>, done: string) {
+  // Returns true when the change was saved, so callers can add a follow-up only after a success.
+  async function run(action: () => Promise<unknown>, done: string): Promise<boolean> {
     setBusy(true);
     setError("");
     setMessage("");
@@ -81,18 +84,29 @@ export default function EmployeeChartPage() {
       await action();
       setMessage(done);
       setReload(reload + 1);
+      return true;
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't save that change.");
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
   function makeHead() {
-    if (!person || !department) return;
+    if (!person || !data || !department) return;
+    // Read the old head BEFORE the change: after it, the department points at the new one.
+    const oldHead = data.employees.find(function (e) { return e.id === department.head_employee_id; });
+    const oldMember = oldHead && oldHead.user_id ? data.members[oldHead.user_id] : undefined;
+    setFormerHead(null);
     run(function () {
       return apiFetch("/departments/" + department.id, { method: "PATCH", body: { head_employee_id: person.id } });
-    }, fullName(person) + " is now the head of " + department.name + ".");
+    }, fullName(person) + " is now the head of " + department.name + ".").then(function (saved) {
+      // Only for someone who has a login: their access level is the thing that did not move.
+      if (saved && oldHead && oldMember) {
+        setFormerHead({ id: oldHead.id, name: fullName(oldHead), department: department.name, level: roleLabel(oldMember.role) });
+      }
+    });
   }
 
   function setAccessLevel(role: string) {
@@ -127,6 +141,18 @@ export default function EmployeeChartPage() {
 
           {error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}
           {message ? <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">{message}</p> : null}
+          {formerHead && message ? (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+              {formerHead.name} is no longer head of {formerHead.department}. Their access level is still {formerHead.level}.{" "}
+              <button
+                type="button"
+                onClick={function () { setPickedId(formerHead.id); setFormerHead(null); }}
+                className="font-medium underline"
+              >
+                Change it
+              </button>
+            </p>
+          ) : null}
 
           {person ? (
             <div className="rounded-2xl border border-indigo-400/30 bg-[#0a0e1a] p-5">

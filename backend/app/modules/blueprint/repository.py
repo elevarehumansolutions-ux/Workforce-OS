@@ -13,7 +13,7 @@ from app.modules.okrs.models import OKR
 from app.modules.organization.models import Department, Position
 
 from .enums import BlueprintKind, BlueprintStatus
-from .models import BlueprintItem
+from .models import BlueprintAction, BlueprintItem
 
 # Same reason as in the AI suggestions repository: an UPDATE ... RETURNING must
 # not guess which in-memory rows it touched, and must refresh the row it returns.
@@ -222,4 +222,47 @@ class BlueprintRepository:
     async def set_created_entity(self, item: BlueprintItem, entity_id: uuid.UUID) -> None:
         """Remember which real row an approved item became."""
         item.created_entity_id = entity_id
+        await self._db.flush()
+
+    # -- the change history (blueprint_actions) ---------------------------------
+
+    async def list_all_items(self, organization_id: uuid.UUID) -> list[BlueprintItem]:
+        """Every plan item of the organization, freshly read (the history snapshots all of them)."""
+        stmt = (
+            select(BlueprintItem)
+            .where(BlueprintItem.organization_id == organization_id)
+            .order_by(BlueprintItem.sort_order, BlueprintItem.id)
+            .execution_options(populate_existing=True)
+        )
+        return list((await self._db.execute(stmt)).scalars().all())
+
+    async def add_action(self, action: BlueprintAction) -> BlueprintAction:
+        """Save one recorded change."""
+        self._db.add(action)
+        await self._db.flush()
+        return action
+
+    async def list_actions(self, organization_id: uuid.UUID) -> list[BlueprintAction]:
+        """The organization's recorded changes, newest first."""
+        stmt = (
+            select(BlueprintAction)
+            .where(BlueprintAction.organization_id == organization_id)
+            .order_by(BlueprintAction.created_at.desc(), BlueprintAction.id)
+            .execution_options(populate_existing=True)
+        )
+        return list((await self._db.execute(stmt)).scalars().all())
+
+    async def get_action(self, action_id: uuid.UUID) -> BlueprintAction | None:
+        """One recorded change by id, or None (RLS hides other organizations' rows)."""
+        stmt = (
+            select(BlueprintAction)
+            .where(BlueprintAction.id == action_id)
+            .execution_options(populate_existing=True)
+        )
+        return (await self._db.execute(stmt)).scalar_one_or_none()
+
+    async def delete_actions(self, actions: list[BlueprintAction]) -> None:
+        """Forget recorded changes (the undone ones when a new change is made, or the oldest)."""
+        for action in actions:
+            await self._db.delete(action)
         await self._db.flush()

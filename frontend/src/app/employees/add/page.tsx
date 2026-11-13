@@ -361,6 +361,13 @@ export default function AddEmployeePage() {
           managerNote = " Reports to " + boss.first_name + " " + boss.last_name + " (filled in from the chart).";
         }
       }
+      // A head was replaced: say that the old head's access level did not change with it.
+      if (form.makeHead && currentHead && chosenDepartment) {
+        managerNote =
+          managerNote +
+          " " + currentHead.first_name + " " + currentHead.last_name + " is no longer head of " + chosenDepartment.name +
+          ". Their access level did not change; review it under Team Management or the org chart.";
+      }
       setSavedNotice({ name: (form.firstName + " " + form.lastName).trim(), id: employee.id, managerNote: managerNote });
       // Keep where the next person usually sits (role, manager, location, type, start date);
       // clear what is personal to one individual.

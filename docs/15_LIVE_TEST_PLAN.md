@@ -43,6 +43,26 @@ company, never a real customer's.
 6. Press Accept all. Expect: everything is created, nothing is lost, errors (if any) are listed.
 7. Continue to Invite Team. Expect: no old Organization / OKR / KPI steps in the way.
 
+### Stage 2c: Change history, Undo and Redo (onboarding plan review)
+
+Do this on the plan screen (OS Structure), right after Stage 2, before pressing the last Accept all.
+
+1. After your first change a box appears under the "Accept all" bar: "Last change: ..." with **Undo last
+   change** and, after an undo, **Redo**. "All changes (N)" opens the list (newest first, 20 at most).
+2. Add a department. Expect "Added department "X"". Undo last change: the department is gone from the real
+   structure (check Organization Structure in another tab) and waits again on the plan. Redo: it is back.
+3. Merge a suggested department or role into another one. Undo last change: both are separate again, with the
+   capital shares they had before. Redo: merged again. Do this in the org chart section too.
+4. Edit a role's wording and add it. Undo: it waits again with the ORIGINAL wording. Redo: your wording is back.
+5. Skip a department that has roles under it. Undo: the department and everything skipped with it wait again.
+6. Add a department, then add one of its roles (two changes). In "All changes", try Undo on the older one:
+   expect it is not offered and the reason says to undo the role first. Undo the newer, then the older: both work.
+7. Undo two changes, then make a new change. Expect the Redo button and the "undone" lines are gone.
+8. Use the Undo button on a card (not the Changes box) for something you added. Expect its line in "All
+   changes" reads "undone from its card" and has no Undo.
+9. Give someone the role in Add Employee (another tab), then try to undo the change that added the role.
+   Expect a refusal in words and nothing changed.
+
 ### Stage 2b: Invite Team (the last onboarding step)
 
 Invite Team is about LOGINS, not about the positions accepted in the plan. An invite is an email
@@ -210,6 +230,20 @@ what is described, and send what you saw.
 23. (5, 18) Open Employees > Org chart. Expect every role with its people, "Vacant", "shared by 2", a star on
     each head. Click a person: open profile, make head of their department, change their access level; the
     chart updates.
+24. (24) With a second browser profile, sign up as a founder and stay on the Business DNA step. From another
+    company, invite that email. Open the invite link in the founder's browser and enter the password. Expect
+    "You've joined X. Nothing changed in the company you were working in". Go back to the Business DNA page and
+    save it: it must save without "insufficient permission". Name menu > Switch company (2) opens the other one,
+    and switching back works.
+25. (22) Employees page, signed in as the founder who has no employee record: your own row says "This is you" and
+    the button reads "Create your employee record"; it opens Add Employee with your details filled in.
+26. (23) In the org chart, make someone else head of a department that already has a head who has a login. Expect
+    the green message plus "X is no longer head of Sales. Their access level is still Manager. Change it"; the
+    button opens X so you can change the level. On Add Employee with "Save and add another" the saved message
+    says the same.
+27. (25) Onboarding, first page: the Business DNA box lists vision, mission, core values, business model, revenue
+    drivers, operational drivers, customer value drivers and performance philosophy, in the label and in the
+    placeholder.
 
 **E. Scoring (needs the helper in Stage 9)**
 16. (7, 8) Done inside Stage 9: the reminder for a department below 100% and "Scored on X% of its KPI

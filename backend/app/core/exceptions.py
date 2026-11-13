@@ -905,6 +905,34 @@ class BlueprintItemNotFoundException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class BlueprintActionNotFoundException(PlatformError):
+    """Raised when a plan-history entry id finds no row (or it was cleared by a newer change)."""
+
+    def __init__(
+        self,
+        message: str = "That change is no longer in the history",
+        code: str = "BLUEPRINT_ACTION_NOT_FOUND",
+        status_code: int = 404,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
+class BlueprintHistoryBlockedException(PlatformError):
+    """Raised when a plan change cannot be undone or redone right now; the message says why."""
+
+    def __init__(
+        self,
+        message: str = "This change cannot be undone right now",
+        code: str = "BLUEPRINT_HISTORY_BLOCKED",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class BlueprintItemAlreadyReviewedException(PlatformError):
     """Raised when reviewing a blueprint item that is no longer pending."""
 

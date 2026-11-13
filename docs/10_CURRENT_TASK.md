@@ -11,8 +11,11 @@ short explanation (see `CLAUDE.md`).
 Branch `people-flow` (off `main` after PR #64) holds the "one front door for adding a person" work: activity lines
 that name what was acted on, the optional invite name, "Make head of department" on Add Employee, an org chart in
 the Employees section, logins without employee records, and multi-company (invite an existing account, accept with
-its password, switch company). Committed, not pushed. Deploy needs `alembic upgrade head` (`e7a41c9b3d26`).
-Emmanuel tests it through Stage 11 D2 of `15_LIVE_TEST_PLAN.md`. Details: `09_PROGRESS.md` "DONE 2026-11-13".
+its password, switch company). Round 2 added on the same branch: accepting an invite no longer moves a signed-in
+person out of their company, "This is you" on your own unlinked login, a note when a department head is replaced,
+the Business DNA hints, and a **change history with Undo and Redo** on the onboarding plan screens. Committed, not
+pushed. Deploy needs `alembic upgrade head` (now `f3b81d6a4e57`, via `e7a41c9b3d26`). Emmanuel tests Stage 2c and
+Stage 11 of `15_LIVE_TEST_PLAN.md`. Details: `09_PROGRESS.md` "DONE 2026-11-13" and to-dos 22 to 27.
 
 ## Earlier (2026-11-11)
 
