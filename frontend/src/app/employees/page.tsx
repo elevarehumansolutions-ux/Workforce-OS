@@ -136,6 +136,8 @@ export default function EmployeesPage() {
           </p>
           <div className="mt-4 space-y-2">
             {data.unlinked.map(function (login) {
+              // The signed-in person is in this list too (a founder who signed up has no record yet).
+              const isMe = login.user.id === data.me.userId;
               return (
                 <div
                   key={login.id}
@@ -143,13 +145,14 @@ export default function EmployeesPage() {
                 >
                   <p className="text-sm text-gray-200">
                     <span className="font-medium text-white">{login.user.full_name}</span>{" "}
+                    {isMe ? <span className="rounded-full bg-indigo-500/20 px-2 py-0.5 text-xs text-indigo-200">This is you</span> : null}{" "}
                     <span className="text-gray-500">{login.user.email}, {roleLabel(login.role)}</span>
                   </p>
                   <Link
                     href={"/employees/add?member=" + login.user.id}
                     className="rounded-lg bg-indigo-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-600"
                   >
-                    Create employee record
+                    {isMe ? "Create your employee record" : "Create employee record"}
                   </Link>
                 </div>
               );
