@@ -30,12 +30,46 @@ from .schemas import (
     TemplateResponse,
     TemplateUpdateRequest,
     ValueSummaryResponse,
+    WorkingHoursRequest,
+    WorkingHoursResponse,
 )
-from .service import InstanceService, StepService, TemplateService
+from .service import InstanceService, StepService, TemplateService, WorkingHoursService
 
 router = APIRouter()
 
 _BUILDER_ROLES = (MembershipRole.HR_ADMINISTRATOR.value, MembershipRole.MANAGER.value)
+
+
+# ---------------------------------------------------------------------------
+# Working hours (the company setting that workflow deadlines count with)
+# ---------------------------------------------------------------------------
+
+@router.get("/working-hours", status_code=200)
+async def get_working_hours(
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> WorkingHoursResponse:
+    """The company's working week: start hour, end hour, working days (Monday 0 to Sunday 6) and
+    ``hours_per_day`` (what "1 day" means for a step). Open to any member. The default is 9 to 17,
+    Monday to Friday."""
+    return await WorkingHoursService(db).get(caller)
+
+
+@router.put("/working-hours", status_code=200)
+async def set_working_hours(
+    data: WorkingHoursRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(MembershipRole.HR_ADMINISTRATOR.value)),
+) -> WorkingHoursResponse:
+    """Change the company's working week. HR administrators only (403 otherwise).
+
+    Whole hours; the day must start before it ends (422 otherwise); at least one working day.
+    Only deadlines worked out from now on use it; tasks that already have a deadline keep it.
+    """
+    response = await WorkingHoursService(db).set(caller, data)
+    # Built before the commit: the tenant setting ends with it, so nothing may be read afterwards.
+    await db.commit()
+    return response
 
 
 # ---------------------------------------------------------------------------

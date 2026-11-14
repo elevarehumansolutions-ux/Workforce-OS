@@ -23,8 +23,10 @@ export interface WorkflowStep {
   department_id: string;
   // null = the task lands with the department
   default_assignee_employee_id: string | null;
-  // null = no deadline. Counted in business hours (Mon-Fri 09:00-17:00).
+  // The turnaround is given in hours OR in working days (never both); both null = no deadline.
+  // Counted in the company's working hours (Settings > Working hours); one day is a full working day.
   default_turnaround_hours: number | null;
+  default_turnaround_days: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -188,7 +190,10 @@ export function stepStateClasses(state: StepState): string {
   return "bg-white/5 text-gray-500";
 }
 
-export function turnaroundLabel(hours: number | null): string {
+export function turnaroundLabel(hours: number | null, days?: number | null): string {
+  if (days !== null && days !== undefined) {
+    return days + (days === 1 ? " business day" : " business days");
+  }
   if (hours === null || hours === undefined) return "No deadline";
   return hours + (hours === 1 ? " business hour" : " business hours");
 }

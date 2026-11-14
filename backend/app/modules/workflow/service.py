@@ -38,10 +38,67 @@ from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.repository import OrganizationRepository, UserRepository
 
 from . import value
-from .deadlines import add_business_hours
+from .deadlines import WorkingWeek, add_business_hours, turnaround_in_hours
 from .enums import InstanceStatus
 from .models import WorkflowInstance, WorkflowStep, WorkflowTemplate
 from .repository import InstanceRepository, InstanceScope, StepRepository, TemplateRepository
+from .schemas import WorkingHoursRequest, WorkingHoursResponse
+
+
+def week_of(organization) -> WorkingWeek:
+    """The company's working week, as the object the deadline code counts with."""
+    return WorkingWeek(organization.workday_start_hour, organization.workday_end_hour, tuple(organization.work_days))
+
+
+class WorkingHoursService:
+    """Reading and changing the company's working week (08_DECISIONS.md 2026-11-14)."""
+
+    def __init__(self, db: AsyncSession):
+        """Initialize the service with a session and its collaborators."""
+        self._db = db
+        self._organization_repo = OrganizationRepository(db)
+        self._audit = AuditService(db)
+
+    @staticmethod
+    def _as_response(organization) -> WorkingHoursResponse:
+        week = week_of(organization)
+        return WorkingHoursResponse(
+            start_hour=week.start_hour,
+            end_hour=week.end_hour,
+            work_days=sorted(week.days),
+            hours_per_day=week.hours_per_day(),
+        )
+
+    async def get(self, caller: Membership) -> WorkingHoursResponse:
+        """The caller's company's working week. Open to any member (a step form shows what "1 day" is)."""
+        organization = await self._organization_repo.get_organization_by_id(caller.organization_id)
+        return self._as_response(organization)
+
+    async def set(self, caller: Membership, data: WorkingHoursRequest) -> WorkingHoursResponse:
+        """Change the working week. The caller (router) commits, after building the answer.
+
+        Only deadlines worked out from now on use it: a task that already has its deadline keeps it.
+        """
+        organization = await self._organization_repo.get_organization_by_id(caller.organization_id)
+        old = {
+            "start_hour": organization.workday_start_hour,
+            "end_hour": organization.workday_end_hour,
+            "work_days": sorted(organization.work_days),
+        }
+        new_days = sorted(data.work_days)
+        await self._organization_repo.update_organization(
+            organization,
+            {"workday_start_hour": data.start_hour, "workday_end_hour": data.end_hour, "work_days": new_days},
+        )
+        await self._audit.log_action(
+            organization_id=caller.organization_id,
+            actor_user_id=caller.user_id,
+            action="update",
+            entity_type="working_hours",
+            entity_id=caller.organization_id,
+            changes={"old": old, "new": {"start_hour": data.start_hour, "end_hour": data.end_hour, "work_days": new_days}},
+        )
+        return self._as_response(organization)
 
 
 class TemplateService:
@@ -363,6 +420,14 @@ class StepService:
             await self._check_department(data["department_id"])
         if data.get("default_assignee_employee_id") is not None:
             await self._check_assignee(data["default_assignee_employee_id"])
+
+        # A step has its turnaround in hours OR in days. Setting one clears the other, so changing the
+        # unit in the form is a single edit and never leaves both set.
+        # (Only when the other one is really set, so the audit record lists just what changed.)
+        if data.get("default_turnaround_hours") is not None and step.default_turnaround_days is not None:
+            data = {**data, "default_turnaround_days": None}
+        if data.get("default_turnaround_days") is not None and step.default_turnaround_hours is not None:
+            data = {**data, "default_turnaround_hours": None}
 
         # Read the old values before the update: it changes this same object.
         old_values = {field: getattr(step, field) for field in data}
@@ -957,9 +1022,11 @@ class InstanceService:
         departed default assignee.
         """
         due_at = None
-        if step.default_turnaround_hours is not None:
+        if step.default_turnaround_hours is not None or step.default_turnaround_days is not None:
             organization = await self._organization_repo.get_organization_by_id(instance.organization_id)
-            due_at = add_business_hours(now, step.default_turnaround_hours, organization.timezone)
+            week = week_of(organization)
+            hours = turnaround_in_hours(step.default_turnaround_hours, step.default_turnaround_days, week)
+            due_at = add_business_hours(now, hours, organization.timezone, week)
 
         await self._task_service.create_workflow_task(
             organization_id=instance.organization_id,

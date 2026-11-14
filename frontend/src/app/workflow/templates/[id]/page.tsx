@@ -5,10 +5,13 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
-import { activeEmployees, departmentName, employeeName, errorMessage, fullName, loadCaller, roleLabel } from "@/lib/tasks";
+import PersonSelect from "@/components/PersonSelect";
+import { activeEmployees, departmentName, employeeName, errorMessage, loadCaller, roleLabel } from "@/lib/tasks";
 import type { CallerContext } from "@/lib/tasks";
 import { canManageTemplates, canStartCase, turnaroundLabel } from "@/lib/workflow";
 import type { WorkflowStep, WorkflowTemplate } from "@/lib/workflow";
+import { describeWorkingHours, fetchWorkingHours } from "@/lib/workingHours";
+import type { WorkingHours } from "@/lib/workingHours";
 
 interface TemplateResult {
   key: string;
@@ -42,7 +45,11 @@ export default function WorkflowTemplateDetailPage() {
   const [stepName, setStepName] = useState("");
   const [stepDept, setStepDept] = useState("");
   const [stepAssignee, setStepAssignee] = useState("");
+  // The turnaround number, and whether it counts hours or working days.
   const [stepHours, setStepHours] = useState("");
+  const [stepUnit, setStepUnit] = useState<"hours" | "days">("hours");
+  // The company's working week, only to explain what "1 day" means under the field.
+  const [week, setWeek] = useState<WorkingHours | null>(null);
   const [stepPosition, setStepPosition] = useState("");
 
   const key = [templateId, reloadCounter].join("|");
@@ -59,6 +66,12 @@ export default function WorkflowTemplateDetailPage() {
         if (cancelled) return;
         setCtxError(errorMessage(err, "Couldn't load this page."));
       });
+    // Only used to explain what "1 day" means; if it fails the hint just stays general.
+    fetchWorkingHours()
+      .then(function (loaded) {
+        if (!cancelled) setWeek(loaded);
+      })
+      .catch(function () {});
     return function () {
       cancelled = true;
     };
@@ -120,6 +133,7 @@ export default function WorkflowTemplateDetailPage() {
     setStepDept(template ? template.department_id : "");
     setStepAssignee("");
     setStepHours("");
+    setStepUnit("hours");
     setStepPosition("");
     setPanelError("");
     setActionError("");
@@ -131,7 +145,14 @@ export default function WorkflowTemplateDetailPage() {
     setStepName(step.name);
     setStepDept(step.department_id);
     setStepAssignee(step.default_assignee_employee_id || "");
-    setStepHours(step.default_turnaround_hours === null ? "" : String(step.default_turnaround_hours));
+    // A step given in days shows its number of days; otherwise its hours (or empty for no deadline).
+    if (step.default_turnaround_days !== null) {
+      setStepHours(String(step.default_turnaround_days));
+      setStepUnit("days");
+    } else {
+      setStepHours(step.default_turnaround_hours === null ? "" : String(step.default_turnaround_hours));
+      setStepUnit("hours");
+    }
     setPanelError("");
     setActionError("");
     setEditingStepId(step.id);
@@ -184,7 +205,7 @@ export default function WorkflowTemplateDetailPage() {
     }
     const hours = parseHours();
     if (!hours.ok) {
-      setPanelError("The turnaround must be a whole number of hours above zero, or left empty for no deadline.");
+      setPanelError("The turnaround must be a whole number above zero, or left empty for no deadline.");
       return;
     }
     setBusy(true);
@@ -193,7 +214,8 @@ export default function WorkflowTemplateDetailPage() {
       if (panel === "add") {
         const body: Record<string, unknown> = { name: stepName.trim(), department_id: stepDept };
         if (stepAssignee) body.default_assignee_employee_id = stepAssignee;
-        if (hours.value !== null) body.default_turnaround_hours = hours.value;
+        if (hours.value !== null && stepUnit === "days") body.default_turnaround_days = hours.value;
+        if (hours.value !== null && stepUnit === "hours") body.default_turnaround_hours = hours.value;
         // No position = added at the end; a number inserts there and later steps move down.
         if (stepPosition) body.step_order = Number(stepPosition);
         await apiFetch("/workflow-templates/" + template.id + "/steps", { method: "POST", body: body });
@@ -210,7 +232,20 @@ export default function WorkflowTemplateDetailPage() {
         if (stepName.trim() !== current.name) body.name = stepName.trim();
         if (stepDept !== current.department_id) body.department_id = stepDept;
         if ((stepAssignee || null) !== current.default_assignee_employee_id) body.default_assignee_employee_id = stepAssignee || null;
-        if (hours.value !== current.default_turnaround_hours) body.default_turnaround_hours = hours.value;
+        // The turnaround counts as changed when the number OR the unit differs. Sending the new unit makes the
+        // server clear the old one; "no deadline" clears both.
+        const newHours = stepUnit === "hours" ? hours.value : null;
+        const newDays = stepUnit === "days" ? hours.value : null;
+        if (newHours !== current.default_turnaround_hours || newDays !== current.default_turnaround_days) {
+          if (hours.value === null) {
+            body.default_turnaround_hours = null;
+            body.default_turnaround_days = null;
+          } else if (stepUnit === "days") {
+            body.default_turnaround_days = hours.value;
+          } else {
+            body.default_turnaround_hours = hours.value;
+          }
+        }
         if (Object.keys(body).length > 0) {
           await apiFetch("/workflow-steps/" + current.id, { method: "PATCH", body: body });
         }
@@ -326,23 +361,37 @@ export default function WorkflowTemplateDetailPage() {
         </div>
         <div>
           <label className="mb-1 block text-xs text-gray-500">Default person (optional)</label>
-          <select value={stepAssignee} onChange={function (e) { setStepAssignee(e.target.value); }} className={inputClass}>
-            <option value="">No one. The task lands with the department</option>
-            {ctx
-              ? activeEmployees(ctx).map(function (emp) {
-                  return (
-                    <option key={emp.id} value={emp.id}>
-                      {fullName(emp)}
-                    </option>
-                  );
-                })
-              : null}
-          </select>
+          {ctx ? (
+            <PersonSelect
+              people={activeEmployees(ctx)}
+              positions={ctx.positions}
+              departments={ctx.departments}
+              value={stepAssignee}
+              onChange={setStepAssignee}
+              emptyLabel="No one. The task lands with the department"
+              className={inputClass}
+            />
+          ) : null}
         </div>
         <div>
-          <label className="mb-1 block text-xs text-gray-500">Turnaround in hours (optional)</label>
-          <input type="number" min={1} step={1} value={stepHours} onChange={function (e) { setStepHours(e.target.value); }} placeholder="No deadline" className={inputClass} />
-          <p className="mt-1 text-xs text-gray-500">Counted in business hours: Monday to Friday, 9am to 5pm.</p>
+          <label className="mb-1 block text-xs text-gray-500">Turnaround (optional)</label>
+          <div className="flex gap-2">
+            <input type="number" min={1} step={1} value={stepHours} onChange={function (e) { setStepHours(e.target.value); }} placeholder="No deadline" className={inputClass} />
+            <select
+              value={stepUnit}
+              onChange={function (e) { setStepUnit(e.target.value === "days" ? "days" : "hours"); }}
+              className={inputClass + " w-32 shrink-0"}
+              aria-label="Turnaround unit"
+            >
+              <option value="hours">Hours</option>
+              <option value="days">Days</option>
+            </select>
+          </div>
+          <p className="mt-1 text-xs text-gray-500">
+            {week
+              ? "Counted in your working hours (" + describeWorkingHours(week) + "). One day is a full working day, " + week.hours_per_day + " hours. HR can change this in Settings."
+              : "Counted in your company's working hours. One day is a full working day."}
+          </p>
         </div>
         {panel === "add" ? (
           <div>
@@ -496,7 +545,7 @@ export default function WorkflowTemplateDetailPage() {
                             <p className="mt-0.5 text-xs text-gray-400">
                               {departmentName(ctx, step.department_id)} ·{" "}
                               {step.default_assignee_employee_id ? employeeName(ctx, step.default_assignee_employee_id) : "Lands with the department"} ·{" "}
-                              {turnaroundLabel(step.default_turnaround_hours)}
+                              {turnaroundLabel(step.default_turnaround_hours, step.default_turnaround_days)}
                             </p>
                           </div>
                         </div>

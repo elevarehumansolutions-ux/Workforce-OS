@@ -524,6 +524,43 @@ Line by line:
 
 ---
 
+## 14. Test the attendance auto-close without waiting for midnight (test companies only)
+The job (`auto_close_attendance`, five past every hour) closes any record that clocked in before the company's most
+recent midnight (Lagos time by default). To test it today, make a clock-in look like it happened yesterday, then run the
+job. Run these as the database owner (`-U elevare`, like sections 11 to 13), and only for a TEST company's employee.
+
+```bash
+# 1. Who is clocked in right now (read only)? Copy the id of the test employee's open record.
+docker compose -f docker-compose.prod.yml exec -T db psql -U elevare -d elevare_db -c \
+  "SELECT a.id, e.first_name, e.last_name, a.clock_in_at
+   FROM attendance_records a JOIN employees e ON e.id = a.employee_id
+   WHERE a.clock_out_at IS NULL;"
+
+# 2. Move that clock-in back one day.
+docker compose -f docker-compose.prod.yml exec -T db psql -U elevare -d elevare_db -c \
+  "UPDATE attendance_records SET clock_in_at = clock_in_at - interval '1 day'
+   WHERE id = '<paste the id>' AND clock_out_at IS NULL RETURNING id, clock_in_at;"
+
+# 3. Run the hourly job now.
+docker compose -f docker-compose.prod.yml exec -T celery_worker \
+  celery -A app.core.celery_app call app.modules.attendance.tasks.auto_close_attendance
+
+# 4. Did it close? (give it about 10 seconds)
+docker compose -f docker-compose.prod.yml logs celery_worker --no-log-prefix --since 5m 2>&1 \
+  | grep "Attendance auto-closed"
+```
+
+Line by line:
+- Query 1 lists open records only (`clock_out_at IS NULL`: nobody has clocked out). There is at most one per person.
+- Command 2 subtracts one day from the clock-in. `AND clock_out_at IS NULL` stops it touching a finished record, and
+  `RETURNING` prints the row so you can see it changed. You must see exactly one row.
+- Command 3 queues the same job the scheduler runs. It prints only a task id: it means "queued", not "done".
+- Command 4 keeps the one log line the job writes when it closes something (`closed_count`). No line means nothing was
+  past midnight yet (the move was not applied, or the company's timezone puts its midnight later) or the worker is down.
+- In the app: the record is closed by "system" and the employee gets a notification. Their next clock-in works normally.
+
+---
+
 ## Incident log
 
 ### 2026-10-07: `PUT /api/v1/business-dna` returns 500 (reported by Uche)

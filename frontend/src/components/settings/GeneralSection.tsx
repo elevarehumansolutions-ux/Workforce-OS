@@ -7,6 +7,7 @@ import { formatDateTime } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
 import { SETTINGS_INPUT_CLASS, SETTINGS_LABEL_CLASS, isHrRole, monthName, subscriptionClasses, subscriptionLabel } from "@/lib/settings";
 import type { SectionProps } from "./types";
+import WorkingHoursCard from "./WorkingHoursCard";
 
 interface BusinessDna {
   organization_name: string | null;
@@ -208,6 +209,8 @@ export default function GeneralSection(props: SectionProps) {
           )}
         </>
       ) : null}
+
+      <WorkingHoursCard canEdit={canEdit} />
 
       {org ? (
         <div className="mt-10 border-t border-white/10 pt-6">

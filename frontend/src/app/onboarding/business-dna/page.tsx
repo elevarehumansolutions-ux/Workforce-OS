@@ -5,7 +5,15 @@ import { useRouter } from "next/navigation";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { INDUSTRY_OPTIONS, OTHER_INDUSTRY, resolveIndustry, splitIndustry } from "@/lib/industry";
 import Logo from "@/components/Logo";
+import WorkingHoursFields from "@/components/WorkingHoursFields";
 import { loadMe } from "@/lib/settings";
+import {
+  DEFAULT_WORKING_HOURS,
+  describeWorkingHours,
+  fetchWorkingHours,
+  saveWorkingHours,
+  workingHoursProblem,
+} from "@/lib/workingHours";
 
 interface BusinessDnaFormData {
   companyName: string;
@@ -60,6 +68,12 @@ export default function BusinessDnaPage() {
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const timezoneOptions = useState(getTimezoneOptions)[0];
+  // The company's working week; 9 to 5 Monday to Friday until it is changed.
+  const [workingHours, setWorkingHours] = useState({
+    start_hour: DEFAULT_WORKING_HOURS.start_hour,
+    end_hour: DEFAULT_WORKING_HOURS.end_hour,
+    work_days: DEFAULT_WORKING_HOURS.work_days,
+  });
 
   useEffect(function () {
     if (!getAccessToken()) return;
@@ -129,6 +143,17 @@ export default function BusinessDnaPage() {
       });
   }, []);
 
+  // Pre-fill the working hours too (a company that came back to this page keeps what it chose).
+  useEffect(function () {
+    fetchWorkingHours()
+      .then(function (week) {
+        setWorkingHours({ start_hour: week.start_hour, end_hour: week.end_hour, work_days: week.work_days });
+      })
+      .catch(function () {
+        // Keep the 9 to 5, Monday to Friday default shown below.
+      });
+  }, []);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitError("");
@@ -136,8 +161,15 @@ export default function BusinessDnaPage() {
       setSubmitError("Please type your industry, or choose one from the list.");
       return;
     }
+    const hoursProblem = workingHoursProblem(workingHours);
+    if (hoursProblem) {
+      setSubmitError(hoursProblem);
+      return;
+    }
     setSubmitting(true);
     try {
+      // The working week is its own small setting (PUT /working-hours); saved first, it is cheap to check.
+      await saveWorkingHours(workingHours);
       const payload: Record<string, unknown> = {
         organization_name: formData.companyName || null,
         timezone: formData.timezone || null,
@@ -319,6 +351,14 @@ export default function BusinessDnaPage() {
               </select>
               <p className="mt-2 text-xs text-gray-500">
                 Used to decide when the working day ends for attendance.
+              </p>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-200">Working hours</label>
+              <WorkingHoursFields value={workingHours} onChange={setWorkingHours} />
+              <p className="mt-2 text-xs text-gray-500">
+                Deadlines on workflow steps count only these hours and days, so a step of &quot;1 day&quot; is one
+                full working day here ({describeWorkingHours(workingHours)}). You can change this later in Settings.
               </p>
             </div>
           </div>

@@ -4,7 +4,40 @@ import decimal
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+# ---------------------------------------------------------------------------
+# Working hours (a company setting that workflow deadlines use)
+# ---------------------------------------------------------------------------
+
+class WorkingHoursRequest(BaseModel):
+    """The company's working week. Whole hours; days are weekday numbers, Monday 0 to Sunday 6."""
+
+    start_hour: int = Field(ge=0, le=22)
+    end_hour: int = Field(ge=1, le=23)
+    work_days: list[int] = Field(min_length=1, max_length=7)
+
+    @model_validator(mode="after")
+    def check_the_week(self):
+        """The day must start before it ends, and the days must be real weekdays with no repeats."""
+        if self.start_hour >= self.end_hour:
+            raise ValueError("The working day must start before it ends")
+        for day in self.work_days:
+            if day < 0 or day > 6:
+                raise ValueError("Working days are numbered 0 (Monday) to 6 (Sunday)")
+        if len(set(self.work_days)) != len(self.work_days):
+            raise ValueError("A working day is listed twice")
+        return self
+
+
+class WorkingHoursResponse(BaseModel):
+    """The company's working week, plus how long one working day is (what "1 day" means for a step)."""
+
+    start_hour: int
+    end_hour: int
+    work_days: list[int]
+    hours_per_day: int
 
 
 # ---------------------------------------------------------------------------
@@ -153,8 +186,18 @@ class StepCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     department_id: uuid.UUID
     default_assignee_employee_id: uuid.UUID | None = None
+    # The turnaround is given in hours OR in working days, never both. A day is a full working
+    # day of the company (see ``GET /working-hours``).
     default_turnaround_hours: int | None = Field(default=None, gt=0)
+    default_turnaround_days: int | None = Field(default=None, gt=0)
     step_order: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def hours_or_days_not_both(self):
+        """Hours and days cannot both be given."""
+        if self.default_turnaround_hours is not None and self.default_turnaround_days is not None:
+            raise ValueError("Give the turnaround in hours or in days, not both")
+        return self
 
 
 class StepUpdateRequest(BaseModel):
@@ -174,6 +217,15 @@ class StepUpdateRequest(BaseModel):
     department_id: uuid.UUID = None
     default_assignee_employee_id: uuid.UUID | None = None
     default_turnaround_hours: int | None = Field(default=None, gt=0)
+    # Sending hours clears days and the other way round, so switching the unit is one edit.
+    default_turnaround_days: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def hours_or_days_not_both(self):
+        """Hours and days cannot both be given in one edit."""
+        if self.default_turnaround_hours is not None and self.default_turnaround_days is not None:
+            raise ValueError("Give the turnaround in hours or in days, not both")
+        return self
 
 
 class StepOrderRequest(BaseModel):
@@ -199,6 +251,8 @@ class StepResponse(BaseModel):
     department_id: uuid.UUID
     default_assignee_employee_id: uuid.UUID | None
     default_turnaround_hours: int | None
+    # Set instead of the hours when the step was given in working days (never both).
+    default_turnaround_days: int | None
     created_at: datetime
     updated_at: datetime
 

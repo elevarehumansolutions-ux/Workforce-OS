@@ -12,7 +12,8 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import CheckConstraint, Integer, String, DateTime, Uuid, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy import CheckConstraint, Integer, SmallInteger, String, DateTime, Uuid, Boolean, ForeignKey, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ARRAY
 
 from app.core.database import BaseModel
 from .enums import SubscriptionStatus, AuthProvider, MembershipRole, AccountStatus
@@ -72,6 +73,13 @@ class Organization(BaseModel):
         default="Africa/Lagos",
         server_default="Africa/Lagos",
         doc="IANA timezone name; decides where 'midnight' falls for this org's attendance auto-close",
+    )
+    # The company's working week, used to count business hours in workflow deadlines
+    # (workflow/deadlines.py). Whole hours; days are weekday numbers, Monday = 0 ... Sunday = 6.
+    workday_start_hour: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=9, server_default="9")
+    workday_end_hour: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=17, server_default="17")
+    work_days: Mapped[list[int]] = mapped_column(
+        ARRAY(SmallInteger), nullable=False, default=[0, 1, 2, 3, 4], server_default="{0,1,2,3,4}"
     )
     # Set when the owner deletes the company. Nothing is erased: every membership is deactivated at
     # the same moment, and the background jobs skip the company.

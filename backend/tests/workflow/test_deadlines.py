@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.modules.workflow.deadlines import add_business_hours
+from app.modules.workflow.deadlines import DEFAULT_WEEK, WorkingWeek, add_business_hours
 
 LAGOS = ZoneInfo("Africa/Lagos")
 
@@ -95,3 +95,38 @@ def test_a_start_in_another_timezone_is_converted_first():
     result = add_business_hours(start, 8, "Africa/Lagos")
 
     assert result.astimezone(LAGOS) == lagos(12, 17)
+
+
+# -- a company that sets its own working week (08_DECISIONS.md 2026-11-14) -----------------------
+
+
+def week_deadline(start: datetime, hours: int, week: WorkingWeek) -> datetime:
+    return add_business_hours(start, hours, "Africa/Lagos", week).astimezone(LAGOS)
+
+
+def test_the_default_week_is_monday_to_friday_nine_to_five():
+    assert (DEFAULT_WEEK.start_hour, DEFAULT_WEEK.end_hour, DEFAULT_WEEK.days) == (9, 17, [0, 1, 2, 3, 4])
+    assert DEFAULT_WEEK.hours_per_day() == 8
+
+
+def test_an_eight_to_five_company_opens_at_eight_and_has_nine_hour_days():
+    week = WorkingWeek(8, 17)
+    assert week.hours_per_day() == 9
+    # Monday 07:00 counts from 08:00, so 9 hours end at closing time.
+    assert week_deadline(lagos(12, 7), 9, week) == lagos(12, 17)
+    # One hour more spills into Tuesday morning, from 08:00.
+    assert week_deadline(lagos(12, 7), 10, week) == lagos(13, 9)
+
+
+def test_a_company_that_works_saturdays_counts_saturday():
+    week = WorkingWeek(9, 17, (0, 1, 2, 3, 4, 5))
+    # Friday 15:00: 2 hours left on Friday, 2 more on Saturday morning.
+    assert week_deadline(lagos(16, 15), 4, week) == lagos(17, 11)
+    # Sunday is still a day off: Saturday 16:00 plus 2 hours ends on Monday 10:00.
+    assert week_deadline(lagos(17, 16), 2, week) == lagos(19, 10)
+
+
+def test_a_sunday_to_thursday_week_skips_friday_and_saturday():
+    week = WorkingWeek(9, 17, (6, 0, 1, 2, 3))  # Sunday is 6
+    # Thursday 15:00: 2 hours on Thursday, then Friday and Saturday are off, then Sunday morning.
+    assert week_deadline(lagos(15, 15), 4, week) == lagos(18, 11)

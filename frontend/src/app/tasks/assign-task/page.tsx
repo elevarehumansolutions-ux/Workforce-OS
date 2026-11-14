@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
+import PersonSelect from "@/components/PersonSelect";
 import {
   activeEmployees,
   canCreateTasks,
   canPickAssignee,
   errorMessage,
-  fullName,
   loadCaller,
   localInputToIso,
   roleLabel,
@@ -249,23 +249,16 @@ export default function AssignTaskPage() {
                 <label htmlFor="assignee" className="mb-2 block text-sm font-medium text-gray-200">
                   Assign to
                 </label>
-                <select
+                <PersonSelect
                   id="assignee"
+                  people={activeEmployees(ctx)}
+                  positions={ctx.positions}
+                  departments={ctx.departments}
                   value={assigneeId}
-                  onChange={function (e) {
-                    setAssigneeId(e.target.value);
-                  }}
+                  onChange={setAssigneeId}
+                  emptyLabel="Leave unassigned for now"
                   className={inputClass}
-                >
-                  <option value="">Leave unassigned for now</option>
-                  {activeEmployees(ctx).map(function (emp) {
-                    return (
-                      <option key={emp.id} value={emp.id}>
-                        {fullName(emp)}
-                      </option>
-                    );
-                  })}
-                </select>
+                />
                 {errors.assigned_to_employee_id ? (
                   <p className="mt-1 text-xs text-red-400">{errors.assigned_to_employee_id}</p>
                 ) : null}
