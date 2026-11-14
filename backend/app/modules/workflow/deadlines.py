@@ -36,6 +36,20 @@ class WorkingWeek:
 DEFAULT_WEEK = WorkingWeek()
 
 
+def turnaround_in_hours(hours: int | None, days: int | None, week: WorkingWeek) -> int | None:
+    """How many business hours a step allows, or None when it has no deadline.
+
+    A step gives its turnaround in hours OR in days. A day is a full working day of THIS company
+    (8 hours at 9 to 5, 9 at 8 to 5), looked up now rather than when the step was saved, so
+    "2 days" stays right if the company changes its working hours later.
+    """
+    if hours is not None:
+        return hours
+    if days is not None:
+        return days * week.hours_per_day()
+    return None
+
+
 def _at_hour(moment: datetime, hour: int) -> datetime:
     """The same day as ``moment``, at ``hour`` o'clock sharp."""
     return moment.replace(hour=hour, minute=0, second=0, microsecond=0)

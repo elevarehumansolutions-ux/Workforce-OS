@@ -38,7 +38,7 @@ from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.repository import OrganizationRepository, UserRepository
 
 from . import value
-from .deadlines import WorkingWeek, add_business_hours
+from .deadlines import WorkingWeek, add_business_hours, turnaround_in_hours
 from .enums import InstanceStatus
 from .models import WorkflowInstance, WorkflowStep, WorkflowTemplate
 from .repository import InstanceRepository, InstanceScope, StepRepository, TemplateRepository
@@ -420,6 +420,14 @@ class StepService:
             await self._check_department(data["department_id"])
         if data.get("default_assignee_employee_id") is not None:
             await self._check_assignee(data["default_assignee_employee_id"])
+
+        # A step has its turnaround in hours OR in days. Setting one clears the other, so changing the
+        # unit in the form is a single edit and never leaves both set.
+        # (Only when the other one is really set, so the audit record lists just what changed.)
+        if data.get("default_turnaround_hours") is not None and step.default_turnaround_days is not None:
+            data = {**data, "default_turnaround_days": None}
+        if data.get("default_turnaround_days") is not None and step.default_turnaround_hours is not None:
+            data = {**data, "default_turnaround_hours": None}
 
         # Read the old values before the update: it changes this same object.
         old_values = {field: getattr(step, field) for field in data}
@@ -1014,9 +1022,11 @@ class InstanceService:
         departed default assignee.
         """
         due_at = None
-        if step.default_turnaround_hours is not None:
+        if step.default_turnaround_hours is not None or step.default_turnaround_days is not None:
             organization = await self._organization_repo.get_organization_by_id(instance.organization_id)
-            due_at = add_business_hours(now, step.default_turnaround_hours, organization.timezone, week_of(organization))
+            week = week_of(organization)
+            hours = turnaround_in_hours(step.default_turnaround_hours, step.default_turnaround_days, week)
+            due_at = add_business_hours(now, hours, organization.timezone, week)
 
         await self._task_service.create_workflow_task(
             organization_id=instance.organization_id,

@@ -116,6 +116,14 @@ class WorkflowStep(BaseModel):
             "default_turnaround_hours IS NULL OR default_turnaround_hours > 0",
             name="check_workflow_step_turnaround_positive",
         ),
+        CheckConstraint(
+            "default_turnaround_days IS NULL OR default_turnaround_days > 0",
+            name="check_workflow_step_turnaround_days_positive",
+        ),
+        CheckConstraint(
+            "default_turnaround_hours IS NULL OR default_turnaround_days IS NULL",
+            name="check_workflow_step_turnaround_one_unit",
+        ),
         CheckConstraint("step_order >= 1", name="check_workflow_step_order_positive"),
         Index("idx_workflow_steps_template_order", "workflow_template_id", "step_order"),
     )
@@ -162,6 +170,14 @@ class WorkflowStep(BaseModel):
         Integer,
         nullable=True,
         doc="Business hours allowed for the step; null = the task has no deadline",
+    )
+    default_turnaround_days: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc=(
+            "Working DAYS allowed for the step, as an alternative to hours (only one of the two is set). "
+            "One day is a full working day of the company's own hours, worked out when the task is created."
+        ),
     )
 
     deleted_at: Mapped[datetime | None] = mapped_column(

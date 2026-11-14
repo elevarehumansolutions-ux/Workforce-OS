@@ -186,8 +186,18 @@ class StepCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     department_id: uuid.UUID
     default_assignee_employee_id: uuid.UUID | None = None
+    # The turnaround is given in hours OR in working days, never both. A day is a full working
+    # day of the company (see ``GET /working-hours``).
     default_turnaround_hours: int | None = Field(default=None, gt=0)
+    default_turnaround_days: int | None = Field(default=None, gt=0)
     step_order: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def hours_or_days_not_both(self):
+        """Hours and days cannot both be given."""
+        if self.default_turnaround_hours is not None and self.default_turnaround_days is not None:
+            raise ValueError("Give the turnaround in hours or in days, not both")
+        return self
 
 
 class StepUpdateRequest(BaseModel):
@@ -207,6 +217,15 @@ class StepUpdateRequest(BaseModel):
     department_id: uuid.UUID = None
     default_assignee_employee_id: uuid.UUID | None = None
     default_turnaround_hours: int | None = Field(default=None, gt=0)
+    # Sending hours clears days and the other way round, so switching the unit is one edit.
+    default_turnaround_days: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def hours_or_days_not_both(self):
+        """Hours and days cannot both be given in one edit."""
+        if self.default_turnaround_hours is not None and self.default_turnaround_days is not None:
+            raise ValueError("Give the turnaround in hours or in days, not both")
+        return self
 
 
 class StepOrderRequest(BaseModel):
@@ -232,6 +251,8 @@ class StepResponse(BaseModel):
     department_id: uuid.UUID
     default_assignee_employee_id: uuid.UUID | None
     default_turnaround_hours: int | None
+    # Set instead of the hours when the step was given in working days (never both).
+    default_turnaround_days: int | None
     created_at: datetime
     updated_at: datetime
 
