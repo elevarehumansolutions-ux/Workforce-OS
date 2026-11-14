@@ -390,17 +390,21 @@ export default function WorkflowTemplateDetailPage() {
         </div>
         {panel === "add" ? (
           <div>
-            <label className="mb-1 block text-xs text-gray-500">Position</label>
+            <label className="mb-1 block text-xs text-gray-500">Where does this step go in the order?</label>
             <select value={stepPosition} onChange={function (e) { setStepPosition(e.target.value); }} className={inputClass}>
-              <option value="">At the end</option>
+              <option value="">{steps.length === 0 ? "First step" : "Last: after step " + steps.length}</option>
               {steps.map(function (s, index) {
                 return (
                   <option key={s.id} value={String(index + 1)}>
-                    {"Before step " + (index + 1)}
+                    {"Before step " + (index + 1) + ": " + s.name}
                   </option>
                 );
               })}
             </select>
+            <p className="mt-1 text-xs text-gray-500">
+              Steps run one after another: a step&apos;s task appears when the step before it ends.
+              {steps.length > 0 ? " Choosing \"Before step N\" puts this step ahead of that one, and that step and the ones after it move down by one." : ""}
+            </p>
           </div>
         ) : null}
       </div>
