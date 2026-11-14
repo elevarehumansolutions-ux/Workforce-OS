@@ -152,6 +152,10 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
    with an Hours/Days choice and a line saying how long one day is for your company. Give step 1 "1 day", step 2
    "6 hours" and leave step 3 empty: the list shows "1 business day", "6 business hours" and "No deadline". Edit
    step 2 and switch it to "1 day": only the days shows afterwards.)
+   (To-dos 41 and 42: "+ Add step" opens a wide window and adds at the end. Between two steps click "+ Add a step
+   here": the window title says "Add a step before step 2 (...)" and the new step lands there. Drag a step by the
+   ⠿ handle to a new place: the numbers change at once and stay after a refresh. Up and Down still work. With a
+   case running on the template, a drag is refused with a message and the step goes back.)
 2. Start a case with a client figure (for example 2000000) and NO deadline. Expect: the warning
    before saving; save without a deadline.
 3. Start a second case with a figure and a deadline.

@@ -1,13 +1,17 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
 import { activeEmployees, departmentName, employeeName, errorMessage, loadCaller, roleLabel } from "@/lib/tasks";
+import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import Modal from "@/components/Modal";
+import SortableStepRow from "@/components/SortableStepRow";
 import type { CallerContext } from "@/lib/tasks";
 import { canManageTemplates, canStartCase, turnaroundLabel } from "@/lib/workflow";
 import type { WorkflowStep, WorkflowTemplate } from "@/lib/workflow";
@@ -52,6 +56,13 @@ export default function WorkflowTemplateDetailPage() {
   // The company's working week, only to explain what "1 day" means under the field.
   const [week, setWeek] = useState<WorkingHours | null>(null);
   const [stepPosition, setStepPosition] = useState("");
+
+  // A drag starts only after the pointer has moved a few pixels, so a plain click on the handle is not a drag.
+  // The keyboard works too: focus the handle, press Space, use the arrow keys, press Space again.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const key = [templateId, reloadCounter].join("|");
   const loading = result === null || result.key !== key;
@@ -129,13 +140,14 @@ export default function WorkflowTemplateDetailPage() {
     setPanel("rename");
   }
 
-  function openAdd() {
+  // `position` is the place the new step should take (1 = first); without it the step goes at the end.
+  function openAdd(position?: number) {
     setStepName("");
     setStepDept(template ? template.department_id : "");
     setStepAssignee("");
     setStepHours("");
     setStepUnit("hours");
-    setStepPosition("");
+    setStepPosition(position ? String(position) : "");
     setPanelError("");
     setActionError("");
     setEditingStepId("");
@@ -275,8 +287,24 @@ export default function WorkflowTemplateDetailPage() {
     }
   }
 
-  async function moveStep(index: number, delta: number) {
+  // Saves a new order (the list of step ids, first to last). Used by the Up/Down buttons and by a drop.
+  async function saveOrder(ids: string[]) {
     if (!template) return;
+    setActionError("");
+    setBusy(true);
+    try {
+      await apiFetch("/workflow-templates/" + template.id + "/steps/order", { method: "PUT", body: { step_ids: ids } });
+    } catch (err) {
+      // 409 while cases are running on this template: the message explains.
+      setActionError(errorMessage(err, "Couldn't change the order. Check your connection and try again."));
+    } finally {
+      setBusy(false);
+      // Read the list again either way: after a failure this puts a dropped step back where it really is.
+      setReloadCounter(reloadCounter + 1);
+    }
+  }
+
+  function moveStep(index: number, delta: number) {
     const target = index + delta;
     if (target < 0 || target >= steps.length) return;
     const ids = steps.map(function (s) {
@@ -285,17 +313,28 @@ export default function WorkflowTemplateDetailPage() {
     const moved = ids[index];
     ids[index] = ids[target];
     ids[target] = moved;
-    setActionError("");
-    setBusy(true);
-    try {
-      await apiFetch("/workflow-templates/" + template.id + "/steps/order", { method: "PUT", body: { step_ids: ids } });
-      setReloadCounter(reloadCounter + 1);
-    } catch (err) {
-      // 409 while cases are running on this template: the message explains.
-      setActionError(errorMessage(err, "Couldn't change the order. Check your connection and try again."));
-    } finally {
-      setBusy(false);
+    saveOrder(ids);
+  }
+
+  // A step was dropped on another one: it takes that one's place.
+  function onDragEnd(event: DragEndEvent) {
+    if (!event.over || event.active.id === event.over.id) return;
+    const ids = steps.map(function (s) {
+      return s.id;
+    });
+    const from = ids.indexOf(String(event.active.id));
+    const to = ids.indexOf(String(event.over.id));
+    if (from === -1 || to === -1) return;
+    const newIds = arrayMove(ids, from, to);
+    // Show the new order at once, so the step does not jump back while the server is answering.
+    if (result) {
+      const byId: Record<string, WorkflowStep> = {};
+      steps.forEach(function (s) {
+        byId[s.id] = s;
+      });
+      setResult({ ...result, steps: newIds.map(function (id) { return byId[id]; }) });
     }
+    saveOrder(newIds);
   }
 
   async function toggleArchive() {
@@ -333,7 +372,16 @@ export default function WorkflowTemplateDetailPage() {
     }
   }
 
-  const inputClass = "w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500";
+  // The window title says where the new step will land, so no position field is needed.
+  const placeNumber = Number(stepPosition);
+  const placeStep = placeNumber >= 1 ? steps[placeNumber - 1] : undefined;
+  const addTitle = placeStep
+    ? "Add a step before step " + placeNumber + " (" + placeStep.name + ")"
+    : steps.length === 0
+      ? "Add the first step"
+      : "Add a step at the end (after step " + steps.length + ")";
+
+  const inputClass ="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500";
   const smallButton = "rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40";
 
   const stepForm = (
@@ -388,25 +436,6 @@ export default function WorkflowTemplateDetailPage() {
             </select>
           </div>
         </div>
-        {panel === "add" ? (
-          <div>
-            <label className="mb-1 block text-xs text-gray-500">Where does this step go in the order?</label>
-            <select value={stepPosition} onChange={function (e) { setStepPosition(e.target.value); }} className={inputClass}>
-              <option value="">{steps.length === 0 ? "First step" : "Last: after step " + steps.length}</option>
-              {steps.map(function (s, index) {
-                return (
-                  <option key={s.id} value={String(index + 1)}>
-                    {"Before step " + (index + 1) + ": " + s.name}
-                  </option>
-                );
-              })}
-            </select>
-            <p className="mt-1 text-xs text-gray-500">
-              Steps run one after another: a step&apos;s task appears when the step before it ends.
-              {steps.length > 0 ? " Choosing \"Before step N\" puts this step ahead of that one, and that step and the ones after it move down by one." : ""}
-            </p>
-          </div>
-        ) : null}
       </div>
       <p className="text-xs text-gray-500">
         {week
@@ -521,7 +550,7 @@ export default function WorkflowTemplateDetailPage() {
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold">Steps</h3>
               {manage && panel === "none" ? (
-                <button type="button" disabled={busy} onClick={openAdd} className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-60">
+                <button type="button" disabled={busy} onClick={function () { openAdd(); }} className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-60">
                   + Add step
                 </button>
               ) : null}
@@ -535,14 +564,32 @@ export default function WorkflowTemplateDetailPage() {
                 This template has no steps yet.{manage ? " Add the first step to get started." : ""}
               </p>
             ) : (
-              <ol className="mt-4 space-y-3">
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+              <SortableContext
+                items={steps.map(function (s) { return s.id; })}
+                strategy={verticalListSortingStrategy}
+              >
+              <ol className="mt-4">
                 {steps.map(function (step, index) {
                   return (
-                    <li key={step.id} className="rounded-xl border border-white/10 bg-[#0a0e1a] p-4">
+                    <Fragment key={step.id}>
+                      {manage && panel === "none" ? (
+                        <li className="flex justify-center py-1">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={function () { openAdd(index + 1); }}
+                            className="rounded-full px-3 py-0.5 text-xs text-gray-500 hover:bg-indigo-500/10 hover:text-indigo-300 disabled:opacity-40"
+                          >
+                            {index === 0 ? "+ Add a step before this one" : "+ Add a step here"}
+                          </button>
+                        </li>
+                      ) : null}
+                    <SortableStepRow id={step.id} canDrag={manage && !busy}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="flex gap-3">
                           <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-semibold text-indigo-300">
-                            {step.step_order}
+                            {index + 1}
                           </span>
                           <div>
                             <p className="text-sm font-semibold">{step.name}</p>
@@ -577,15 +624,18 @@ export default function WorkflowTemplateDetailPage() {
                           </div>
                         ) : null}
                       </div>
-                    </li>
+                    </SortableStepRow>
+                    </Fragment>
                   );
                 })}
               </ol>
+              </SortableContext>
+              </DndContext>
             )}
           </div>
 
           {panel === "add" || panel === "edit" ? (
-            <Modal title={panel === "add" ? "Add a step" : "Edit step"} onClose={function () { if (!busy) closePanel(); }} wide>
+            <Modal title={panel === "add" ? addTitle : "Edit step"} onClose={function () { if (!busy) closePanel(); }} wide>
               {stepForm}
             </Modal>
           ) : null}
