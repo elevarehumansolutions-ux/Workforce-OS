@@ -31,6 +31,8 @@ export default function AssignTaskPage() {
   const [dueLocal, setDueLocal] = useState("");
   const [kpiId, setKpiId] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
+  // Other departments that get the same task (each its own copy, finished on its own).
+  const [extras, setExtras] = useState<{ department_id: string; assignee: string }[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -78,14 +80,26 @@ export default function AssignTaskPage() {
       dueIso = localInputToIso(dueLocal);
       if (!dueIso) newErrors.due_at = "That deadline isn't a valid date and time.";
     }
+    for (const x of extras) {
+      if (!x.department_id) newErrors.also_for = "Choose a department for each extra department, or remove the empty one.";
+    }
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
 
-    const body: Record<string, string> = { department_id: departmentId, title: trimmedTitle };
+    const body: Record<string, unknown> = { department_id: departmentId, title: trimmedTitle };
     if (description.trim()) body.description = description.trim();
     if (dueIso) body.due_at = dueIso;
     if (kpiId) body.kpi_id = kpiId;
     if (pickerAllowed && assigneeId) body.assigned_to_employee_id = assigneeId;
+    if (extras.length > 0) {
+      // A person can only be named for a department the caller may pick people for; otherwise that
+      // department's head receives it (the same rule as for a task on its own).
+      body.also_for = extras.map(function (x) {
+        const item: Record<string, string> = { department_id: x.department_id };
+        if (x.assignee && canPickAssignee(ctx, x.department_id)) item.assigned_to_employee_id = x.assignee;
+        return item;
+      });
+    }
 
     setSubmitting(true);
     try {
@@ -270,6 +284,103 @@ export default function AssignTaskPage() {
                   : "This task is for another department that has no head yet. It will be created unassigned and HR will be notified."}
               </div>
             )
+          ) : null}
+
+          {departmentId ? (
+            <div className="rounded-xl border border-white/10 p-4">
+              <p className="text-sm font-medium text-gray-200">Also needs other departments (optional)</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Add a department that must do its own part of this task. Each one gets its own copy with the same title
+                and deadline, is told and emailed, and finishes it on its own. The copies are linked, so each can see who
+                else is on it.
+              </p>
+              {extras.map(function (x, index) {
+                const pick = canPickAssignee(ctx, x.department_id);
+                return (
+                  <div key={index} className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs text-gray-500">Department</label>
+                      <select
+                        value={x.department_id}
+                        onChange={function (e) {
+                          setExtras(
+                            extras.map(function (y, i) {
+                              return i === index ? { department_id: e.target.value, assignee: "" } : y;
+                            })
+                          );
+                        }}
+                        className={inputClass}
+                      >
+                        <option value="">Select department…</option>
+                        {ctx.departments
+                          .filter(function (d) {
+                            return d.id !== departmentId;
+                          })
+                          .map(function (d) {
+                            return (
+                              <option key={d.id} value={d.id}>
+                                {d.name}
+                              </option>
+                            );
+                          })}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs text-gray-500">Assign to</label>
+                      {x.department_id && pick ? (
+                        <PersonSelect
+                          people={activeEmployees(ctx)}
+                          positions={ctx.positions}
+                          departments={ctx.departments}
+                          value={x.assignee}
+                          onChange={function (id) {
+                            setExtras(
+                              extras.map(function (y, i) {
+                                return i === index ? { ...y, assignee: id } : y;
+                              })
+                            );
+                          }}
+                          emptyLabel="Leave unassigned for now"
+                          className={inputClass}
+                        />
+                      ) : (
+                        <p className="rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-xs text-gray-400">
+                          {x.department_id
+                            ? "It goes to that department's head (or HR if it has none), who hands it on."
+                            : "Choose the department first."}
+                        </p>
+                      )}
+                    </div>
+                    <div className="sm:col-span-2">
+                      <button
+                        type="button"
+                        onClick={function () {
+                          setExtras(
+                            extras.filter(function (_y, i) {
+                              return i !== index;
+                            })
+                          );
+                        }}
+                        className="rounded-lg border border-red-500/40 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/10"
+                      >
+                        Remove this department
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              {errors.also_for ? <p className="mt-2 text-xs text-red-400">{errors.also_for}</p> : null}
+              <button
+                type="button"
+                disabled={extras.length >= 5}
+                onClick={function () {
+                  setExtras(extras.concat([{ department_id: "", assignee: "" }]));
+                }}
+                className="mt-3 rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                + Add a department
+              </button>
+            </div>
           ) : null}
 
           <div className="flex items-center justify-between border-t border-white/10 pt-5">

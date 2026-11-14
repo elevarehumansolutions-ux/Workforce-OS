@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
+import TogetherCard from "@/components/TogetherCard";
 import {
   BLOCK_CATEGORY_OPTIONS,
   activeEmployees,
@@ -507,6 +508,8 @@ function TaskDetailContent() {
                 </div>
               ) : null}
             </dl>
+
+            {ctx ? <TogetherCard task={task} ctx={ctx} /> : null}
 
             {task.blocked_since ? (
               <div className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">

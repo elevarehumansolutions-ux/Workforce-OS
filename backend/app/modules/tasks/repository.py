@@ -116,6 +116,7 @@ class TaskRepository:
         overdue: bool | None = None,
         now: datetime | None = None,
         unassigned: bool = False,
+        shared_group_id: uuid.UUID | None = None,
     ) -> PaginationResponse:
         """List the tasks a caller may see, newest first, with optional filters.
 
@@ -150,6 +151,8 @@ class TaskRepository:
             stmt = stmt.where(Task.assigned_to_employee_id == assigned_to_employee_id)
         if unassigned:
             stmt = stmt.where(Task.assigned_to_employee_id.is_(None))
+        if shared_group_id is not None:
+            stmt = stmt.where(Task.shared_group_id == shared_group_id)
         if status is not None:
             stmt = stmt.where(Task.status == status.value)
         if kpi_id is not None:
@@ -236,6 +239,24 @@ class TaskRepository:
             How many tasks.
         """
         stmt = select(func.count()).select_from(Task).where(
+            Task.workflow_step_id == workflow_step_id,
+            Task.deleted_at.is_(None),
+            Task.status.in_(OPEN_STATUSES),
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one()
+
+    async def count_open_tasks_for_instance_step(
+        self, workflow_instance_id: uuid.UUID, workflow_step_id: uuid.UUID
+    ) -> int:
+        """Count the tasks of ONE case's step that are still open (``open`` or ``in_progress``).
+
+        A step that several departments do together has one task per department; this says how many are
+        still being worked on in this case. Not limited to what a caller may see (an internal question
+        for the Workflow module); RLS still keeps it inside the organization.
+        """
+        stmt = select(func.count()).select_from(Task).where(
+            Task.workflow_instance_id == workflow_instance_id,
             Task.workflow_step_id == workflow_step_id,
             Task.deleted_at.is_(None),
             Task.status.in_(OPEN_STATUSES),

@@ -24,6 +24,10 @@ export interface Task {
   // Set when the task belongs to a running workflow case (a step of it).
   workflow_instance_id: string | null;
   workflow_step_id: string | null;
+  // "lead" or "participant" when the task is one department's part of a workflow step done together.
+  workflow_task_role: "lead" | "participant" | null;
+  // The same on every copy of a task created for several departments at once; null for a task on its own.
+  shared_group_id: string | null;
   created_by_user_id: string | null;
   created_at: string;
   updated_at: string;

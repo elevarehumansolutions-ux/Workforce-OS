@@ -192,6 +192,20 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
     read it in the celery_worker log: `docker compose logs celery_worker | grep "STUB TASK EMAIL"`). Check
     that a task you give to yourself does NOT email you.
 
+14. (to-do 48) A step several departments do together, rule "everyone". Edit a step: under "Done together with other
+    departments" press "+ Add a department", choose another department (and optionally a person), keep "When every
+    department has finished its part", save. The step list says "Together with <department>...". Start a case: the case
+    page shows the step with ONE LINE PER DEPARTMENT (each with its own "Open task"), and BOTH people (or heads) get a
+    bell notification and an email. Complete one department's task: the case stays on that step. Complete the other:
+    the next step's task appears.
+15. (to-do 48) Rule "the lead decides". Change the step to "When the department chosen under Done by finishes". Start a
+    case. Complete the helper department's task first: the case does NOT move. Start another case and complete the lead's
+    task first: the case moves on, the helper's still-open task is closed with "The lead department finished this
+    step", and that person is told. On a task of a together step the task page explains it and links to the case.
+16. (to-do 48) One task for several departments. Tasks > Assign task: choose a department, then under "Also needs other
+    departments" add one or two more (naming a person where you may). Create it: each department's person or head is told
+    and emailed; open one task: "The same task is also assigned to" lists the others you may see. Completing one does not
+    complete the others.
 13. (to-dos 45 and 46) Nothing is orphaned. (a) Edit a step: "Counts toward KPI (optional)" lists only the
     step's department's KPIs; pick one and save; the step list shows "KPI: <name>"; start a case and open its
     task: Linked KPI shows that name (a task from a step with no KPI says "Not linked to a KPI, so it does not

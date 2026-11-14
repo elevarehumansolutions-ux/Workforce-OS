@@ -14,7 +14,7 @@ import Modal from "@/components/Modal";
 import SortableStepRow from "@/components/SortableStepRow";
 import type { CallerContext } from "@/lib/tasks";
 import { canManageTemplates, canStartCase, turnaroundLabel, whoReceivesTask } from "@/lib/workflow";
-import type { WorkflowStep, WorkflowTemplate } from "@/lib/workflow";
+import type { CompletionRule, ParticipantDraft, WorkflowStep, WorkflowTemplate } from "@/lib/workflow";
 import { describeWorkingHours, fetchWorkingHours } from "@/lib/workingHours";
 import type { WorkingHours } from "@/lib/workingHours";
 
@@ -66,6 +66,9 @@ export default function WorkflowTemplateDetailPage() {
   const [stepPosition, setStepPosition] = useState("");
   // The KPI the step's tasks count toward ("" = none). It must be a KPI of the step's department.
   const [stepKpi, setStepKpi] = useState("");
+  // Other departments that do this step together with the one above, and when the case moves on.
+  const [stepParticipants, setStepParticipants] = useState<ParticipantDraft[]>([]);
+  const [stepRule, setStepRule] = useState<CompletionRule>("all");
 
   // A drag starts only after the pointer has moved a few pixels, so a plain click on the handle is not a drag.
   // The keyboard works too: focus the handle, press Space, use the arrow keys, press Space again.
@@ -159,6 +162,8 @@ export default function WorkflowTemplateDetailPage() {
     setStepUnit("hours");
     setStepPosition(position ? String(position) : "");
     setStepKpi("");
+    setStepParticipants([]);
+    setStepRule("all");
     setPanelError("");
     setActionError("");
     setEditingStepId("");
@@ -170,6 +175,16 @@ export default function WorkflowTemplateDetailPage() {
     setStepDept(step.department_id);
     setStepAssignee(step.default_assignee_employee_id || "");
     setStepKpi(step.kpi_id || "");
+    setStepParticipants(
+      step.participants.map(function (p) {
+        return {
+          department_id: p.department_id,
+          default_assignee_employee_id: p.default_assignee_employee_id || "",
+          kpi_id: p.kpi_id || "",
+        };
+      })
+    );
+    setStepRule(step.completion_rule);
     // A step given in days shows its number of days; otherwise its hours (or empty for no deadline).
     if (step.default_turnaround_days !== null) {
       setStepHours(String(step.default_turnaround_days));
@@ -218,6 +233,27 @@ export default function WorkflowTemplateDetailPage() {
     }
   }
 
+  function addParticipant() {
+    setStepParticipants(stepParticipants.concat([{ department_id: "", default_assignee_employee_id: "", kpi_id: "" }]));
+  }
+
+  // Changes some fields of one extra department (the others stay as they are).
+  function updateParticipant(index: number, change: Partial<ParticipantDraft>) {
+    setStepParticipants(
+      stepParticipants.map(function (p, i) {
+        return i === index ? { ...p, ...change } : p;
+      })
+    );
+  }
+
+  function removeParticipant(index: number) {
+    setStepParticipants(
+      stepParticipants.filter(function (_p, i) {
+        return i !== index;
+      })
+    );
+  }
+
   async function saveStep() {
     if (!template) return;
     if (stepName.trim() === "") {
@@ -233,6 +269,20 @@ export default function WorkflowTemplateDetailPage() {
       setPanelError("The turnaround must be a whole number above zero, or left empty for no deadline.");
       return;
     }
+    for (const p of stepParticipants) {
+      if (!p.department_id) {
+        setPanelError("Choose a department for each extra department, or remove the empty one.");
+        return;
+      }
+    }
+    // The extra departments as the server wants them (empty text becomes null).
+    const participantsPayload = stepParticipants.map(function (p) {
+      return {
+        department_id: p.department_id,
+        default_assignee_employee_id: p.default_assignee_employee_id || null,
+        kpi_id: p.kpi_id || null,
+      };
+    });
     setBusy(true);
     setPanelError("");
     try {
@@ -240,6 +290,10 @@ export default function WorkflowTemplateDetailPage() {
         const body: Record<string, unknown> = { name: stepName.trim(), department_id: stepDept };
         if (stepAssignee) body.default_assignee_employee_id = stepAssignee;
         if (stepKpi) body.kpi_id = stepKpi;
+        if (participantsPayload.length > 0) {
+          body.participants = participantsPayload;
+          body.completion_rule = stepRule;
+        }
         if (hours.value !== null && stepUnit === "days") body.default_turnaround_days = hours.value;
         if (hours.value !== null && stepUnit === "hours") body.default_turnaround_hours = hours.value;
         // No position = added at the end; a number inserts there and later steps move down.
@@ -259,6 +313,14 @@ export default function WorkflowTemplateDetailPage() {
         if (stepDept !== current.department_id) body.department_id = stepDept;
         if ((stepAssignee || null) !== current.default_assignee_employee_id) body.default_assignee_employee_id = stepAssignee || null;
         if ((stepKpi || null) !== current.kpi_id) body.kpi_id = stepKpi || null;
+        // The extra departments are sent as a whole list (it replaces the old one) and only when changed.
+        const oldParticipants = JSON.stringify(
+          current.participants.map(function (p) {
+            return { department_id: p.department_id, default_assignee_employee_id: p.default_assignee_employee_id, kpi_id: p.kpi_id };
+          })
+        );
+        if (JSON.stringify(participantsPayload) !== oldParticipants) body.participants = participantsPayload;
+        if (participantsPayload.length > 0 && stepRule !== current.completion_rule) body.completion_rule = stepRule;
         // The turnaround counts as changed when the number OR the unit differs. Sending the new unit makes the
         // server clear the old one; "no deadline" clears both.
         const newHours = stepUnit === "hours" ? hours.value : null;
@@ -474,6 +536,107 @@ export default function WorkflowTemplateDetailPage() {
               : ""}
           </p>
         </div>
+        <div className="rounded-xl border border-white/10 p-4 sm:col-span-2">
+          <p className="text-sm font-medium text-gray-200">Done together with other departments (optional)</p>
+          <p className="mt-1 text-xs text-gray-500">
+            Add a department when it must do part of this step too. Each one gets a task of its own, and its head or
+            named person is told and emailed.
+          </p>
+          {stepParticipants.map(function (p, index) {
+            return (
+              <div key={index} className="mt-3 grid gap-3 border-t border-white/10 pt-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-gray-500">Department</label>
+                  <select
+                    value={p.department_id}
+                    onChange={function (e) { updateParticipant(index, { department_id: e.target.value, kpi_id: "" }); }}
+                    className={inputClass}
+                  >
+                    <option value="">Choose a department</option>
+                    {ctx
+                      ? ctx.departments.map(function (d) {
+                          return (
+                            <option key={d.id} value={d.id}>
+                              {d.name}
+                            </option>
+                          );
+                        })
+                      : null}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-gray-500">Person (optional)</label>
+                  {ctx ? (
+                    <PersonSelect
+                      people={activeEmployees(ctx)}
+                      positions={ctx.positions}
+                      departments={ctx.departments}
+                      value={p.default_assignee_employee_id}
+                      onChange={function (id) { updateParticipant(index, { default_assignee_employee_id: id }); }}
+                      emptyLabel="No one named"
+                      className={inputClass}
+                    />
+                  ) : null}
+                  {ctx && p.department_id && !p.default_assignee_employee_id ? (
+                    <p className="mt-1 text-xs text-gray-500">{whoReceivesTask(ctx, p.department_id, false)}</p>
+                  ) : null}
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-gray-500">Counts toward KPI (optional)</label>
+                  <select
+                    value={p.kpi_id}
+                    disabled={!p.department_id}
+                    onChange={function (e) { updateParticipant(index, { kpi_id: e.target.value }); }}
+                    className={inputClass}
+                  >
+                    <option value="">{p.department_id ? "Not linked: won't count in scores" : "Choose the department first"}</option>
+                    {ctx
+                      ? ctx.kpis
+                          .filter(function (k) { return k.department_id === p.department_id; })
+                          .map(function (k) {
+                            return (
+                              <option key={k.id} value={k.id}>
+                                {k.name}
+                              </option>
+                            );
+                          })
+                      : null}
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={function () { removeParticipant(index); }}
+                    className="rounded-lg border border-red-500/40 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-500/10"
+                  >
+                    Remove this department
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            disabled={stepParticipants.length >= 5}
+            onClick={addParticipant}
+            className="mt-3 rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            + Add a department
+          </button>
+          {stepParticipants.length > 0 ? (
+            <fieldset className="mt-4 space-y-2 border-t border-white/10 pt-3">
+              <legend className="text-xs text-gray-500">When does the case move on?</legend>
+              <label className="flex items-start gap-2 text-sm text-gray-300">
+                <input type="radio" name="completion-rule" checked={stepRule === "all"} onChange={function () { setStepRule("all"); }} className="mt-1" />
+                <span>When every department has finished its part</span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-gray-300">
+                <input type="radio" name="completion-rule" checked={stepRule === "lead"} onChange={function () { setStepRule("lead"); }} className="mt-1" />
+                <span>When the department chosen under &quot;Done by&quot; finishes. The others only help, and their open tasks are closed.</span>
+              </label>
+            </fieldset>
+          ) : null}
+        </div>
         <div className="sm:col-span-2">
           <label className="mb-1 block text-xs text-gray-500">Turnaround (optional)</label>
           <div className="flex max-w-md gap-2">
@@ -652,6 +815,17 @@ export default function WorkflowTemplateDetailPage() {
                               {turnaroundLabel(step.default_turnaround_hours, step.default_turnaround_days)} ·{" "}
                               {step.kpi_id ? "KPI: " + kpiNameOf(ctx, step.kpi_id) : "No KPI"}
                             </p>
+                            {step.participants.length > 0 ? (
+                              <p className="mt-0.5 text-xs text-indigo-300">
+                                Together with{" "}
+                                {step.participants
+                                  .map(function (p) {
+                                    return departmentName(ctx, p.department_id) + (p.default_assignee_employee_id ? " (" + employeeName(ctx, p.default_assignee_employee_id) + ")" : "");
+                                  })
+                                  .join(", ")}
+                                {step.completion_rule === "lead" ? ". The lead department decides; the others help." : ". The case moves on when every department has finished."}
+                              </p>
+                            ) : null}
                           </div>
                         </div>
                         {manage ? (

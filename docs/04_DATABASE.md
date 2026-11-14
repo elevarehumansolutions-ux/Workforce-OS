@@ -475,6 +475,23 @@ CREATE TABLE workflow_steps (
     deleted_at TIMESTAMPTZ
 );
 
+-- 2026-11-14 (migration f7b4d9e25a31), "Together steps": the EXTRA departments that do a step together with the step's own.
+-- workflow_steps also gained completion_rule TEXT NOT NULL DEFAULT 'all' CHECK IN ('all','lead'): 'all' = the case moves on when every
+-- task of the step has ended; 'lead' = only the step's own department's task counts and the others are helpers (closed when the lead ends).
+CREATE TABLE workflow_step_participants (
+    id UUID PRIMARY KEY,
+    organization_id UUID NOT NULL REFERENCES organizations(id),   -- RLS tenant_isolation, like the other workflow tables
+    workflow_step_id UUID NOT NULL REFERENCES workflow_steps(id),
+    department_id UUID NOT NULL REFERENCES departments(id),
+    default_assignee_employee_id UUID REFERENCES employees(id),   -- null = that department's head (else HR) receives it
+    kpi_id UUID REFERENCES kpis(id),                              -- one of THIS department's KPIs (checked by the service)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Replaced as a set when a step is edited; nothing else points at these rows. Starting the step makes one task per department.
+-- tasks also gained workflow_task_role TEXT (NULL | 'lead' | 'participant', CHECK) and shared_group_id UUID (indexed): the
+-- sibling tasks of a one-off task assigned to several departments at once share one value; each is completed on its own.
+
 CREATE TABLE workflow_instances (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),

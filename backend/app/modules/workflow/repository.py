@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.pagination import paginate
 from app.core.schemas import PaginationResponse
 from .enums import InstanceStatus
-from .models import WorkflowInstance, WorkflowStep, WorkflowTemplate
+from .models import WorkflowInstance, WorkflowStep, WorkflowStepParticipant, WorkflowTemplate
 
 
 class TemplateRepository:
@@ -439,6 +439,24 @@ class StepRepository:
             .values(step_order=WorkflowStep.step_order + 1)
         )
         await self._db.execute(stmt)
+
+    async def replace_participants(self, step: WorkflowStep, participants: list[dict]) -> WorkflowStep:
+        """Make the step's extra departments exactly ``participants`` (the old rows are deleted).
+
+        Args:
+            step: The step to change.
+            participants: One dict per extra department: ``department_id`` and optionally
+                ``default_assignee_employee_id`` and ``kpi_id``.
+
+        Returns:
+            The step, refreshed so ``step.participants`` shows the new rows.
+        """
+        step.participants = [
+            WorkflowStepParticipant(organization_id=step.organization_id, **row) for row in participants
+        ]
+        await self._db.flush()
+        await self._db.refresh(step)
+        return step
 
     async def create_step(self, fields: dict) -> WorkflowStep:
         """Insert a new step, flush, and refresh it from the database.

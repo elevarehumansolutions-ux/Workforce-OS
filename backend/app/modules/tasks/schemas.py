@@ -26,6 +26,18 @@ def _clean_title(value: str | None) -> str:
     return value
 
 
+class TaskShareTarget(BaseModel):
+    """Another department that gets its own copy of a task created together with the first one.
+
+    The same rules as for a task on its own apply to each: who may create tasks for that department, who
+    may be named, and a KPI of that department.
+    """
+
+    department_id: uuid.UUID
+    assigned_to_employee_id: uuid.UUID | None = None
+    kpi_id: uuid.UUID | None = None
+
+
 class TaskCreateRequest(BaseModel):
     """Request body for creating a task.
 
@@ -33,6 +45,10 @@ class TaskCreateRequest(BaseModel):
     from the creator's own. Leave ``assigned_to_employee_id`` out to put the
     task in the department queue; a creator from another department must
     leave it out, and the task then goes to that department's head.
+
+    ``also_for`` (at most 5) assigns the same task to other departments in the same request: each gets a
+    task of its own with the same title, description and deadline, and the tasks are linked
+    (``shared_group_id``). Each is completed on its own.
     """
 
     department_id: uuid.UUID
@@ -41,6 +57,7 @@ class TaskCreateRequest(BaseModel):
     due_at: datetime | None = None
     kpi_id: uuid.UUID | None = None
     assigned_to_employee_id: uuid.UUID | None = None
+    also_for: list[TaskShareTarget] = Field(default_factory=list, max_length=5)
 
     @field_validator("title")
     @classmethod
@@ -195,6 +212,11 @@ class TaskResponse(BaseModel):
     organization_id: uuid.UUID
     workflow_instance_id: uuid.UUID | None
     workflow_step_id: uuid.UUID | None
+    # "lead" or "participant" for a workflow step done together by several departments; otherwise null.
+    workflow_task_role: str | None
+    # The same value on every task created together for several departments (list them with
+    # ``GET /tasks?shared_group_id=...``); null for a task on its own.
+    shared_group_id: uuid.UUID | None
     department_id: uuid.UUID
     kpi_id: uuid.UUID | None
     assigned_to_employee_id: uuid.UUID | None
