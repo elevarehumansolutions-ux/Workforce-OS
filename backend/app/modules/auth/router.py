@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Cookie, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_db, get_current_user, require_owner
+from app.core.dependencies import get_db, get_current_user, get_current_membership
 from app.core.schemas import MessageResponse
 from app.modules.tenancy_identity.models import Membership, User
 from app.modules.auth.schemas import (
@@ -23,6 +23,9 @@ from app.modules.auth.schemas import (
     AcceptInviteExistingRequest,
     CreateOrganizationRequest,
     DeleteOrganizationRequest,
+    DeletedCompanyResponse,
+    DeletedCompaniesResponse,
+    RestoreOrganizationRequest,
     JoinedCompanyResponse,
     InvitePreviewResponse,
     SwitchOrganizationRequest,
@@ -216,18 +219,44 @@ async def delete_organization(
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    owner: Membership = Depends(require_owner),
+    current: Membership = Depends(get_current_membership),
     refresh_token: str | None = Cookie(default=None),
-) -> AuthResponse:
-    """Delete the company this session acts for. Only its Owner may.
+) -> AuthResponse | DeletedCompanyResponse:
+    """Delete one of the caller's companies. Only its Owner may (403 otherwise).
 
-    Needs the company name and the Owner's password. Nothing is erased: the company is archived,
-    everyone's access to it ends, and the answer is a session for another of the caller's
-    companies. 409 ``LAST_COMPANY`` if it is the only company the caller can enter.
+    Needs the company name and the Owner's password. ``organization_id`` picks the company; left
+    out, it is the one this session acts for. Nothing is erased: the company is archived and
+    everyone's access to it ends. Deleting the CURRENT company answers with a session for another of
+    the caller's companies; deleting a different one answers ``{deleted_organization_id,
+    session_opened: false}`` and leaves the session alone. 409 ``LAST_COMPANY`` if it is the only
+    company the caller can enter.
     """
     return await AuthService(db).delete_company(
-        current_user, owner, data.confirm_name, data.password, refresh_token, response
+        current_user, current, data.organization_id, data.confirm_name, data.password, refresh_token, response
     )
+
+
+@router.get("/deleted-organizations", status_code=200)
+async def deleted_organizations(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DeletedCompaniesResponse:
+    """The companies the caller deleted as their Owner and may restore, newest deletion first."""
+    return await AuthService(db).list_deleted_companies(current_user)
+
+
+@router.post("/restore-organization", status_code=200)
+async def restore_organization(
+    data: RestoreOrganizationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageResponse:
+    """Bring back a company the caller deleted, with everyone who lost access through the deletion.
+
+    403 if it is not theirs or was not deleted by them. 409 ``COMPANY_LIMIT_REACHED`` if they
+    already own 3; 409 if they already have a company with that name. The session is not changed.
+    """
+    return await AuthService(db).restore_company(current_user, data.organization_id)
 
 
 @router.post("/accept-invite", status_code=200)
