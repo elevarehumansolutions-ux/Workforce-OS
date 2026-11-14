@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 
+import NotificationBell from "@/components/NotificationBell";
 import RoleSidebarNav from "@/components/SidebarNav";
 import { isHrRole, loadMe } from "@/lib/settings";
 import Logo from "@/components/Logo";
@@ -242,6 +243,7 @@ export default function EmployeeDirectoryPage() {
             <p className="text-xs text-gray-500">Dashboard &gt; Employees</p>
             <h1 className="text-xl font-bold text-white">Employees</h1>
           </div>
+          <NotificationBell />
         </div>
 
         <main className="flex-1 px-8 py-8">

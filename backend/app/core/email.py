@@ -42,6 +42,11 @@ class EmailService(ABC):
         """Send a password reset link to a user who requested one."""
         ...
 
+    @abstractmethod
+    async def send_task_email(self, email: str, title: str, body: str, task_link: str) -> None:
+        """Tell someone a task has landed on them, with a link that opens it."""
+        ...
+
 
 def _render_email_layout(
     title: str,
@@ -263,6 +268,28 @@ class ResendEmailService(EmailService):
             html_body=html_body,
         )
 
+    async def send_task_email(self, email: str, title: str, body: str, task_link: str) -> None:
+        """Tell someone a task has landed on them, with a link that opens it."""
+        from html import escape
+
+        # The title and body contain text typed by people (a task or step name), so they are escaped.
+        safe_title = escape(title)
+        safe_body = escape(body)
+        body_content_html = f"""
+        <h2 style="margin: 0 0 16px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 20px; font-weight: 600; line-height: 1.4; color: #0F172A;">{safe_title}</h2>
+        <p style="margin: 0 0 24px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 15px; line-height: 1.6; color: #334155;">{safe_body}</p>
+        {_render_button("Open the task", task_link)}
+        """
+
+        html_body = _render_email_layout(
+            title=safe_title,
+            preheader=safe_body,
+            body_content_html=body_content_html,
+            footer_note="You get this email because a task was given to you, or needs someone to take it, in Elevare Workforce OS.",
+        )
+
+        await self._send_html(subject=title[:150] + " — Elevare Workforce OS", recipients=[email], html_body=html_body)
+
 
 class StubEmailService(EmailService):
     """Concrete implementation that logs to stdout — used in dev/tests."""
@@ -296,6 +323,10 @@ class StubEmailService(EmailService):
         """Log a stub password reset email with a full clickable link."""
         link = f"{settings.app_url}/reset-password?token={reset_token}"
         logger.info("STUB PASSWORD RESET EMAIL to %s — click to reset:\n%s", email, link)
+
+    async def send_task_email(self, email: str, title: str, body: str, task_link: str) -> None:
+        """Log a stub task email with a full clickable link."""
+        logger.info("STUB TASK EMAIL to %s — %s\n  %s\n  Open: %s", email, title, body, task_link)
 
 
 def get_email_service() -> EmailService:

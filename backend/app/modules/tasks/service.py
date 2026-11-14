@@ -35,6 +35,7 @@ from app.core.schemas import PaginationResponse
 from app.modules.audit_and_notification.enums import NotificationCategory
 from app.modules.attendance.repository import AttendanceRepository
 from app.modules.audit_and_notification.service import AuditService, NotificationService
+from app.modules.audit_and_notification.task_email import email_people_about_task
 from app.modules.kpis.enums import KPITrackingMode
 from app.modules.kpis.repository import KPIRepository
 from app.modules.kpis.service import KPIService
@@ -357,6 +358,13 @@ class TaskService:
                     link_type="task",
                     link_id=task.id,
                 )
+                await email_people_about_task(
+                    self._db,
+                    [assignee.user_id],
+                    f"New task: {task.title}",
+                    f"A task for {department_name} has been assigned to you.",
+                    task.id,
+                )
         elif head_missing:
             recipients = await self._membership_service.list_active_user_ids_by_role(
                 task.organization_id, MembershipRole.HR_ADMINISTRATOR.value
@@ -373,6 +381,14 @@ class TaskService:
                     ),
                     link_type="task",
                     link_id=task.id,
+                )
+                await email_people_about_task(
+                    self._db,
+                    recipients,
+                    f"A task for {department_name} has no one to receive it",
+                    f"\"{task.title}\" was created for {department_name}, which has no department head. "
+                    "Assign the task, or name a head.",
+                    task.id,
                 )
 
     async def _notify_about_workflow_task(self, task: Task, department_name: str) -> None:
@@ -393,6 +409,13 @@ class TaskService:
                     link_type="task",
                     link_id=task.id,
                 )
+                await email_people_about_task(
+                    self._db,
+                    [assignee.user_id],
+                    f"New task: {task.title}",
+                    f"A task for {department_name} has been assigned to you.",
+                    task.id,
+                )
             return
 
         recipients = await self._head_or_hr_user_ids(task.department_id, task.organization_id)
@@ -408,6 +431,14 @@ class TaskService:
                 ),
                 link_type="task",
                 link_id=task.id,
+            )
+            await email_people_about_task(
+                self._db,
+                recipients,
+                f"A task for {department_name} needs an owner",
+                f"\"{task.title}\" was created by a workflow for {department_name} and "
+                "has nobody assigned. Assign it to someone.",
+                task.id,
             )
 
     async def create_workflow_task(
@@ -876,6 +907,7 @@ class TaskService:
             caller,
             title=f"New task: {updated.title}",
             body="A task has been assigned to you with a new deadline.",
+            email=True,
         )
         await self._notify_employee(
             updated,
@@ -1528,12 +1560,13 @@ class TaskService:
         )
 
     async def _notify_employee(
-        self, task: Task, employee_id: uuid.UUID | None, caller: Membership, title: str, body: str
+        self, task: Task, employee_id: uuid.UUID | None, caller: Membership, title: str, body: str, email: bool = False
     ) -> None:
         """Send one in-app notification about ``task`` to an employee's login.
 
         Skipped when there is no employee, the employee has no login yet, or
         the employee is the caller (nobody is notified about their own action).
+        With ``email=True`` the person also gets an email (only used when a task is given to them).
         """
         if employee_id is None:
             return
@@ -1549,3 +1582,5 @@ class TaskService:
             link_type="task",
             link_id=task.id,
         )
+        if email:
+            await email_people_about_task(self._db, [employee.user_id], title, body, task.id)

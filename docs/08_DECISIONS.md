@@ -1352,6 +1352,16 @@ Raised by Emmanuel while setting up the first workflow template in the Stage 7 l
 - **One person picker.** Every dropdown that chooses a person becomes a single shared component: a group per department, each person shown as "Name, Position", people without a position under "No position yet". Chosen over a searchable combobox for now (a native select works the same on a phone and needs no new behaviour to learn); search can be added to the one component later.
 - **The Start Workflow page** gets a way forward when there are no templates (a button for HR administrators and managers, a sentence for everyone else).
 
+## 2026-11-14 — Seeing and being emailed about a new task (BUILT, branch `fiscal-year-setting`, to-dos 43 and 44)
+
+Found by Emmanuel in the Stage 7 live test: after a case started, the person who got the first task was told nothing they could see. Two causes: the in-app notification existed but nothing in the app pointed to it (no bell, no menu entry), and no notification ever sent an email.
+
+- **The bell (to-do 43):** a bell with an unread count in the top bar of every screen, opening the existing Notifications page. A new cheap `GET /notifications/unread-count` backs it; it is refreshed by polling (every 60 seconds while the tab is visible). Rejected: reading the number from `GET /notifications` (that call returns every row with no limit, so polling it gets heavier every month); websockets or push (a new moving part for a number that can be a minute old).
+- **The email (to-do 44), for the events where a person must act:** a task is given to a person (by a person or by a workflow, and a reassignment to the new owner), and "a task needs an owner" (a workflow task with nobody assigned goes to the department head, else HR; a person-made task for a head-less department goes to HR). Everything else stays in-app only (overdue, blocked, cancelled, the person who lost a task). Emmanuel's choice: **no opt-out setting for now.**
+- **Sent only after the save.** `core/after_commit.py` holds the "queue the email" action until the database commit and drops it on a rollback, so a task that was rolled back never produces an email. Rejected: queueing inside the request (an email for work that may be undone) and a nightly "unsent notifications" sweep (a new column, a cross-tenant lookup, and emails that arrive late).
+- **Only verified accounts are emailed;** a person who gave a task to themselves is not emailed; task titles are escaped in the HTML (they are typed by people).
+- **Touches finished modules, additively:** `tasks/service.py` (one call after each of five notifications, one optional argument on `_notify_employee`) and `audit_and_notification` (the count endpoint, a new `task_email.py`). Needed because the notification events live there.
+
 ## 2026-11-14 — The financial year start month becomes editable (BUILT, branch `fiscal-year-setting`, to-do 40)
 
 Found by Emmanuel in Settings: the field was greyed out. It had been built read-only on purpose-by-omission (decision 2026-09-07 gave `organizations.fiscal_year_start_month` a default of 1 and no way to change it).

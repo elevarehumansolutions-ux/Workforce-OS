@@ -179,6 +179,14 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 11. (to-do 40) On a NEW company's onboarding Business DNA page there is a "Financial year starts in" dropdown
     under the working hours; pick a month, press Continue, and check it in Settings afterwards.
 
+12. (to-dos 43 and 44) Being told. Start a case whose first step has a default person (or a department head) who
+    can sign in. In another browser window, signed in as that person, a red number appears on the bell in the top
+    bar within a minute (sooner on a page change); click it: the Notifications page lists "New task: ..." or "A
+    task for ... needs an owner"; opening one drops the number. The same person is also sent an email with an
+    "Open the task" button (needs a real mailbox, a real `RESEND_API_KEY` and `EMAIL_STUB_MODE` off; in stub mode
+    read it in the celery_worker log: `docker compose logs celery_worker | grep "STUB TASK EMAIL"`). Check
+    that a task you give to yourself does NOT email you.
+
 ## Stage 8: Notifications and the audit log (M3)
 
 1. Open Notifications. Expect: the events from stages 6 and 7, with working links.

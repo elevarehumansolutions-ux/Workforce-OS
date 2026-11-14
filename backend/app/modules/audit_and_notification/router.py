@@ -10,7 +10,7 @@ from app.core.dependencies import get_db, get_current_membership, require_org_ro
 from app.core.schemas import CursorPaginationMeta, CursorPaginationResponse
 from app.modules.tenancy_identity.models import Membership
 from .enums import NotificationCategory
-from .schemas import AuditLogResponse, MarkAllReadResponse, NotificationResponse
+from .schemas import AuditLogResponse, MarkAllReadResponse, NotificationResponse, UnreadCountResponse
 from .service import AuditService, NotificationService
 
 router = APIRouter()
@@ -90,6 +90,19 @@ async def list_notifications(
         unread=unread,
     )
     return [NotificationResponse.model_validate(n) for n in notifications]
+
+
+@router.get("/notifications/unread-count", status_code=200)
+async def count_unread_notifications(
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> UnreadCountResponse:
+    """How many notifications the caller has not read yet. Cheap, so the bell can ask often."""
+    unread = await NotificationService(db).count_unread(
+        organization_id=caller.organization_id,
+        recipient_user_id=caller.user_id,
+    )
+    return UnreadCountResponse(unread=unread)
 
 
 @router.post("/notifications/{notification_id}/read", status_code=200)

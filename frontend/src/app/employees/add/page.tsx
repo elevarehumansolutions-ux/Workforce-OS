@@ -10,6 +10,7 @@ import { findFormerHead } from "@/lib/formerHead";
 import type { FormerHead } from "@/lib/formerHead";
 import PersonSelect from "@/components/PersonSelect";
 
+import NotificationBell from "@/components/NotificationBell";
 import RoleSidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
 import MobileNav from "@/components/MobileNav";
@@ -419,6 +420,7 @@ export default function AddEmployeePage() {
             <p className="text-xs text-gray-500">Employees &gt; Add Employee</p>
             <h1 className="text-xl font-bold text-white">Add New Employee</h1>
           </div>
+          <NotificationBell />
         </div>
 
         <main className="flex-1 px-8 py-8">

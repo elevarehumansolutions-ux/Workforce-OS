@@ -45,6 +45,12 @@ class NotificationResponse(BaseModel):
     created_at: datetime
 
 
+class UnreadCountResponse(BaseModel):
+    """How many notifications the caller has not read (the number on the bell)."""
+
+    unread: int
+
+
 class MarkAllReadResponse(BaseModel):
     """Response for bulk mark-all-notifications-read."""
 

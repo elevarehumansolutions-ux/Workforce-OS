@@ -9,6 +9,7 @@ import FormerHeadDialog from "@/components/FormerHeadDialog";
 import { findFormerHead } from "@/lib/formerHead";
 import type { FormerHead } from "@/lib/formerHead";
 
+import NotificationBell from "@/components/NotificationBell";
 import RoleSidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
 import MobileNav from "@/components/MobileNav";
@@ -260,6 +261,7 @@ export default function OrganizationStructurePage() {
             <p className="text-xs text-gray-500">Dashboard &gt; Organization Structure</p>
             <h1 className="text-xl font-bold text-white">Organization Structure</h1>
           </div>
+          <NotificationBell />
         </div>
 
         <main className="flex-1 space-y-6 px-8 py-8">

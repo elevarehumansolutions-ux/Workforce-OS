@@ -148,6 +148,7 @@ After a company FIRST saves its Business DNA, the AI proposes its departments, p
 ## Notifications
 
 - `GET /notifications` (filter: `category`, `unread=true`) — the caller's own stream, self-scoped by recipient, open to every role.
+- **(2026-11-14, to-do 43) `GET /notifications/unread-count`** — `{"unread": n}`: how many of the caller's own notifications are unread (any signed-in member). It is what the bell in the top bar shows; the frontend asks for it on page load, every 60 seconds while the tab is visible, on returning to the tab, and right after the Notifications page marks something read. Errors are ignored by the bell (it keeps the last number).
 - `POST /notifications/{id}/read` — mark one of the caller's own notifications read.
 - `POST /notifications/read-all` — mark every one of the caller's unread notifications read in one call; returns `{"marked_read": <count>}`.
 

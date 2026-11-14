@@ -6,6 +6,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { fetchAllPages } from "@/lib/tasks";
 import type { Employee } from "@/lib/tasks";
 
+import NotificationBell from "@/components/NotificationBell";
 import RoleSidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
 import MobileNav from "@/components/MobileNav";
@@ -229,6 +230,7 @@ export default function TeamManagementPage() {
             <p className="text-xs text-gray-500">Dashboard &gt; Team Management</p>
             <h1 className="text-xl font-bold text-white">Team Management</h1>
           </div>
+          <NotificationBell />
         </div>
 
         <main className="flex-1 px-8 py-8">
