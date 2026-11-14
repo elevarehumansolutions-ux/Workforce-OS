@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch, ApiError, currentOrganizationId, getAccessToken, setAccessToken } from "@/lib/api";
 import Logo from "@/components/Logo";
+import Modal from "@/components/Modal";
 
 interface Organization {
   id: string;
@@ -50,6 +51,12 @@ export default function OrganizationsPage() {
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState("");
+  // "Delete this company": a window that asks for the company name and the password.
+  const [deleting, setDeleting] = useState(false);
+  const [deleteName, setDeleteName] = useState("");
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(function () {
     if (!getAccessToken()) {
@@ -121,6 +128,47 @@ export default function OrganizationsPage() {
       // 409: you already have one with that name, or you own the most allowed. The message says which.
       setCreateError(err instanceof ApiError ? err.message : "Couldn't create the company. Please try again.");
       setSaving(false);
+    }
+  }
+
+  // The company this session acts for, if this person is its owner and has somewhere else to go.
+  // (The server enforces both rules too; this only decides whether to show the section.)
+  const activeMemberships = me
+    ? me.memberships.filter(function (m) { return !m.deactivated_at; })
+    : [];
+  const deletable = activeMemberships.find(function (m) {
+    return m.is_owner && m.organization.id === currentOrganizationId();
+  });
+  const canDelete = Boolean(deletable) && activeMemberships.length >= 2;
+  const nameTypedCorrectly =
+    deletable !== undefined &&
+    deleteName.trim().toLowerCase() === (deletable.organization.name || "").trim().toLowerCase();
+
+  function closeDeleteWindow() {
+    setDeleting(false);
+    setDeleteName("");
+    setDeletePassword("");
+    setDeleteError("");
+  }
+
+  async function handleDelete(e: React.FormEvent) {
+    e.preventDefault();
+    if (deleteBusy || !deletable) return; // a double click must not send two
+    setDeleteError("");
+    setDeleteBusy(true);
+    try {
+      // The answer is a session for another of this person's companies (POST /auth/delete-organization).
+      const data = await apiFetch<{ access_token: string }>("/auth/delete-organization", {
+        method: "POST",
+        body: { confirm_name: deleteName.trim(), password: deletePassword },
+      });
+      setAccessToken(data.access_token);
+      // A full page load, so the menu and every cached role start fresh for the company we land in.
+      window.location.assign("/dashboard");
+    } catch (err) {
+      // 422: wrong password or name. 409 LAST_COMPANY: the only company. 403: not the owner.
+      setDeleteError(err instanceof ApiError ? err.message : "Couldn't delete the company. Please try again.");
+      setDeleteBusy(false);
     }
   }
 
@@ -269,6 +317,82 @@ export default function OrganizationsPage() {
               </form>
             )}
           </div>
+        ) : null}
+
+        {!loading && deletable ? (
+          <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/5 px-5 py-4">
+            <p className="text-sm font-semibold text-red-300">Delete {deletable.organization.name || "this company"}</p>
+            {canDelete ? (
+              <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+                <p className="max-w-md text-xs text-gray-400">
+                  Everyone in it loses access and it disappears from every list. Nothing is erased straight away,
+                  so support can still bring it back. You will be moved to your other company.
+                </p>
+                <button
+                  type="button"
+                  onClick={function () { setDeleting(true); }}
+                  className="rounded-lg border border-red-500/50 px-4 py-2 text-sm font-semibold text-red-300 hover:bg-red-500/10"
+                >
+                  Delete this company
+                </button>
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-gray-400">
+                This is your only company, so it cannot be deleted. Start another one first, then you can delete this one.
+              </p>
+            )}
+          </div>
+        ) : null}
+
+        {deleting && deletable ? (
+          <Modal title={"Delete " + (deletable.organization.name || "this company") + "?"} onClose={closeDeleteWindow}>
+            <form onSubmit={handleDelete} className="space-y-3">
+              <p className="text-sm text-gray-300">
+                Everyone in this company loses access straight away, and it disappears from every list.
+                You will be moved to your other company.
+              </p>
+              <label htmlFor="delete-name" className="block text-xs text-gray-400">
+                Type the company name to confirm: <span className="font-semibold text-white">{deletable.organization.name}</span>
+              </label>
+              <input
+                id="delete-name"
+                type="text"
+                value={deleteName}
+                onChange={function (e) { setDeleteName(e.target.value); }}
+                autoFocus
+                className="w-full rounded-lg border border-white/10 bg-[#05070f] px-3 py-2 text-sm text-white outline-none focus:border-red-400"
+              />
+              <label htmlFor="delete-password" className="block text-xs text-gray-400">
+                Your password
+              </label>
+              <input
+                id="delete-password"
+                type="password"
+                value={deletePassword}
+                onChange={function (e) { setDeletePassword(e.target.value); }}
+                autoComplete="current-password"
+                className="w-full rounded-lg border border-white/10 bg-[#05070f] px-3 py-2 text-sm text-white outline-none focus:border-red-400"
+              />
+              {deleteError ? <p className="text-xs text-red-300">{deleteError}</p> : null}
+              <div className="flex flex-wrap justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={deleteBusy}
+                  onClick={closeDeleteWindow}
+                  className="rounded-lg border border-white/15 px-4 py-2 text-sm text-gray-300 hover:border-white/30 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deleteBusy || !nameTypedCorrectly || deletePassword === ""}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {deleteBusy ? "Deleting…" : "Delete this company"}
+                </button>
+              </div>
+            </form>
+          </Modal>
         ) : null}
 
         <a

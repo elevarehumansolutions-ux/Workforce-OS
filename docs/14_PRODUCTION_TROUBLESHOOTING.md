@@ -450,6 +450,42 @@ Rule to remember: **the job is safe to run twice; a frozen quarter is never rewr
 
 ---
 
+## 13. Bring back a company its owner deleted (archived)
+Deleting a company never erases it: it stamps `organizations.archived_at`, and stamps every membership's
+`deactivated_at` with the SAME instant (`04_DATABASE.md`). So restoring is the reverse, in one transaction.
+Run it as the database owner (`-U elevare`), the same way as section 11; the app's own role cannot see across companies.
+
+```sql
+BEGIN;
+
+-- 1. Which companies are archived, and when? Pick the id to restore.
+SELECT id, name, archived_at FROM organizations WHERE archived_at IS NOT NULL;
+
+-- 2. Give access back to exactly the people who lost it BECAUSE of the deletion (replace the id twice).
+UPDATE memberships
+   SET deactivated_at = NULL
+ WHERE organization_id = '<company id>'
+   AND deactivated_at = (SELECT archived_at FROM organizations WHERE id = '<company id>');
+
+-- 3. Make the company live again.
+UPDATE organizations SET archived_at = NULL WHERE id = '<company id>';
+
+COMMIT;
+```
+
+Line by line:
+- `BEGIN; ... COMMIT;` makes the three statements all-or-nothing. Change `COMMIT` to `ROLLBACK` to rehearse.
+- Step 1 only reads; it shows the company's name so you do not restore the wrong one.
+- Step 2 matches `deactivated_at` to the company's own `archived_at`. Anyone an HR administrator had deactivated
+  EARLIER has a different time, so they correctly stay deactivated. Without that condition you would reopen
+  access for people who were removed on purpose.
+- Step 3 last, so the company is never live with nobody in it.
+- Not restored: invites that were waiting (they were marked used), so send them again. The owner's other
+  companies are untouched, so they just open "Switch company".
+- Check afterwards: the owner's name menu shows "Switch company (N)" again, and the restored company opens.
+
+---
+
 ## Incident log
 
 ### 2026-10-07: `PUT /api/v1/business-dna` returns 500 (reported by Uche)
