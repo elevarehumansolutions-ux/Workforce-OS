@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import SidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
 import MobileNav from "@/components/MobileNav";
+import NotificationBell from "@/components/NotificationBell";
 import UserMenu from "@/components/UserMenu";
 
 interface AppShellProps {
@@ -38,7 +39,10 @@ export default function AppShell(props: AppShellProps) {
             {props.breadcrumb ? <p className="text-xs text-gray-500">{props.breadcrumb}</p> : null}
             <h1 className="text-xl font-bold text-white">{props.title}</h1>
           </div>
-          {props.actions ? <div className="flex items-center gap-3">{props.actions}</div> : null}
+          <div className="flex items-center gap-3">
+            {props.actions}
+            <NotificationBell />
+          </div>
         </div>
         <main className="flex-1 space-y-6 px-4 py-6 sm:px-8 sm:py-8">{props.children}</main>
       </div>

@@ -35,6 +35,7 @@ from app.core.schemas import PaginationResponse
 from app.modules.audit_and_notification.enums import NotificationCategory
 from app.modules.attendance.repository import AttendanceRepository
 from app.modules.audit_and_notification.service import AuditService, NotificationService
+from app.modules.audit_and_notification.task_email import email_people_about_task
 from app.modules.kpis.enums import KPITrackingMode
 from app.modules.kpis.repository import KPIRepository
 from app.modules.kpis.service import KPIService
@@ -357,6 +358,13 @@ class TaskService:
                     link_type="task",
                     link_id=task.id,
                 )
+                await email_people_about_task(
+                    self._db,
+                    [assignee.user_id],
+                    f"New task: {task.title}",
+                    f"A task for {department_name} has been assigned to you.",
+                    task.id,
+                )
         elif head_missing:
             recipients = await self._membership_service.list_active_user_ids_by_role(
                 task.organization_id, MembershipRole.HR_ADMINISTRATOR.value
@@ -373,6 +381,14 @@ class TaskService:
                     ),
                     link_type="task",
                     link_id=task.id,
+                )
+                await email_people_about_task(
+                    self._db,
+                    recipients,
+                    f"A task for {department_name} has no one to receive it",
+                    f"\"{task.title}\" was created for {department_name}, which has no department head. "
+                    "Assign the task, or name a head.",
+                    task.id,
                 )
 
     async def _notify_about_workflow_task(self, task: Task, department_name: str) -> None:
@@ -393,6 +409,13 @@ class TaskService:
                     link_type="task",
                     link_id=task.id,
                 )
+                await email_people_about_task(
+                    self._db,
+                    [assignee.user_id],
+                    f"New task: {task.title}",
+                    f"A task for {department_name} has been assigned to you.",
+                    task.id,
+                )
             return
 
         recipients = await self._head_or_hr_user_ids(task.department_id, task.organization_id)
@@ -409,6 +432,14 @@ class TaskService:
                 link_type="task",
                 link_id=task.id,
             )
+            await email_people_about_task(
+                self._db,
+                recipients,
+                f"A task for {department_name} needs an owner",
+                f"\"{task.title}\" was created by a workflow for {department_name} and "
+                "has nobody assigned. Assign it to someone.",
+                task.id,
+            )
 
     async def create_workflow_task(
         self,
@@ -421,6 +452,7 @@ class TaskService:
         workflow_step_id: uuid.UUID,
         assigned_to_employee_id: uuid.UUID | None = None,
         description: str | None = None,
+        kpi_id: uuid.UUID | None = None,
     ) -> Task:
         """Create the task for one step of a running workflow.
 
@@ -444,6 +476,8 @@ class TaskService:
             workflow_step_id: The step it was made from.
             assigned_to_employee_id: The step's default assignee, if any.
             description: Optional longer description.
+            kpi_id: The KPI the step counts toward, if any. Like a bad assignee, a KPI that has been
+                deleted since the step was set up is not an error: the task is created without it.
 
         Returns:
             The newly created ``Task``.
@@ -454,6 +488,9 @@ class TaskService:
         department = await self._department_repo.get_department_by_id(department_id)
         if department is None:
             raise DepartmentNotFoundException()
+
+        if kpi_id is not None and await self._kpi_repo.get_kpi_by_id(kpi_id) is None:
+            kpi_id = None
 
         assignee_id = assigned_to_employee_id
         if assignee_id is not None:
@@ -469,6 +506,7 @@ class TaskService:
                 "description": description,
                 "due_at": due_at,
                 "assigned_to_employee_id": assignee_id,
+                "kpi_id": kpi_id,
                 "workflow_instance_id": workflow_instance_id,
                 "workflow_step_id": workflow_step_id,
                 "created_by_user_id": None,
@@ -516,6 +554,7 @@ class TaskService:
         limit: int = 20,
         overdue: bool | None = None,
         now: datetime | None = None,
+        unassigned: bool = False,
     ) -> PaginationResponse:
         """List the tasks the caller may see, with optional filters.
 
@@ -532,6 +571,7 @@ class TaskService:
             now: The moment "overdue" is judged against. The router passes
                 the same moment it uses for each row's flag; defaults to the
                 current time.
+            unassigned: True for only tasks nobody is assigned to (the "needs an owner" list).
 
         Returns:
             A paginated response of ``Task`` rows.
@@ -562,6 +602,7 @@ class TaskService:
             limit,
             overdue=overdue,
             now=now,
+            unassigned=unassigned,
         )
 
     async def update_task(self, caller: Membership, task_id: uuid.UUID, data: dict) -> Task:
@@ -876,6 +917,7 @@ class TaskService:
             caller,
             title=f"New task: {updated.title}",
             body="A task has been assigned to you with a new deadline.",
+            email=True,
         )
         await self._notify_employee(
             updated,
@@ -1528,12 +1570,13 @@ class TaskService:
         )
 
     async def _notify_employee(
-        self, task: Task, employee_id: uuid.UUID | None, caller: Membership, title: str, body: str
+        self, task: Task, employee_id: uuid.UUID | None, caller: Membership, title: str, body: str, email: bool = False
     ) -> None:
         """Send one in-app notification about ``task`` to an employee's login.
 
         Skipped when there is no employee, the employee has no login yet, or
         the employee is the caller (nobody is notified about their own action).
+        With ``email=True`` the person also gets an email (only used when a task is given to them).
         """
         if employee_id is None:
             return
@@ -1549,3 +1592,5 @@ class TaskService:
             link_type="task",
             link_id=task.id,
         )
+        if email:
+            await email_people_about_task(self._db, [employee.user_id], title, body, task.id)

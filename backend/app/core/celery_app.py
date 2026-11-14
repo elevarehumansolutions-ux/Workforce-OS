@@ -36,6 +36,7 @@ celery = Celery(
         "app.modules.ai.tasks",
         "app.modules.blueprint.tasks",
         "app.modules.attendance.tasks",
+        "app.modules.audit_and_notification.task_email",
         "app.modules.scoring.tasks",
         "app.modules.tasks.tasks",
         "app.modules.tenancy_identity.tasks",

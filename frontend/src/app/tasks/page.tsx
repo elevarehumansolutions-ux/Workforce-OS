@@ -5,12 +5,16 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
+import AssignInline from "@/components/AssignInline";
 import {
   canCreateTasks,
+  canReassignTask,
   departmentName,
   employeeName,
   errorMessage,
   formatDateTime,
+  headsAnyDepartment,
+  isHr,
   isNotClockedIn,
   loadCaller,
   mayReviewBlocks,
@@ -20,7 +24,8 @@ import {
 } from "@/lib/tasks";
 import type { CallerContext, PaginatedResponse, Task } from "@/lib/tasks";
 
-type Tab = "mine" | "all";
+// "owner" is the list of tasks nobody is assigned to yet, for people who hand tasks out.
+type Tab = "mine" | "all" | "owner";
 
 interface ListResult {
   key: string;
@@ -55,14 +60,23 @@ function TasksContent() {
   const [clockingIn, setClockingIn] = useState(false);
   const [clockError, setClockError] = useState("");
 
+  // How many open tasks have no owner yet (only asked for people who may hand tasks out).
+  const [needsOwnerCount, setNeedsOwnerCount] = useState<number | null>(null);
+
   // "My tasks" needs an employee record to filter by; without one the page
   // opens on the full list instead.
   const hasEmployee = ctx !== null && ctx.employee !== null;
-  const tab: Tab = tabChoice !== null ? tabChoice : hasEmployee ? "mine" : "all";
+  const canAssignAny = ctx !== null && (isHr(ctx) || headsAnyDepartment(ctx));
+  // Until we know whether anything needs an owner, the page does not guess a tab (it would flicker).
+  const waitingForCount = canAssignAny && needsOwnerCount === null;
+  // The page opens where there is something to do: tasks to hand out first, then your own, else everything.
+  let defaultTab: Tab = hasEmployee ? "mine" : "all";
+  if (canAssignAny && needsOwnerCount !== null && needsOwnerCount > 0) defaultTab = "owner";
+  const tab: Tab = tabChoice !== null ? tabChoice : defaultTab;
   const employeeId = ctx && ctx.employee ? ctx.employee.id : "";
 
   const key = [tab, status, departmentId, overdueFilter, page, reloadCounter, employeeId, ctx ? "ready" : "wait"].join("|");
-  const loading = ctx === null ? !ctxError : result === null || result.key !== key;
+  const loading = ctx === null ? !ctxError : waitingForCount || result === null || result.key !== key;
 
   useEffect(function () {
     let cancelled = false;
@@ -80,15 +94,36 @@ function TasksContent() {
     };
   }, []);
 
+  // The number on the "Needs an owner" tab, asked again after a task is handed out.
   useEffect(
     function () {
-      if (!ctx) return;
+      if (!ctx || !(isHr(ctx) || headsAnyDepartment(ctx))) return;
+      let cancelled = false;
+      apiFetch<PaginatedResponse<Task>>("/tasks?unassigned=true&status=open&limit=1", { method: "GET" })
+        .then(function (res) {
+          if (!cancelled) setNeedsOwnerCount(res.pagination.total);
+        })
+        .catch(function () {
+          // If this fails the tab is simply not highlighted; the page still opens.
+          if (!cancelled) setNeedsOwnerCount(0);
+        });
+      return function () {
+        cancelled = true;
+      };
+    },
+    [ctx, reloadCounter]
+  );
+
+  useEffect(
+    function () {
+      if (!ctx || waitingForCount) return;
       let cancelled = false;
       let path = "/tasks?page=" + page + "&limit=" + PAGE_SIZE;
       if (status) path = path + "&status=" + status;
       if (departmentId) path = path + "&department_id=" + departmentId;
       if (overdueFilter) path = path + "&overdue=" + overdueFilter;
       if (tab === "mine" && employeeId) path = path + "&assigned_to_employee_id=" + employeeId;
+      if (tab === "owner") path = path + "&unassigned=true";
 
       apiFetch<PaginatedResponse<Task>>(path, { method: "GET" })
         .then(function (res) {
@@ -117,7 +152,7 @@ function TasksContent() {
         cancelled = true;
       };
     },
-    [ctx, tab, status, departmentId, overdueFilter, page, employeeId, reloadCounter, key]
+    [ctx, tab, status, departmentId, overdueFilter, page, employeeId, reloadCounter, key, waitingForCount]
   );
 
   async function clockIn() {
@@ -194,6 +229,9 @@ function TasksContent() {
         <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-6 shadow-xl">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-1">
+              {canAssignAny
+                ? tabButton("owner", needsOwnerCount !== null && needsOwnerCount > 0 ? "Needs an owner (" + needsOwnerCount + ")" : "Needs an owner", false)
+                : null}
               {tabButton("mine", "My tasks", !hasEmployee)}
               {tabButton("all", "All tasks I can see", false)}
             </div>
@@ -282,10 +320,18 @@ function TasksContent() {
 
             {!loading && result && !result.error && !result.notClockedIn && result.tasks.length === 0 ? (
               <p className="py-6 text-center text-sm text-gray-500">
-                No tasks here yet.
+                {tab === "owner"
+                  ? "Nothing needs an owner. When a workflow step has no named person, its task waits here for the department head to hand it out."
+                  : "No tasks here yet."}
                 {tab === "all" && status === "open" && !departmentId
                   ? " Tasks assigned to you only appear in this list while you are clocked in."
                   : ""}
+              </p>
+            ) : null}
+
+            {!loading && result && result.tasks.length > 0 && tab === "owner" ? (
+              <p className="mb-3 text-sm text-gray-400">
+                Nobody is assigned to these tasks yet. Choose a person for each one; they are told straight away.
               </p>
             ) : null}
 
@@ -293,11 +339,11 @@ function TasksContent() {
               <div className="space-y-3">
                 {result.tasks.map(function (task) {
                   return (
-                    <Link
+                    <div
                       key={task.id}
-                      href={"/tasks/" + task.id}
-                      className="block rounded-xl border border-white/10 bg-[#0a0e1a] px-5 py-4 transition hover:border-indigo-500/40"
+                      className="rounded-xl border border-white/10 bg-[#0a0e1a] transition hover:border-indigo-500/40"
                     >
+                    <Link href={"/tasks/" + task.id} className="block px-5 py-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-white">{task.title}</p>
@@ -328,6 +374,18 @@ function TasksContent() {
                         </div>
                       </div>
                     </Link>
+                    {tab === "owner" && canReassignTask(ctx, task) ? (
+                      <div className="px-5 pb-4">
+                        <AssignInline
+                          task={task}
+                          ctx={ctx}
+                          onAssigned={function () {
+                            setReloadCounter(reloadCounter + 1);
+                          }}
+                        />
+                      </div>
+                    ) : null}
+                    </div>
                   );
                 })}
               </div>

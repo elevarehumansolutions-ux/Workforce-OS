@@ -4,7 +4,7 @@ import logging
 import uuid
 from datetime import datetime, UTC
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.tenancy_identity.models import Membership, User
@@ -260,6 +260,16 @@ class NotificationRepository:
 
         result = await self._db.execute(query)
         return list(result.scalars().all())
+
+    async def count_unread(self, organization_id: uuid.UUID, recipient_user_id: uuid.UUID) -> int:
+        """How many notifications the recipient has not read yet (what the bell shows)."""
+        query = select(func.count()).select_from(Notification).where(
+            Notification.organization_id == organization_id,
+            Notification.recipient_user_id == recipient_user_id,
+            Notification.read_at.is_(None),
+        )
+        result = await self._db.execute(query)
+        return result.scalar_one()
 
     async def mark_read(
         self,

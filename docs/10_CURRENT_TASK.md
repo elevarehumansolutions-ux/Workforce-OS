@@ -16,6 +16,17 @@ onboarding wizard** (no migration, no new deploy step beyond restarting the API)
 Stage 7 step 1 (the template), then goes on: Stage 5, 6, 7 outcomes (and the new steps 8 to 11), 8, 10, Stage 11
 steps 1 to 16, and Stage 9 last. We do each step together, one at a time.
 
+Also on `fiscal-year-setting` (same night): the step form window and drag-to-reorder (to-dos 41, 42), then, from his
+Stage 7 finding that nobody was told about a new task, **a notification bell with an unread count (to-do 43) and
+an email when a task lands on someone (to-do 44)**. Deploy for 44: restart celery_worker, and the server needs a
+working mail setup (`RESEND_API_KEY`, `MAIL_FROM`, `APP_URL`, `EMAIL_STUB_MODE` off) to send real mail. Open
+finding: after clocking in, Emmanuel expected to see tasks on the Tasks page and saw none; diagnosed as two design
+gaps and built as **to-do 45 (a "Needs an owner" tab with inline Assign for department heads, and the step form
+saying who receives a task) and to-do 46 (a step can count toward a KPI)**. Deploy also needs `alembic upgrade head`
+(reaches `e6a3c8f14d27`). Emmanuel also raised the bigger question of the product being "too manual": the answer
+(defaults over choices, nothing orphaned, one place to look, journey-based polish before new modules) is in
+`08_DECISIONS.md` 2026-11-14 "Nothing is orphaned" and is the direction for the next work.
+
 ## Where we are (2026-11-14, end of day)
 
 PR #69 (`company-restore`) is merged and deployed; Emmanuel live-tested the permanent purge on staging and it

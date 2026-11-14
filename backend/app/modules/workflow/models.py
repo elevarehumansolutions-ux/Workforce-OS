@@ -166,6 +166,17 @@ class WorkflowStep(BaseModel):
         doc="Person who gets the task automatically; null = lands in the department queue",
     )
 
+    kpi_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("kpis.id"),
+        nullable=True,
+        index=True,
+        doc=(
+            "KPI the step's tasks count toward (a KPI of the step's own department); null = the "
+            "tasks are not linked to a KPI and do not count in scores"
+        ),
+    )
+
     default_turnaround_hours: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,

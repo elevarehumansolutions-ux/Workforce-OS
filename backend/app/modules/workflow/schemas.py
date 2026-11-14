@@ -202,6 +202,8 @@ class StepCreateRequest(BaseModel):
     # day of the company (see ``GET /working-hours``).
     default_turnaround_hours: int | None = Field(default=None, gt=0)
     default_turnaround_days: int | None = Field(default=None, gt=0)
+    # The KPI the step's tasks count toward: one of the step's own department's KPIs.
+    kpi_id: uuid.UUID | None = None
     step_order: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
@@ -231,6 +233,9 @@ class StepUpdateRequest(BaseModel):
     default_turnaround_hours: int | None = Field(default=None, gt=0)
     # Sending hours clears days and the other way round, so switching the unit is one edit.
     default_turnaround_days: int | None = Field(default=None, gt=0)
+    # ``null`` removes the KPI link. Changing the department without naming a KPI also removes it
+    # (the old KPI belonged to the old department).
+    kpi_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def hours_or_days_not_both(self):
@@ -265,6 +270,8 @@ class StepResponse(BaseModel):
     default_turnaround_hours: int | None
     # Set instead of the hours when the step was given in working days (never both).
     default_turnaround_days: int | None
+    # The KPI the step's tasks count toward; null = they are not linked to a KPI.
+    kpi_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
 

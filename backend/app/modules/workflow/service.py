@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import (
     DepartmentNotFoundException,
     EmployeeNotFoundException,
+    KPINotFoundException,
     PermissionDeniedException,
     ResourceInUseException,
     ValidationException,
@@ -29,6 +30,7 @@ from app.core.exceptions import (
 from app.core.schemas import PaginationResponse
 from app.modules.audit_and_notification.enums import NotificationCategory
 from app.modules.audit_and_notification.service import AuditService, NotificationService
+from app.modules.kpis.repository import KPIRepository
 from app.modules.organization.enums import EmployeeStatus
 from app.modules.organization.repository import DepartmentRepository, EmployeeRepository
 from app.modules.tasks.overdue import is_overdue
@@ -354,6 +356,7 @@ class StepService:
         self._step_repo = StepRepository(db)
         self._department_repo = DepartmentRepository(db)
         self._employee_repo = EmployeeRepository(db)
+        self._kpi_repo = KPIRepository(db)
         self._task_service = TaskService(db)
         self._audit = AuditService(db)
 
@@ -390,6 +393,8 @@ class StepService:
         await self._check_department(data["department_id"])
         if data.get("default_assignee_employee_id") is not None:
             await self._check_assignee(data["default_assignee_employee_id"])
+        if data.get("kpi_id") is not None:
+            await self._check_kpi(data["kpi_id"], data["department_id"])
 
         step_count = await self._step_repo.count_steps(template.id)
         position = data.get("step_order") or step_count + 1
@@ -451,6 +456,14 @@ class StepService:
             await self._check_department(data["department_id"])
         if data.get("default_assignee_employee_id") is not None:
             await self._check_assignee(data["default_assignee_employee_id"])
+
+        # The KPI must belong to the department the step will have after this edit.
+        new_department_id = data.get("department_id", step.department_id)
+        if data.get("kpi_id") is not None:
+            await self._check_kpi(data["kpi_id"], new_department_id)
+        elif "kpi_id" not in data and step.kpi_id is not None and new_department_id != step.department_id:
+            # The step moved to another department without a new KPI: the old KPI no longer fits.
+            data = {**data, "kpi_id": None}
 
         # A step has its turnaround in hours OR in days. Setting one clears the other, so changing the
         # unit in the form is a single edit and never leaves both set.
@@ -591,6 +604,18 @@ class StepService:
         """Make sure the department exists in the caller's organization."""
         if await self._department_repo.get_department_by_id(department_id) is None:
             raise DepartmentNotFoundException()
+
+    async def _check_kpi(self, kpi_id: uuid.UUID, department_id: uuid.UUID) -> None:
+        """Make sure the KPI exists here and belongs to the step's own department.
+
+        It must be the step's department's KPI because scoring only counts a task whose KPI is one of
+        the person's department's KPIs: a KPI of another department would still count for nothing.
+        """
+        kpi = await self._kpi_repo.get_kpi_by_id(kpi_id)
+        if kpi is None:
+            raise KPINotFoundException()
+        if kpi.department_id != department_id:
+            raise ValidationException(message="That KPI belongs to another department. Choose one of this step's department.")
 
     async def _check_assignee(self, employee_id: uuid.UUID) -> None:
         """Make sure the default assignee is an active employee of the organization."""
@@ -1069,4 +1094,5 @@ class InstanceService:
             workflow_step_id=step.id,
             assigned_to_employee_id=step.default_assignee_employee_id,
             description=f"Step {step.step_order} of {step_count} in \"{template.name}\" for {instance.subject}.",
+            kpi_id=step.kpi_id,
         )

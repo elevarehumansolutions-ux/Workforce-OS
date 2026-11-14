@@ -13,7 +13,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSo
 import Modal from "@/components/Modal";
 import SortableStepRow from "@/components/SortableStepRow";
 import type { CallerContext } from "@/lib/tasks";
-import { canManageTemplates, canStartCase, turnaroundLabel } from "@/lib/workflow";
+import { canManageTemplates, canStartCase, turnaroundLabel, whoReceivesTask } from "@/lib/workflow";
 import type { WorkflowStep, WorkflowTemplate } from "@/lib/workflow";
 import { describeWorkingHours, fetchWorkingHours } from "@/lib/workingHours";
 import type { WorkingHours } from "@/lib/workingHours";
@@ -26,6 +26,14 @@ interface TemplateResult {
 }
 
 type Panel = "none" | "rename" | "add" | "edit";
+
+// A KPI's name for the step list; the list of KPIs comes with the caller's context.
+function kpiNameOf(ctx: CallerContext, kpiId: string): string {
+  for (const k of ctx.kpis) {
+    if (k.id === kpiId) return k.name;
+  }
+  return "linked";
+}
 
 export default function WorkflowTemplateDetailPage() {
   const params = useParams<{ id: string }>();
@@ -56,6 +64,8 @@ export default function WorkflowTemplateDetailPage() {
   // The company's working week, only to explain what "1 day" means under the field.
   const [week, setWeek] = useState<WorkingHours | null>(null);
   const [stepPosition, setStepPosition] = useState("");
+  // The KPI the step's tasks count toward ("" = none). It must be a KPI of the step's department.
+  const [stepKpi, setStepKpi] = useState("");
 
   // A drag starts only after the pointer has moved a few pixels, so a plain click on the handle is not a drag.
   // The keyboard works too: focus the handle, press Space, use the arrow keys, press Space again.
@@ -148,6 +158,7 @@ export default function WorkflowTemplateDetailPage() {
     setStepHours("");
     setStepUnit("hours");
     setStepPosition(position ? String(position) : "");
+    setStepKpi("");
     setPanelError("");
     setActionError("");
     setEditingStepId("");
@@ -158,6 +169,7 @@ export default function WorkflowTemplateDetailPage() {
     setStepName(step.name);
     setStepDept(step.department_id);
     setStepAssignee(step.default_assignee_employee_id || "");
+    setStepKpi(step.kpi_id || "");
     // A step given in days shows its number of days; otherwise its hours (or empty for no deadline).
     if (step.default_turnaround_days !== null) {
       setStepHours(String(step.default_turnaround_days));
@@ -227,6 +239,7 @@ export default function WorkflowTemplateDetailPage() {
       if (panel === "add") {
         const body: Record<string, unknown> = { name: stepName.trim(), department_id: stepDept };
         if (stepAssignee) body.default_assignee_employee_id = stepAssignee;
+        if (stepKpi) body.kpi_id = stepKpi;
         if (hours.value !== null && stepUnit === "days") body.default_turnaround_days = hours.value;
         if (hours.value !== null && stepUnit === "hours") body.default_turnaround_hours = hours.value;
         // No position = added at the end; a number inserts there and later steps move down.
@@ -245,6 +258,7 @@ export default function WorkflowTemplateDetailPage() {
         if (stepName.trim() !== current.name) body.name = stepName.trim();
         if (stepDept !== current.department_id) body.department_id = stepDept;
         if ((stepAssignee || null) !== current.default_assignee_employee_id) body.default_assignee_employee_id = stepAssignee || null;
+        if ((stepKpi || null) !== current.kpi_id) body.kpi_id = stepKpi || null;
         // The turnaround counts as changed when the number OR the unit differs. Sending the new unit makes the
         // server clear the old one; "no deadline" clears both.
         const newHours = stepUnit === "hours" ? hours.value : null;
@@ -394,7 +408,15 @@ export default function WorkflowTemplateDetailPage() {
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-xs text-gray-500">Done by (department)</label>
-          <select value={stepDept} onChange={function (e) { setStepDept(e.target.value); }} className={inputClass}>
+          <select
+            value={stepDept}
+            onChange={function (e) {
+              setStepDept(e.target.value);
+              // A KPI belongs to one department, so the choice is cleared when the department changes.
+              setStepKpi("");
+            }}
+            className={inputClass}
+          >
             <option value="">Choose a department</option>
             {ctx
               ? ctx.departments.map(function (d) {
@@ -416,10 +438,41 @@ export default function WorkflowTemplateDetailPage() {
               departments={ctx.departments}
               value={stepAssignee}
               onChange={setStepAssignee}
-              emptyLabel="No one. The task lands with the department"
+              emptyLabel="No one named"
               className={inputClass}
             />
           ) : null}
+          {ctx && !stepAssignee && stepDept ? (
+            <p className="mt-1 text-xs text-gray-500">{whoReceivesTask(ctx, stepDept, false)}</p>
+          ) : null}
+        </div>
+        <div className="sm:col-span-2">
+          <label className="mb-1 block text-xs text-gray-500">Counts toward KPI (optional)</label>
+          <select
+            value={stepKpi}
+            disabled={!stepDept}
+            onChange={function (e) { setStepKpi(e.target.value); }}
+            className={inputClass + " max-w-md"}
+          >
+            <option value="">{stepDept ? "Not linked: its tasks won't count in performance scores" : "Choose the department first"}</option>
+            {ctx
+              ? ctx.kpis
+                  .filter(function (k) { return k.department_id === stepDept; })
+                  .map(function (k) {
+                    return (
+                      <option key={k.id} value={k.id}>
+                        {k.name}
+                      </option>
+                    );
+                  })
+              : null}
+          </select>
+          <p className="mt-1 text-xs text-gray-500">
+            Pick the KPI of this department that the work counts toward, so each finished task shows up in its score.
+            {ctx && stepDept && ctx.kpis.filter(function (k) { return k.department_id === stepDept; }).length === 0
+              ? " This department has no KPIs yet."
+              : ""}
+          </p>
         </div>
         <div className="sm:col-span-2">
           <label className="mb-1 block text-xs text-gray-500">Turnaround (optional)</label>
@@ -595,8 +648,9 @@ export default function WorkflowTemplateDetailPage() {
                             <p className="text-sm font-semibold">{step.name}</p>
                             <p className="mt-0.5 text-xs text-gray-400">
                               {departmentName(ctx, step.department_id)} ·{" "}
-                              {step.default_assignee_employee_id ? employeeName(ctx, step.default_assignee_employee_id) : "Lands with the department"} ·{" "}
-                              {turnaroundLabel(step.default_turnaround_hours, step.default_turnaround_days)}
+                              {step.default_assignee_employee_id ? employeeName(ctx, step.default_assignee_employee_id) : whoReceivesTask(ctx, step.department_id, true)} ·{" "}
+                              {turnaroundLabel(step.default_turnaround_hours, step.default_turnaround_days)} ·{" "}
+                              {step.kpi_id ? "KPI: " + kpiNameOf(ctx, step.kpi_id) : "No KPI"}
                             </p>
                           </div>
                         </div>

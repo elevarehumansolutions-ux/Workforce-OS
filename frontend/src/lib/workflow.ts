@@ -21,12 +21,15 @@ export interface WorkflowStep {
   step_order: number;
   name: string;
   department_id: string;
-  // null = the task lands with the department
+  // null = nobody is named: the task goes to the department's head (else HR), who hands it out
   default_assignee_employee_id: string | null;
   // The turnaround is given in hours OR in working days (never both); both null = no deadline.
   // Counted in the company's working hours (Settings > Working hours); one day is a full working day.
   default_turnaround_hours: number | null;
   default_turnaround_days: number | null;
+  // The KPI the step's tasks count toward (a KPI of the step's department); null = not linked, so the
+  // tasks do not count in performance scores.
+  kpi_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -188,6 +191,31 @@ export function stepStateClasses(state: StepState): string {
   if (state === "skipped") return "bg-gray-500/20 text-gray-400";
   if (state === "current") return "bg-indigo-500/20 text-indigo-300";
   return "bg-white/5 text-gray-500";
+}
+
+// Who gets a step's task when no person is named on the step: the department's head, else HR.
+// `short` is for a line in the step list; the long form explains it under the "Default person" field.
+export function whoReceivesTask(ctx: CallerContext, departmentId: string, short: boolean): string {
+  let departmentName = "this department";
+  let head: { first_name: string; last_name: string } | null = null;
+  for (const d of ctx.departments) {
+    if (d.id !== departmentId) continue;
+    departmentName = d.name;
+    if (d.head_employee_id) {
+      for (const e of ctx.employees) {
+        if (e.id === d.head_employee_id && e.status !== "inactive") head = e;
+      }
+    }
+  }
+  if (head) {
+    const headName = head.first_name + " " + head.last_name;
+    return short
+      ? "Goes to " + headName + " (head)"
+      : "If you leave this empty, each task goes to " + headName + ", the head of " + departmentName + ", who then hands it to someone.";
+  }
+  return short
+    ? "Goes to HR (no head)"
+    : "If you leave this empty, each task goes to the HR administrators, because " + departmentName + " has no head yet. Name a head in Organization Structure so its own head hands tasks out.";
 }
 
 export function turnaroundLabel(hours: number | null, days?: number | null): string {

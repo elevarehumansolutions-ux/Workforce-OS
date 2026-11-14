@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
+import { NOTIFICATIONS_CHANGED } from "@/components/NotificationBell";
 import { errorMessage } from "@/lib/tasks";
 
 type Category = "ai_suggestion" | "approval_request" | "task" | "system";
@@ -150,6 +151,7 @@ export default function NotificationsPage() {
       setReadIds(readIds.concat([n.id]));
       try {
         await apiFetch("/notifications/" + n.id + "/read", { method: "POST" });
+        window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED));
       } catch {
         // Not being able to mark it read shouldn't stop the person opening it.
       }
@@ -162,6 +164,7 @@ export default function NotificationsPage() {
     setActionError("");
     try {
       await apiFetch("/notifications/read-all", { method: "POST" });
+      window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED));
       setReadIds(
         readIds.concat(
           items.map(function (n) {

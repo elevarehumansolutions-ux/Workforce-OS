@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 
+import NotificationBell from "@/components/NotificationBell";
 import RoleSidebarNav from "@/components/SidebarNav";
 import { isHrRole, loadMe } from "@/lib/settings";
 import Logo from "@/components/Logo";
@@ -373,6 +374,7 @@ export default function EmployeeDetailsPage() {
                 Reinstate
               </button>
             )}
+            <NotificationBell />
           </div>
         </div>
 

@@ -492,7 +492,9 @@ function TaskDetailContent() {
               </div>
               <div>
                 <dt className="text-xs text-gray-500">Linked KPI</dt>
-                <dd className="mt-0.5 text-gray-200">{kpiName || "None"}</dd>
+                <dd className="mt-0.5 text-gray-200">
+                  {kpiName || <span className="text-gray-400">Not linked to a KPI, so it does not count toward performance scores</span>}
+                </dd>
               </div>
               <div>
                 <dt className="text-xs text-gray-500">Created</dt>
