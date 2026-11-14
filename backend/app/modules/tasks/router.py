@@ -83,6 +83,7 @@ async def list_tasks(
     status: TaskStatus | None = Query(default=None),
     kpi_id: uuid.UUID | None = Query(default=None),
     overdue: bool | None = Query(default=None),
+    unassigned: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -101,6 +102,8 @@ async def list_tasks(
         kpi_id: Only tasks linked to this KPI.
         overdue: ``true`` for only overdue tasks, ``false`` for only tasks that
             are not overdue, left out for both.
+        unassigned: ``true`` for only tasks nobody is assigned to (what a department
+            head or HR must hand out). Still limited to what the caller may see.
         page: 1-indexed page number.
         limit: Maximum number of rows per page (1-100).
         db: Database session dependency.
@@ -121,6 +124,7 @@ async def list_tasks(
         limit,
         overdue=overdue,
         now=now,
+        unassigned=unassigned,
     )
     result.data = [_task_response(task, now) for task in result.data]
     return result

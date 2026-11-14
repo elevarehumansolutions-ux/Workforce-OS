@@ -452,6 +452,7 @@ class TaskService:
         workflow_step_id: uuid.UUID,
         assigned_to_employee_id: uuid.UUID | None = None,
         description: str | None = None,
+        kpi_id: uuid.UUID | None = None,
     ) -> Task:
         """Create the task for one step of a running workflow.
 
@@ -475,6 +476,8 @@ class TaskService:
             workflow_step_id: The step it was made from.
             assigned_to_employee_id: The step's default assignee, if any.
             description: Optional longer description.
+            kpi_id: The KPI the step counts toward, if any. Like a bad assignee, a KPI that has been
+                deleted since the step was set up is not an error: the task is created without it.
 
         Returns:
             The newly created ``Task``.
@@ -485,6 +488,9 @@ class TaskService:
         department = await self._department_repo.get_department_by_id(department_id)
         if department is None:
             raise DepartmentNotFoundException()
+
+        if kpi_id is not None and await self._kpi_repo.get_kpi_by_id(kpi_id) is None:
+            kpi_id = None
 
         assignee_id = assigned_to_employee_id
         if assignee_id is not None:
@@ -500,6 +506,7 @@ class TaskService:
                 "description": description,
                 "due_at": due_at,
                 "assigned_to_employee_id": assignee_id,
+                "kpi_id": kpi_id,
                 "workflow_instance_id": workflow_instance_id,
                 "workflow_step_id": workflow_step_id,
                 "created_by_user_id": None,
@@ -547,6 +554,7 @@ class TaskService:
         limit: int = 20,
         overdue: bool | None = None,
         now: datetime | None = None,
+        unassigned: bool = False,
     ) -> PaginationResponse:
         """List the tasks the caller may see, with optional filters.
 
@@ -563,6 +571,7 @@ class TaskService:
             now: The moment "overdue" is judged against. The router passes
                 the same moment it uses for each row's flag; defaults to the
                 current time.
+            unassigned: True for only tasks nobody is assigned to (the "needs an owner" list).
 
         Returns:
             A paginated response of ``Task`` rows.
@@ -593,6 +602,7 @@ class TaskService:
             limit,
             overdue=overdue,
             now=now,
+            unassigned=unassigned,
         )
 
     async def update_task(self, caller: Membership, task_id: uuid.UUID, data: dict) -> Task:

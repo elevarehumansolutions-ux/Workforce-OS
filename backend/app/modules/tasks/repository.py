@@ -115,6 +115,7 @@ class TaskRepository:
         limit: int = 20,
         overdue: bool | None = None,
         now: datetime | None = None,
+        unassigned: bool = False,
     ) -> PaginationResponse:
         """List the tasks a caller may see, newest first, with optional filters.
 
@@ -130,6 +131,7 @@ class TaskRepository:
                 are not overdue, None for both.
             now: The moment "overdue" is judged against. Required when
                 ``overdue`` is given.
+            unassigned: True for only tasks nobody is assigned to (the "needs an owner" list).
 
         Returns:
             A paginated response wrapping the matching ``Task`` rows.
@@ -146,6 +148,8 @@ class TaskRepository:
             stmt = stmt.where(Task.department_id == department_id)
         if assigned_to_employee_id is not None:
             stmt = stmt.where(Task.assigned_to_employee_id == assigned_to_employee_id)
+        if unassigned:
+            stmt = stmt.where(Task.assigned_to_employee_id.is_(None))
         if status is not None:
             stmt = stmt.where(Task.status == status.value)
         if kpi_id is not None:

@@ -187,6 +187,15 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
     read it in the celery_worker log: `docker compose logs celery_worker | grep "STUB TASK EMAIL"`). Check
     that a task you give to yourself does NOT email you.
 
+13. (to-dos 45 and 46) Nothing is orphaned. (a) Edit a step: "Counts toward KPI (optional)" lists only the
+    step's department's KPIs; pick one and save; the step list shows "KPI: <name>"; start a case and open its
+    task: Linked KPI shows that name (a task from a step with no KPI says "Not linked to a KPI, so it does not
+    count toward performance scores"). (b) On a step with NO default person, the form says who receives the task
+    ("goes to <head>, the head of <department>", or HR if there is no head). Start a case; sign in as that
+    department's HEAD: the Tasks page opens on "Needs an owner (1)", with the task and an "Assign to" picker;
+    choose someone and press Assign: the row disappears, the count drops, and the person gets a bell
+    notification (and an email). A manager who is NOT the head sees no picker.
+
 ## Stage 8: Notifications and the audit log (M3)
 
 1. Open Notifications. Expect: the events from stages 6 and 7, with working links.

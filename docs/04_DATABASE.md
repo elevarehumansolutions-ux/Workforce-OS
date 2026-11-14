@@ -468,6 +468,7 @@ CREATE TABLE workflow_steps (
     department_id UUID NOT NULL REFERENCES departments(id),  -- can differ from the template's owning department
     default_assignee_employee_id UUID REFERENCES employees(id),
     default_turnaround_hours INTEGER,
+    kpi_id UUID REFERENCES kpis(id),   -- 2026-11-14 (migration e6a3c8f14d27): the KPI the step's tasks count toward (must be a KPI of department_id, checked by the service); null = tasks are not linked to a KPI and do not count in scores. Copied onto each task the step creates.
     default_turnaround_days INTEGER,   -- 2026-11-14 (migration d5f2b7a93c18): the alternative to hours; only ONE of the two may be set (CHECK). A day = a full working day of the company's own hours (organizations.workday_*), worked out when the task is created.
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
