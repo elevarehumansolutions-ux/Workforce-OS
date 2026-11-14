@@ -1,6 +1,7 @@
 """Pydantic request/response schemas for the auth module's endpoints."""
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, model_validator, Field
 import re
@@ -215,10 +216,44 @@ class CreateOrganizationRequest(BaseModel):
 
 
 class DeleteOrganizationRequest(BaseModel):
-    """Delete the company this session acts for. Two proofs that it is meant: its name and the password."""
+    """Delete one of the caller's companies. Two proofs that it is meant: its name and the password.
 
+    Without ``organization_id`` it is the company this session acts for.
+    """
+
+    organization_id: uuid.UUID | None = None
     confirm_name: str = Field(min_length=1, max_length=255)
     password: str = Field(min_length=1, max_length=255)
+
+
+class DeletedCompanyResponse(BaseModel):
+    """Answer to deleting a company OTHER than the one the session is in: the session is left alone."""
+
+    deleted_organization_id: uuid.UUID
+    # Always false here; lets the caller tell this apart from a full AuthResponse.
+    session_opened: bool = False
+
+
+class DeletedCompanyItem(BaseModel):
+    """One deleted company the caller owned and may restore."""
+
+    organization_id: uuid.UUID
+    name: str | None
+    deleted_at: datetime
+    # After this moment the company is erased for good and can no longer be restored.
+    will_be_erased_on: datetime
+
+
+class DeletedCompaniesResponse(BaseModel):
+    """The caller's deleted companies, newest first."""
+
+    data: list[DeletedCompanyItem]
+
+
+class RestoreOrganizationRequest(BaseModel):
+    """Bring back a company the caller deleted."""
+
+    organization_id: uuid.UUID
 
 
 class SwitchOrganizationRequest(BaseModel):

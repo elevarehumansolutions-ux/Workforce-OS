@@ -31,6 +31,9 @@ from app.modules.auth.schemas import (
     AcceptInviteExistingRequest,
     InvitePreviewResponse,
     JoinedCompanyResponse,
+    DeletedCompanyResponse,
+    DeletedCompanyItem,
+    DeletedCompaniesResponse,
 )
 from app.modules.tenancy_identity.schemas import MembershipWithOrganizationResponse
 from app.modules.tenancy_identity.models import User, Organization, Membership, Invite
@@ -57,9 +60,11 @@ from app.core.exceptions import (
     MembershipDeactivatedException,
     CompanyLimitReachedException,
     LastCompanyException,
+    PermissionDeniedException,
     ValidationException,
 )
 from app.modules.auth.repository import AuthRepository
+from .purge import PURGE_AFTER_DAYS
 from .tasks import dispatch_verification_email, dispatch_password_reset_email
 
 logger = logging.getLogger(__name__)
@@ -845,21 +850,47 @@ class AuthService:
         )
         return await self._open_session(user, org, membership, response, raw_refresh_token)
 
+    async def _membership_to_delete(
+        self, user: User, current_membership: Membership, organization_id: uuid.UUID | None
+    ) -> Membership:
+        """The caller's membership in the company they want to delete; they must be its Owner."""
+        if organization_id is None or organization_id == current_membership.organization_id:
+            membership = current_membership
+        else:
+            # Another company than the one the token is for: look it up by the person, not the token.
+            await self._db.execute(text("SELECT set_config('app.current_org_id', '', true)"))
+            await self._db.execute(
+                text("SELECT set_config('app.current_user_id', :user_id, true)"),
+                {"user_id": str(user.id)},
+            )
+            found = await self._membership_service.get_membership(user.id, organization_id)
+            # The same answer for "not a member", "removed" and "not the owner".
+            if found is None or found.deactivated_at is not None:
+                raise PermissionDeniedException()
+            membership = found
+        if not membership.is_owner:
+            raise PermissionDeniedException()
+        return membership
+
     async def delete_company(
         self,
         user: User,
-        membership: Membership,
+        current_membership: Membership,
+        organization_id: uuid.UUID | None,
         confirm_name: str,
         password: str,
         raw_refresh_token: str | None,
         response: Response,
-    ) -> AuthResponse:
-        """Delete (archive) the company this session acts for, then move the owner to another one.
+    ) -> AuthResponse | DeletedCompanyResponse:
+        """Delete (archive) one of the caller's companies; they must be its Owner.
 
-        The router has already checked that the caller is the owner. Here: the password and the
-        typed name must match, and it can never be the person's last company.
+        Without ``organization_id`` it is the company this session acts for, and the owner is then
+        moved to another one. For a different company the session is left exactly as it is. The
+        password and the typed name must match, and it can never be the person's last company.
         """
+        membership = await self._membership_to_delete(user, current_membership, organization_id)
         org = membership.organization
+        deleting_current = org.id == current_membership.organization_id
         if not verify_password(password, user.password_hash):
             # A 422, not a 401: a 401 would make the web app try to refresh the session.
             raise ValidationException(message="That password is not correct.")
@@ -886,7 +917,97 @@ class AuthService:
             text("SELECT set_config('app.current_org_id', :org_id, true)"), {"org_id": str(org.id)}
         )
         await self._archive_company(user, org)
-        return await self.switch_organization(user, next_org_id, raw_refresh_token, response)
+        if deleting_current:
+            return await self.switch_organization(user, next_org_id, raw_refresh_token, response)
+        # Another company was deleted: the session stays where it is; just save.
+        await self._db.commit()
+        return DeletedCompanyResponse(deleted_organization_id=org.id)
+
+    async def _companies_this_owner_deleted(self, user: User) -> list[Membership]:
+        """Owner memberships in companies that were deleted, newest deletion first.
+
+        Only the Owner's own deletion counts: their membership carries exactly the company's
+        ``archived_at`` (see ``_archive_company``). An owner who had been deactivated earlier has
+        a different time, so they cannot bring the company back.
+        """
+        await self._db.execute(text("SELECT set_config('app.current_org_id', '', true)"))
+        await self._db.execute(
+            text("SELECT set_config('app.current_user_id', :user_id, true)"),
+            {"user_id": str(user.id)},
+        )
+        found = []
+        for membership in await self._membership_service.get_user_memberships(user.id):
+            archived_at = membership.organization.archived_at
+            if membership.is_owner and archived_at is not None and membership.deactivated_at == archived_at:
+                found.append(membership)
+        found.sort(key=lambda m: m.organization.archived_at, reverse=True)
+        return found
+
+    async def list_deleted_companies(self, user: User) -> DeletedCompaniesResponse:
+        """The companies this person deleted and may still restore."""
+        items = []
+        for membership in await self._companies_this_owner_deleted(user):
+            org = membership.organization
+            items.append(
+                DeletedCompanyItem(
+                    organization_id=org.id,
+                    name=org.name,
+                    deleted_at=org.archived_at,
+                    will_be_erased_on=org.archived_at + timedelta(days=PURGE_AFTER_DAYS),
+                )
+            )
+        return DeletedCompaniesResponse(data=items)
+
+    async def restore_company(self, user: User, organization_id: uuid.UUID) -> MessageResponse:
+        """Bring back a company this person deleted, and everyone who lost access with it.
+
+        Counts toward the same limit as creating one, and a name the person already uses is refused.
+        """
+        # The same lock as creating a company, so restoring and creating cannot both slip past the limit.
+        await self._db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "create-company:" + str(user.id)},
+        )
+        deleted = await self._companies_this_owner_deleted(user)
+        membership = next((m for m in deleted if m.organization_id == organization_id), None)
+        if membership is None:
+            # Not theirs, not deleted, or deleted by someone else: one answer for all.
+            raise PermissionDeniedException()
+        org = membership.organization
+
+        owned_names = []
+        for existing in await self._membership_service.get_user_memberships(user.id):
+            if existing.is_owner and existing.deactivated_at is None and existing.organization.archived_at is None:
+                owned_names.append((existing.organization.name or "").strip().casefold())
+        if len(owned_names) >= MAX_OWNED_COMPANIES:
+            raise CompanyLimitReachedException(
+                message=f"You already own {MAX_OWNED_COMPANIES} companies. Delete one before restoring another."
+            )
+        if (org.name or "").strip().casefold() in owned_names:
+            raise AlreadyExistsException(message="You already have a company with that name. Rename or delete it first.")
+
+        await self._db.execute(
+            text("SELECT set_config('app.current_org_id', :org_id, true)"), {"org_id": str(org.id)}
+        )
+        archived_at = org.archived_at
+        await AuditService(self._db).log_action(
+            organization_id=org.id,
+            actor_user_id=user.id,
+            action="restore",
+            entity_type="organization",
+            entity_id=org.id,
+            changes={"old": {"archived_at": archived_at.isoformat()}, "new": {"archived_at": None}},
+        )
+        # Only the people who lost access BECAUSE of the deletion (same time as the company); anyone
+        # removed earlier by an HR administrator stays removed.
+        await self._db.execute(
+            update(Membership)
+            .where(Membership.organization_id == org.id, Membership.deactivated_at == archived_at)
+            .values(deactivated_at=None)
+        )
+        await self._db.execute(update(Organization).where(Organization.id == org.id).values(archived_at=None))
+        await self._db.commit()
+        return MessageResponse(message="Company restored")
 
     async def _another_company_of(self, user: User, leaving_org_id: uuid.UUID) -> uuid.UUID | None:
         """The id of another company this person can still enter, newest first, or None."""

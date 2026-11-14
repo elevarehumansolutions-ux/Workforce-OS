@@ -6,39 +6,35 @@ what he sees; each finding is written into `09_PROGRESS.md` (a numbered to-do) a
 branch, one commit per item. Working mode: propose first, build when he says so, one small block at a time with a
 short explanation (see `CLAUDE.md`).
 
-## Where we are (2026-11-13)
+## Where we are (2026-11-14)
 
-Branch `people-flow` (off `main` after PR #64) holds the "one front door for adding a person" work: activity lines
-that name what was acted on, the optional invite name, "Make head of department" on Add Employee, an org chart in
-the Employees section, logins without employee records, and multi-company (invite an existing account, accept with
-its password, switch company). Round 2 added on the same branch: accepting an invite no longer moves a signed-in
-person out of their company, "This is you" on your own unlinked login, a note when a department head is replaced,
-the Business DNA hints, and a **change history with Undo and Redo** on the onboarding plan screens. Committed, not
-pushed. Deploy needs `alembic upgrade head` (now `f3b81d6a4e57`, via `e7a41c9b3d26`). Emmanuel tests Stage 2c and
-Stage 11 of `15_LIVE_TEST_PLAN.md`. Details: `09_PROGRESS.md` "DONE 2026-11-13" and to-dos 22 to 27.
-
-## Earlier (2026-11-11)
-
-- Branch `ux-fixes-live-testing` holds every fix from the live test so far (frontend: validation messages, manager
-  dropdown and "Vacant" roles, "Save and add another", department heads, phone menu, My profile and Sign out;
-  backend: audit names, Undo on Added, Undo merge, skip cascade, quarter-start KPI-weight reminder, automatic
-  reporting manager, the Stage 9 time helper). It is **not pushed and not merged**; nothing was seen in a browser.
-  The exact list is in `09_PROGRESS.md` "DONE 2026-11-11".
-- Deploying it needs `alembic upgrade head` (migration `d52b8e1f7a39`) and a restart of the API and the Celery
-  worker/beat.
+- **Merged to `main` (PR #68):** the people flow, plan Undo/Redo, multi-company (create, switch), the replaced-head
+  windows, the role-change 500 fix, and deleting a company (to-dos 22 to 32). Emmanuel live-tested Stage 2c and
+  Stage 11 steps 17 to 28 and they passed.
+- **Branch `company-restore` (this work, not merged yet):** to-do 33 (a bin icon on every company you own in
+  "Your companies"), to-do 34 ("Deleted companies" with Restore) and to-do 35 (a daily job erases a company for
+  good 30 days after it was deleted). Details: `09_PROGRESS.md` to-dos 33 to 35, `08_DECISIONS.md` 2026-11-14.
+- After the merge, deploy needs `alembic upgrade head` (reaches `b7d31f9e2c60`) and a restart of the API,
+  celery_worker AND celery_beat (a new daily Beat entry), then a hard refresh.
 
 ## Immediate next action
 
-1. Push the branch, open the PR, merge, deploy (above).
-2. Emmanuel continues the live test: Stage 2c (undo and merge undo), Stage 3 (people, automatic managers, shared
-   roles), Stage 4 onward. Stage 9 uses `backend/scripts/admin/stage9_time_helper.py`
-   (`14_PRODUCTION_TROUBLESHOOTING.md` section 12).
-3. Each new finding: explain the cause from the code, add it to the numbered to-do in `09_PROGRESS.md`, and build
+1. Run the full backend suite, push `company-restore`, Emmanuel merges and deploys.
+2. Emmanuel live-tests Stage 11 steps 29 to 31 (name prefill, delete, restore).
+3. He then continues the rest of `15_LIVE_TEST_PLAN.md`: Stage 11 steps 1 to 16 (messages, adding people, plan
+   screens, menu and the phone-width walkthrough), and Stages 3 to 10 if not done. Stage 9 uses
+   `backend/scripts/admin/stage9_time_helper.py` (`14_PRODUCTION_TROUBLESHOOTING.md` section 12).
+4. Each new finding: explain the cause from the code, add it to the numbered to-do in `09_PROGRESS.md`, and build
    it when asked.
 
 ## Still open (not built)
 
-Merging an already added department or role away (edits the Organization module, needs his approval); workload
-thresholds; a merged role does not re-check "max 3 critical roles per department"; no company-size field; payroll
-provider; a phone-width walkthrough of every screen; server security follow-ups; restoring CI
-(`git revert 53cf5b1`).
+- Purge extras (not built): erasing people's own login accounts, a "delete forever now" button, a record that a
+  purge happened. (The purge itself is built: to-do 35.)
+- Pending-invites list; "what changed" wording in the activity log; no in-app prompt for an existing account with
+  an invite waiting; the plan history is shown only in onboarding and the backend does not gate on it; per-card
+  Undo is not recorded in the history.
+- Merging an already added department or role away (edits the Organization module, needs his approval); workload
+  thresholds; a merged role does not re-check "max 3 critical roles per department"; no company-size field;
+  payroll provider; a phone-width walkthrough of every screen; server security follow-ups; restoring CI
+  (`git revert 53cf5b1`).

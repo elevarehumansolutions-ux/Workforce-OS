@@ -259,15 +259,30 @@ what is described, and send what you saw.
 
 29. (31) Create another company ("Start another company"). Expect the first onboarding page to open with the
     company name ALREADY filled in (you can still change it).
-30. (32) Delete a company. With TWO companies, open "Your companies" while inside the one to delete (you must be its
-    Owner): a red "Delete <name>" section. Press it: a window asks for the name and your password; the red button
-    stays disabled until the name matches (capitals do not matter). Try a wrong password: "That password is not
-    correct." and nothing is deleted. Then delete: you land on the dashboard of your other company; the deleted one
-    is gone from "Your companies" and from the name menu. With ONE company only: the section says it cannot be
-    deleted. As an HR administrator who is not the owner, or any other role: no delete section. A teammate who was
-    in the deleted company cannot enter it any more (they are sent to log in); a pending invite to it no longer
-    works. After deleting one of three companies, "Start another company" works again. (Restoring is done by
-    support, `14_PRODUCTION_TROUBLESHOOTING.md` section 13.)
+30. (32, 33) Delete a company. Open "Your companies": a small bin icon sits beside every company you OWN (none on
+    companies you only joined). Press the one of a company you are NOT currently in: a window asks for the name
+    and your password; the red button stays disabled until the name matches (capitals do not matter). Try a wrong
+    password: "That password is not correct." and nothing is deleted. Then delete: you stay where you are, the
+    company leaves the list and a green line says it can be restored. Now press the bin of the company you ARE in
+    and delete it: you land on the dashboard of your other company. With ONE company only: the bin is greyed out
+    and says why. A teammate who was in the deleted company cannot enter it any more (they are sent to log in); a
+    pending invite to it no longer works. After deleting one of three companies, "Start another company" works again.
+31. (34) Restore. Under "Your companies" a "Deleted companies" box lists what you deleted, with the date and a
+    **Restore** button (only the owner who deleted it sees it). Restore: the company is back in the list and a
+    teammate who lost access with the deletion can enter again; someone an HR administrator had removed BEFORE the
+    deletion stays removed. Try restoring while you own 3 companies: refused in words. Delete a company, create
+    another with the same name, then restore the first: refused in words ("already have a company with that name").
+
+32. (35) Permanent purge (TEST companies only, this is irreversible). On the live site: make a throwaway company
+    ("Purge Test Ltd") with a department, a role and two people, then delete it from "Your companies". Check the
+    delete window warns about 30 days, and the Deleted companies box shows "Erased for good on <date 30 days away>".
+    To avoid waiting a month, pretend it was deleted long ago, as the database owner (get the id from query 1 in
+    `14_PRODUCTION_TROUBLESHOOTING.md` section 13; ONLY this one throwaway company):
+    `UPDATE organizations SET archived_at = now() - interval '31 days' WHERE id = '<id>' AND name = 'Purge Test Ltd';`
+    Then run the scan now (command 3 of the same section, "After 30 days") and read the log (command 2): expect one
+    "Deleted company erased" line. Then: the company is gone from the Deleted companies box, and your other company
+    still has all its own people and plan. In the database, `SELECT count(*) FROM employees WHERE organization_id =
+    '<id>'` (as owner) is 0.
 
 **E. Scoring (needs the helper in Stage 9)**
 16. (7, 8) Done inside Stage 9: the reminder for a department below 100% and "Scored on X% of its KPI
