@@ -5,9 +5,9 @@ import logging
 from fastapi import APIRouter, Cookie, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_db, get_current_user
+from app.core.dependencies import get_db, get_current_user, require_owner
 from app.core.schemas import MessageResponse
-from app.modules.tenancy_identity.models import User
+from app.modules.tenancy_identity.models import Membership, User
 from app.modules.auth.schemas import (
     RegisterRequest,
     AuthResponse,
@@ -22,6 +22,7 @@ from app.modules.auth.schemas import (
     AcceptInviteRequest,
     AcceptInviteExistingRequest,
     CreateOrganizationRequest,
+    DeleteOrganizationRequest,
     JoinedCompanyResponse,
     InvitePreviewResponse,
     SwitchOrganizationRequest,
@@ -207,6 +208,26 @@ async def create_organization(
     already owns is refused (409), so a double click cannot make two.
     """
     return await AuthService(db).create_company(current_user, data.name, refresh_token, response)
+
+
+@router.post("/delete-organization", status_code=200)
+async def delete_organization(
+    data: DeleteOrganizationRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    owner: Membership = Depends(require_owner),
+    refresh_token: str | None = Cookie(default=None),
+) -> AuthResponse:
+    """Delete the company this session acts for. Only its Owner may.
+
+    Needs the company name and the Owner's password. Nothing is erased: the company is archived,
+    everyone's access to it ends, and the answer is a session for another of the caller's
+    companies. 409 ``LAST_COMPANY`` if it is the only company the caller can enter.
+    """
+    return await AuthService(db).delete_company(
+        current_user, owner, data.confirm_name, data.password, refresh_token, response
+    )
 
 
 @router.post("/accept-invite", status_code=200)

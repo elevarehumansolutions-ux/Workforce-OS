@@ -73,6 +73,9 @@ class Organization(BaseModel):
         server_default="Africa/Lagos",
         doc="IANA timezone name; decides where 'midnight' falls for this org's attendance auto-close",
     )
+    # Set when the owner deletes the company. Nothing is erased: every membership is deactivated at
+    # the same moment, and the background jobs skip the company.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
     # Relationships

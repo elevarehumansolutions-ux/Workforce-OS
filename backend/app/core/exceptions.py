@@ -905,6 +905,20 @@ class BlueprintItemNotFoundException(PlatformError):
         super().__init__(message, code, status_code, details)
 
 
+class LastCompanyException(PlatformError):
+    """Raised when someone tries to delete the only company they can still enter."""
+
+    def __init__(
+        self,
+        message: str = "You cannot delete your only company",
+        code: str = "LAST_COMPANY",
+        status_code: int = 409,
+        details: list | None = None,
+    ) -> None:
+        """Initialise with platform error defaults."""
+        super().__init__(message, code, status_code, details)
+
+
 class CompanyLimitReachedException(PlatformError):
     """Raised when someone who already owns the most companies allowed tries to create another."""
 

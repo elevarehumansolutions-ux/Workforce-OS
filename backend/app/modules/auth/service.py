@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone, UTC, timedelta
 
 from fastapi import Response
-from sqlalchemy import text
+from sqlalchemy import text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,7 +33,7 @@ from app.modules.auth.schemas import (
     JoinedCompanyResponse,
 )
 from app.modules.tenancy_identity.schemas import MembershipWithOrganizationResponse
-from app.modules.tenancy_identity.models import User, Organization, Membership
+from app.modules.tenancy_identity.models import User, Organization, Membership, Invite
 from app.modules.tenancy_identity.enums import MembershipRole
 from app.modules.tenancy_identity.enums import AccountStatus
 from app.modules.auth.jwt_handler import create_token_pair, decode_refresh_token
@@ -56,6 +56,7 @@ from app.core.exceptions import (
     NoActiveMembershipException,
     MembershipDeactivatedException,
     CompanyLimitReachedException,
+    LastCompanyException,
     ValidationException,
 )
 from app.modules.auth.repository import AuthRepository
@@ -593,7 +594,10 @@ class AuthService:
         return MeResponse(
             user=self._build_user_response(user),
             memberships=[
-                MembershipWithOrganizationResponse.model_validate(m) for m in memberships
+                # A company its owner deleted is not listed at all (it is not "removed access").
+                MembershipWithOrganizationResponse.model_validate(m)
+                for m in memberships
+                if m.organization.archived_at is None
             ],
         )
 
@@ -840,6 +844,94 @@ class AuthService:
             changes={"old": None, "new": {"name": clean_name}},
         )
         return await self._open_session(user, org, membership, response, raw_refresh_token)
+
+    async def delete_company(
+        self,
+        user: User,
+        membership: Membership,
+        confirm_name: str,
+        password: str,
+        raw_refresh_token: str | None,
+        response: Response,
+    ) -> AuthResponse:
+        """Delete (archive) the company this session acts for, then move the owner to another one.
+
+        The router has already checked that the caller is the owner. Here: the password and the
+        typed name must match, and it can never be the person's last company.
+        """
+        org = membership.organization
+        if not verify_password(password, user.password_hash):
+            # A 422, not a 401: a 401 would make the web app try to refresh the session.
+            raise ValidationException(message="That password is not correct.")
+        if confirm_name.strip().casefold() != (org.name or "").strip().casefold():
+            raise ValidationException(message="Type the company name exactly as it is written to confirm.")
+
+        # One delete at a time per company, so a double click cannot archive it twice.
+        await self._db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+            {"key": "delete-company:" + str(org.id)},
+        )
+        await self._db.refresh(org, attribute_names=["archived_at"])
+        if org.archived_at is not None:
+            raise InvalidCredentialsException("Membership no longer exists")
+
+        next_org_id = await self._another_company_of(user, org.id)
+        if next_org_id is None:
+            raise LastCompanyException(
+                message="This is your only company. Start another one first, then you can delete this one."
+            )
+
+        # Back into this company's own context to change its rows, then into the other company.
+        await self._db.execute(
+            text("SELECT set_config('app.current_org_id', :org_id, true)"), {"org_id": str(org.id)}
+        )
+        await self._archive_company(user, org)
+        return await self.switch_organization(user, next_org_id, raw_refresh_token, response)
+
+    async def _another_company_of(self, user: User, leaving_org_id: uuid.UUID) -> uuid.UUID | None:
+        """The id of another company this person can still enter, newest first, or None."""
+        # Looking across all of a person's companies needs the same bootstrap as login and switch.
+        await self._db.execute(text("SELECT set_config('app.current_org_id', '', true)"))
+        await self._db.execute(
+            text("SELECT set_config('app.current_user_id', :user_id, true)"),
+            {"user_id": str(user.id)},
+        )
+        memberships = await self._membership_service.get_user_memberships(user.id)
+        # The list is oldest first, so walk it backwards to prefer the newest company.
+        for membership in reversed(memberships):
+            is_other = membership.organization_id != leaving_org_id
+            if is_other and membership.deactivated_at is None and membership.organization.archived_at is None:
+                return membership.organization_id
+        return None
+
+    async def _archive_company(self, user: User, org: Organization) -> None:
+        """Hide a company from everyone. Nothing is erased, so it can be restored by support.
+
+        Needs the company's own context to be set (the caller does that).
+        """
+        now = datetime.now(UTC)
+        # The audit entry first: it belongs to the company and is written while we still may.
+        await AuditService(self._db).log_action(
+            organization_id=org.id,
+            actor_user_id=user.id,
+            action="delete",
+            entity_type="organization",
+            entity_id=org.id,
+            changes={"old": {"archived_at": None}, "new": {"archived_at": now.isoformat()}},
+        )
+        await self._db.execute(update(Organization).where(Organization.id == org.id).values(archived_at=now))
+        # Every membership gets the SAME time as the company. Everything that already refuses a
+        # deactivated membership (tokens, switching, the company count) now refuses this company too,
+        # and restoring means reactivating the memberships stamped with that time.
+        await self._db.execute(
+            update(Membership)
+            .where(Membership.organization_id == org.id, Membership.deactivated_at.is_(None))
+            .values(deactivated_at=now)
+        )
+        # Invites that were never accepted must not let anyone in later.
+        await self._db.execute(
+            update(Invite).where(Invite.organization_id == org.id, Invite.is_used.is_(False)).values(is_used=True)
+        )
 
     async def accept_invite(self, data: AcceptInviteRequest, response: Response) -> AuthResponse:
         """Complete a teammate invite for an email with no prior account.
