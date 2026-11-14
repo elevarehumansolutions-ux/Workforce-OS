@@ -424,11 +424,11 @@ export default function WorkflowTemplateDetailPage() {
         <div className="sm:col-span-2">
           <label className="mb-1 block text-xs text-gray-500">Turnaround (optional)</label>
           <div className="flex max-w-md gap-2">
-            <input type="number" min={1} step={1} value={stepHours} onChange={function (e) { setStepHours(e.target.value); }} placeholder="No deadline" className={inputClass + " min-w-0 flex-1"} />
+            <input type="number" min={1} step={1} value={stepHours} onChange={function (e) { setStepHours(e.target.value); }} placeholder="No deadline" className={inputClass + " min-w-[9rem] flex-1"} />
             <select
               value={stepUnit}
               onChange={function (e) { setStepUnit(e.target.value === "days" ? "days" : "hours"); }}
-              className={inputClass + " w-32 shrink-0"}
+              className="w-28 shrink-0 rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
               aria-label="Turnaround unit"
             >
               <option value="hours">Hours</option>
