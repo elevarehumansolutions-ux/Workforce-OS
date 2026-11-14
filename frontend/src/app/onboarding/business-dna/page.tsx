@@ -6,7 +6,8 @@ import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { INDUSTRY_OPTIONS, OTHER_INDUSTRY, resolveIndustry, splitIndustry } from "@/lib/industry";
 import Logo from "@/components/Logo";
 import WorkingHoursFields from "@/components/WorkingHoursFields";
-import { loadMe } from "@/lib/settings";
+import { saveFiscalYear } from "@/lib/fiscalYear";
+import { MONTH_NAMES, loadMe } from "@/lib/settings";
 import {
   DEFAULT_WORKING_HOURS,
   describeWorkingHours,
@@ -74,6 +75,8 @@ export default function BusinessDnaPage() {
     end_hour: DEFAULT_WORKING_HOURS.end_hour,
     work_days: DEFAULT_WORKING_HOURS.work_days,
   });
+
+  const [fiscalMonth, setFiscalMonth] = useState(1);
 
   useEffect(function () {
     if (!getAccessToken()) return;
@@ -154,6 +157,17 @@ export default function BusinessDnaPage() {
       });
   }, []);
 
+  // The month the financial year starts in (January until changed); prefilled for a company that came back.
+  useEffect(function () {
+    loadMe()
+      .then(function (me) {
+        if (me.organization) setFiscalMonth(me.organization.fiscal_year_start_month);
+      })
+      .catch(function () {
+        // Keep January shown below.
+      });
+  }, []);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitError("");
@@ -170,6 +184,7 @@ export default function BusinessDnaPage() {
     try {
       // The working week is its own small setting (PUT /working-hours); saved first, it is cheap to check.
       await saveWorkingHours(workingHours);
+      await saveFiscalYear(fiscalMonth);
       const payload: Record<string, unknown> = {
         organization_name: formData.companyName || null,
         timezone: formData.timezone || null,
@@ -359,6 +374,24 @@ export default function BusinessDnaPage() {
               <p className="mt-2 text-xs text-gray-500">
                 Deadlines on workflow steps count only these hours and days, so a step of &quot;1 day&quot; is one
                 full working day here ({describeWorkingHours(workingHours)}). You can change this later in Settings.
+              </p>
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-gray-200">Financial year starts in</label>
+              <select
+                value={fiscalMonth}
+                onChange={(e) => setFiscalMonth(Number(e.target.value))}
+                className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white outline-none focus:border-indigo-500"
+              >
+                {MONTH_NAMES.map((name, index) => (
+                  <option key={name} value={index + 1}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-gray-500">
+                Quarters, KPI periods and scores follow this. Pick the month your company&apos;s financial year begins
+                (January if it follows the calendar year). You can change it later in Settings.
               </p>
             </div>
           </div>

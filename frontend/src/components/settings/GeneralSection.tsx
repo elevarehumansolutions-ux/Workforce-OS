@@ -5,8 +5,9 @@ import { ApiError, apiFetch } from "@/lib/api";
 import { INDUSTRY_OPTIONS, OTHER_INDUSTRY, resolveIndustry, splitIndustry } from "@/lib/industry";
 import { formatDateTime } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
-import { SETTINGS_INPUT_CLASS, SETTINGS_LABEL_CLASS, isHrRole, monthName, subscriptionClasses, subscriptionLabel } from "@/lib/settings";
+import { SETTINGS_INPUT_CLASS, SETTINGS_LABEL_CLASS, isHrRole, subscriptionClasses, subscriptionLabel } from "@/lib/settings";
 import type { SectionProps } from "./types";
+import FiscalYearCard from "./FiscalYearCard";
 import WorkingHoursCard from "./WorkingHoursCard";
 
 interface BusinessDna {
@@ -186,11 +187,6 @@ export default function GeneralSection(props: SectionProps) {
               </select>
               <p className="mt-1 text-xs text-gray-500">Decides where midnight falls, for example when unfinished attendance is closed for the day.</p>
             </div>
-            <div>
-              <label className={SETTINGS_LABEL_CLASS}>Financial year starts in</label>
-              <input type="text" value={org ? monthName(org.fiscal_year_start_month) : ""} disabled className={SETTINGS_INPUT_CLASS} />
-              <p className="mt-1 text-xs text-gray-500">Quarter-end reviews and KPI periods follow this. It can&apos;t be changed from here yet.</p>
-            </div>
           </div>
 
           {canEdit ? (
@@ -211,6 +207,8 @@ export default function GeneralSection(props: SectionProps) {
       ) : null}
 
       <WorkingHoursCard canEdit={canEdit} />
+
+      <FiscalYearCard canEdit={canEdit} />
 
       {org ? (
         <div className="mt-10 border-t border-white/10 pt-6">

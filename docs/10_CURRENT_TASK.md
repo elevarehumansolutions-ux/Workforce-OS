@@ -6,13 +6,15 @@ what he sees; each finding is written into `09_PROGRESS.md` (a numbered to-do) a
 branch, one commit per item. Working mode: propose first, build when he says so, one small block at a time with a
 short explanation (see `CLAUDE.md`).
 
-## Where we are (latest, 2026-11-14 evening)
+## Where we are (latest, 2026-11-14 night)
 
-Emmanuel is live-testing Stage 7 (workflow) with the order in `15_LIVE_TEST_PLAN.md` ("Recommended order"). His
-findings were built on branch `live-tests-round3` (to-dos 36 to 39: Start Workflow empty state, one person picker
-grouped by department, per-company working hours, turnaround in days). After it is merged and deployed (`alembic
-upgrade head` reaches `d5f2b7a93c18`), he finishes Stage 7 step 1 (the template), then goes on: Stage 5, 6, 7 outcomes,
-8, 10, Stage 11 steps 1 to 16, and Stage 9 last. We do each step together, one at a time.
+Emmanuel is live-testing Stage 7 (workflow) with the order in `15_LIVE_TEST_PLAN.md` ("Recommended order"). To-dos 36
+to 39 (Start Workflow empty state, one person picker grouped by department, per-company working hours, turnaround
+in days) are merged and deployed. He found that the financial year start month in Settings could not be changed;
+**to-do 40 (branch `fiscal-year-setting`) makes it editable by HR administrators at any time and adds it to the
+onboarding wizard** (no migration, no new deploy step beyond restarting the API). Once it is merged he finishes
+Stage 7 step 1 (the template), then goes on: Stage 5, 6, 7 outcomes (and the new steps 8 to 11), 8, 10, Stage 11
+steps 1 to 16, and Stage 9 last. We do each step together, one at a time.
 
 ## Where we are (2026-11-14, end of day)
 

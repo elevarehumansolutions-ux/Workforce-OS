@@ -1352,6 +1352,16 @@ Raised by Emmanuel while setting up the first workflow template in the Stage 7 l
 - **One person picker.** Every dropdown that chooses a person becomes a single shared component: a group per department, each person shown as "Name, Position", people without a position under "No position yet". Chosen over a searchable combobox for now (a native select works the same on a phone and needs no new behaviour to learn); search can be added to the one component later.
 - **The Start Workflow page** gets a way forward when there are no templates (a button for HR administrators and managers, a sentence for everyone else).
 
+## 2026-11-14 — The financial year start month becomes editable (BUILT, branch `fiscal-year-setting`, to-do 40)
+
+Found by Emmanuel in Settings: the field was greyed out. It had been built read-only on purpose-by-omission (decision 2026-09-07 gave `organizations.fiscal_year_start_month` a default of 1 and no way to change it).
+
+- **Who and when (Emmanuel's answer):** HR administrators, at any time. There is no lock after the first quarter closes, and no extra confirmation. The screen carries a plain warning instead.
+- **Also in onboarding:** the Business DNA page has the dropdown under the working hours (nothing depends on the month yet at that point, so the choice is free).
+- **What a change does:** quarters already closed keep their saved dates (scores are stored with their period); the quarter in progress and later ones follow the new month. Nothing is recomputed or rewritten. Moving the month in the middle of a year therefore makes the running quarter a different window from then on; the warning says so.
+- **How it is built:** its own `PUT /fiscal-year` in the workflow module next to `/working-hours`, not a field inside `/business-dna` (rejected, same reason as the working hours: it would touch a finished module). The current value is read from `GET /auth/me`, so there is no `GET`.
+- **Rejected:** allowing the change only until the first quarter has closed (safer but stricter; he chose open); recalculating past periods when the month changes.
+
 ## 2026-11-14 — Permanent purge of a company deleted 30 days ago (BUILT, branch `company-restore`, to-do 35)
 
 Asked for by Emmanuel ("implement the permanent purge"), completing what he accepted earlier ("archive, then purge after 30 days"). Decisions and the reasons:

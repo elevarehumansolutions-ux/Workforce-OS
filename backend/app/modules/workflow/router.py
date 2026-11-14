@@ -17,6 +17,8 @@ from app.modules.tenancy_identity.models import Membership
 
 from .enums import InstanceStatus
 from .schemas import (
+    FiscalYearRequest,
+    FiscalYearResponse,
     InstanceCancelRequest,
     InstanceCreateRequest,
     InstanceDetailResponse,
@@ -33,7 +35,7 @@ from .schemas import (
     WorkingHoursRequest,
     WorkingHoursResponse,
 )
-from .service import InstanceService, StepService, TemplateService, WorkingHoursService
+from .service import FiscalYearService, InstanceService, StepService, TemplateService, WorkingHoursService
 
 router = APIRouter()
 
@@ -68,6 +70,22 @@ async def set_working_hours(
     """
     response = await WorkingHoursService(db).set(caller, data)
     # Built before the commit: the tenant setting ends with it, so nothing may be read afterwards.
+    await db.commit()
+    return response
+
+
+@router.put("/fiscal-year", status_code=200)
+async def set_fiscal_year(
+    data: FiscalYearRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(MembershipRole.HR_ADMINISTRATOR.value)),
+) -> FiscalYearResponse:
+    """Change the month the company's financial year starts in (1 to 12). HR administrators only.
+
+    Quarters already closed keep their dates. The quarter in progress and later ones follow the new
+    month. The current value is read from ``GET /auth/me`` (``fiscal_year_start_month``).
+    """
+    response = await FiscalYearService(db).set(caller, data.fiscal_year_start_month)
     await db.commit()
     return response
 
