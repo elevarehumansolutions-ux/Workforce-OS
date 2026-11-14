@@ -451,6 +451,8 @@ Rule to remember: **the job is safe to run twice; a frozen quarter is never rewr
 ---
 
 ## 13. Bring back a company its owner deleted (archived)
+**Normally the owner does this themselves** (since 2026-11-14): "Your companies" > "Deleted companies" > Restore.
+Use the SQL below only when the owner cannot (for example their own account is gone, or support is asked to).
 Deleting a company never erases it: it stamps `organizations.archived_at`, and stamps every membership's
 `deactivated_at` with the SAME instant (`04_DATABASE.md`). So restoring is the reverse, in one transaction.
 Run it as the database owner (`-U elevare`), the same way as section 11; the app's own role cannot see across companies.

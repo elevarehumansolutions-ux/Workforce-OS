@@ -1338,6 +1338,18 @@ Raised by Emmanuel in live testing: there was no way to delete a company. Decide
 - **Not built, nice to have:** a Restore button (support restores with SQL for now), deleting a company other than the current one.
 - **Rejected:** hard delete; a plain confirm dialog; letting the Owner delete their only company.
 
+## 2026-11-14 — Delete from the list, and restore from the app (BUILT, branch `company-restore`, to-dos 33 and 34)
+
+Raised by Emmanuel after merging: (1) the delete control should be on each company in the list, not only inside the current one; (2) there was no way to see or bring back a deleted company.
+
+- **A bin icon on every company the person owns**, in the list. It opens the same window (name + password). Deleting a company you are not in leaves you where you are; deleting the one you are in moves you to another. The request takes an optional `organization_id`; the ownership check is done for that company, not for the token's. The red section at the bottom was removed (the icons replace it).
+- **"Deleted companies" with Restore, for the owner who deleted it only** (Emmanuel agreed): an HR administrator who merely belonged to it cannot restore it. It is recognised by the owner's membership carrying exactly the company's `archived_at`.
+- **Restore brings teammates back automatically** (Emmanuel agreed), but only those who lost access THROUGH the deletion (same timestamp); people removed earlier stay removed. Invites that were waiting are not restored.
+- **Restore obeys the same limits as creating:** at most 3 owned companies, and no live company of theirs with the same name, both refused in words. Restoring uses the same per-person lock as creating, so the two cannot race past the limit.
+- **Restore asks for a simple confirmation, no password** (restoring is not dangerous, unlike deleting).
+- **Still not built:** the permanent purge (see the entry above) and any limit on how long a company stays restorable (it stays indefinitely until a purge exists).
+- **Rejected:** keeping the delete only inside the current company (clumsy); letting any former member restore; restoring everyone including people removed earlier.
+
 ## 2026-11-14 — Company name prefilled on Business DNA (to-do 31)
 
 A company started from "Start another company" already has its name, but the first onboarding page read it only from the Business DNA record, which does not exist until the first save. The page now falls back to the current company's name when there is no record yet. Frontend only.

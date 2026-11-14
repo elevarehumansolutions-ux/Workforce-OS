@@ -20,6 +20,12 @@ interface Membership {
   organization: Organization;
 }
 
+interface DeletedCompany {
+  organization_id: string;
+  name: string | null;
+  deleted_at: string;
+}
+
 interface MeResponse {
   user: { id: string; full_name: string; email: string };
   memberships: Membership[];
@@ -51,22 +57,39 @@ export default function OrganizationsPage() {
   const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
   const [createError, setCreateError] = useState("");
-  // "Delete this company": a window that asks for the company name and the password.
-  const [deleting, setDeleting] = useState(false);
+  // "Delete": a window for ONE company (the one whose icon was pressed) that asks for its name and the password.
+  const [deleteTarget, setDeleteTarget] = useState<Membership | null>(null);
   const [deleteName, setDeleteName] = useState("");
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  // Companies this person deleted and may bring back, and the one a "Restore" window is open for.
+  const [deletedCompanies, setDeletedCompanies] = useState<DeletedCompany[]>([]);
+  const [restoreTarget, setRestoreTarget] = useState<DeletedCompany | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreError, setRestoreError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  // Your companies, and the ones you deleted. Called on load and again after every delete or restore.
+  function loadLists() {
+    return Promise.all([
+      apiFetch<MeResponse>("/auth/me", { method: "GET" }),
+      // If this one fails the main list should still show, so it falls back to "nothing deleted".
+      apiFetch<{ data: DeletedCompany[] }>("/auth/deleted-organizations", { method: "GET" }).catch(function () {
+        return { data: [] as DeletedCompany[] };
+      }),
+    ]).then(function (results) {
+      setMe(results[0]);
+      setDeletedCompanies(results[1].data);
+    });
+  }
 
   useEffect(function () {
     if (!getAccessToken()) {
       router.replace("/login");
       return;
     }
-    apiFetch<MeResponse>("/auth/me", { method: "GET" })
-      .then(function (data) {
-        setMe(data);
-      })
+    loadLists()
       .catch(function (err) {
         setError(err instanceof ApiError ? err.message : "Couldn't load your organizations. Please try again.");
       })
@@ -131,21 +154,18 @@ export default function OrganizationsPage() {
     }
   }
 
-  // The company this session acts for, if this person is its owner and has somewhere else to go.
-  // (The server enforces both rules too; this only decides whether to show the section.)
+  // A delete icon shows on each company this person owns, but only when they have somewhere else to go.
+  // (The server enforces both rules too; this only decides what to show.)
   const activeMemberships = me
     ? me.memberships.filter(function (m) { return !m.deactivated_at; })
     : [];
-  const deletable = activeMemberships.find(function (m) {
-    return m.is_owner && m.organization.id === currentOrganizationId();
-  });
-  const canDelete = Boolean(deletable) && activeMemberships.length >= 2;
+  const hasAnotherCompany = activeMemberships.length >= 2;
   const nameTypedCorrectly =
-    deletable !== undefined &&
-    deleteName.trim().toLowerCase() === (deletable.organization.name || "").trim().toLowerCase();
+    deleteTarget !== null &&
+    deleteName.trim().toLowerCase() === (deleteTarget.organization.name || "").trim().toLowerCase();
 
   function closeDeleteWindow() {
-    setDeleting(false);
+    setDeleteTarget(null);
     setDeleteName("");
     setDeletePassword("");
     setDeleteError("");
@@ -153,22 +173,56 @@ export default function OrganizationsPage() {
 
   async function handleDelete(e: React.FormEvent) {
     e.preventDefault();
-    if (deleteBusy || !deletable) return; // a double click must not send two
+    if (deleteBusy || !deleteTarget) return; // a double click must not send two
     setDeleteError("");
     setDeleteBusy(true);
     try {
-      // The answer is a session for another of this person's companies (POST /auth/delete-organization).
-      const data = await apiFetch<{ access_token: string }>("/auth/delete-organization", {
+      // POST /auth/delete-organization. Deleting the company you are IN answers with a session for another
+      // company (access_token); deleting a different one answers {session_opened: false} and changes nothing here.
+      const data = await apiFetch<{ access_token?: string; session_opened?: boolean }>("/auth/delete-organization", {
         method: "POST",
-        body: { confirm_name: deleteName.trim(), password: deletePassword },
+        body: {
+          organization_id: deleteTarget.organization.id,
+          confirm_name: deleteName.trim(),
+          password: deletePassword,
+        },
       });
-      setAccessToken(data.access_token);
-      // A full page load, so the menu and every cached role start fresh for the company we land in.
-      window.location.assign("/dashboard");
+      if (data.access_token) {
+        setAccessToken(data.access_token);
+        // A full page load, so the menu and every cached role start fresh for the company we land in.
+        window.location.assign("/dashboard");
+        return;
+      }
+      const deletedName = deleteTarget.organization.name || "The company";
+      closeDeleteWindow();
+      setNotice(deletedName + " was deleted. You can restore it under Deleted companies.");
+      await loadLists();
+      setDeleteBusy(false);
     } catch (err) {
       // 422: wrong password or name. 409 LAST_COMPANY: the only company. 403: not the owner.
       setDeleteError(err instanceof ApiError ? err.message : "Couldn't delete the company. Please try again.");
       setDeleteBusy(false);
+    }
+  }
+
+  async function handleRestore() {
+    if (restoreBusy || !restoreTarget) return; // a double click must not send two
+    setRestoreError("");
+    setRestoreBusy(true);
+    try {
+      await apiFetch("/auth/restore-organization", {
+        method: "POST",
+        body: { organization_id: restoreTarget.organization_id },
+      });
+      const restoredName = restoreTarget.name || "The company";
+      setRestoreTarget(null);
+      setNotice(restoredName + " is back, with the people who lost access when it was deleted.");
+      await loadLists();
+    } catch (err) {
+      // 409: you already own 3 companies, or a live one has the same name. The message says which.
+      setRestoreError(err instanceof ApiError ? err.message : "Couldn't restore the company. Please try again.");
+    } finally {
+      setRestoreBusy(false);
     }
   }
 
@@ -187,6 +241,11 @@ export default function OrganizationsPage() {
         {error ? (
           <div className="mt-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             {error}
+          </div>
+        ) : null}
+        {notice ? (
+          <div className="mt-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+            {notice}
           </div>
         ) : null}
 
@@ -210,9 +269,11 @@ export default function OrganizationsPage() {
               const org = membership.organization;
               const isActive = org.id === currentOrganizationId();
               const isDeactivated = Boolean(membership.deactivated_at);
+              // Only the owner may delete, and never the last company they can enter.
+              const showDelete = membership.is_owner && !isDeactivated;
               return (
+                <div key={membership.id} className="flex items-stretch gap-2">
                 <button
-                  key={membership.id}
                   onClick={function () {
                     if (!isDeactivated) handleSwitch(membership);
                   }}
@@ -253,6 +314,21 @@ export default function OrganizationsPage() {
                     )}
                   </div>
                 </button>
+                {showDelete ? (
+                  <button
+                    type="button"
+                    disabled={!hasAnotherCompany}
+                    title={hasAnotherCompany ? "Delete " + (org.name || "this company") : "This is your only company, so it cannot be deleted"}
+                    aria-label={"Delete " + (org.name || "this company")}
+                    onClick={function () { setNotice(""); setDeleteTarget(membership); }}
+                    className="flex w-12 items-center justify-center rounded-xl border border-white/10 bg-[#0d1220] text-gray-400 hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-white/10 disabled:hover:bg-[#0d1220] disabled:hover:text-gray-400"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                      <path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10M9 9v4M11 9v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                ) : null}
+                </div>
               );
             })}
           </div>
@@ -319,40 +395,77 @@ export default function OrganizationsPage() {
           </div>
         ) : null}
 
-        {!loading && deletable ? (
-          <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/5 px-5 py-4">
-            <p className="text-sm font-semibold text-red-300">Delete {deletable.organization.name || "this company"}</p>
-            {canDelete ? (
-              <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-                <p className="max-w-md text-xs text-gray-400">
-                  Everyone in it loses access and it disappears from every list. Nothing is erased straight away,
-                  so support can still bring it back. You will be moved to your other company.
-                </p>
-                <button
-                  type="button"
-                  onClick={function () { setDeleting(true); }}
-                  className="rounded-lg border border-red-500/50 px-4 py-2 text-sm font-semibold text-red-300 hover:bg-red-500/10"
-                >
-                  Delete this company
-                </button>
-              </div>
-            ) : (
-              <p className="mt-1 text-xs text-gray-400">
-                This is your only company, so it cannot be deleted. Start another one first, then you can delete this one.
-              </p>
-            )}
+        {!loading && deletedCompanies.length > 0 ? (
+          <div className="mt-8 rounded-xl border border-white/10 bg-[#0d1220] px-5 py-4">
+            <p className="text-sm font-semibold text-white">Deleted companies</p>
+            <p className="mt-1 text-xs text-gray-400">
+              You deleted these. Restoring one brings back its people too.
+            </p>
+            <div className="mt-3 space-y-2">
+              {deletedCompanies.map(function (company) {
+                return (
+                  <div
+                    key={company.organization_id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 px-4 py-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-white">{company.name || "Untitled organization"}</p>
+                      <p className="text-xs text-gray-500">Deleted on {new Date(company.deleted_at).toLocaleDateString()}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={function () { setNotice(""); setRestoreError(""); setRestoreTarget(company); }}
+                      className="rounded-lg border border-indigo-400/50 px-4 py-1.5 text-xs font-semibold text-indigo-300 hover:bg-indigo-500/10"
+                    >
+                      Restore
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ) : null}
 
-        {deleting && deletable ? (
-          <Modal title={"Delete " + (deletable.organization.name || "this company") + "?"} onClose={closeDeleteWindow}>
+        {restoreTarget ? (
+          <Modal title={"Restore " + (restoreTarget.name || "this company") + "?"} onClose={function () { setRestoreTarget(null); }}>
+            <p className="text-sm text-gray-300">
+              The company comes back as it was. Everyone who lost access when you deleted it gets it back;
+              people an administrator had removed earlier stay removed. Invitations that were waiting are
+              not restored, so send them again.
+            </p>
+            {restoreError ? <p className="mt-3 text-xs text-red-300">{restoreError}</p> : null}
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                disabled={restoreBusy}
+                onClick={function () { setRestoreTarget(null); }}
+                className="rounded-lg border border-white/15 px-4 py-2 text-sm text-gray-300 hover:border-white/30 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={restoreBusy}
+                onClick={handleRestore}
+                className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-600 disabled:opacity-60"
+              >
+                {restoreBusy ? "Restoring…" : "Restore this company"}
+              </button>
+            </div>
+          </Modal>
+        ) : null}
+
+        {deleteTarget ? (
+          <Modal title={"Delete " + (deleteTarget.organization.name || "this company") + "?"} onClose={closeDeleteWindow}>
             <form onSubmit={handleDelete} className="space-y-3">
               <p className="text-sm text-gray-300">
                 Everyone in this company loses access straight away, and it disappears from every list.
-                You will be moved to your other company.
+                {deleteTarget.organization.id === currentOrganizationId()
+                  ? " You will be moved to your other company."
+                  : " You stay where you are. You can restore it later from Deleted companies."}
               </p>
               <label htmlFor="delete-name" className="block text-xs text-gray-400">
-                Type the company name to confirm: <span className="font-semibold text-white">{deletable.organization.name}</span>
+                Type the company name to confirm: <span className="font-semibold text-white">{deleteTarget.organization.name}</span>
               </label>
               <input
                 id="delete-name"
