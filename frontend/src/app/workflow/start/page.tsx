@@ -7,7 +7,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import { departmentName, errorMessage, fetchAllPages, loadCaller, roleLabel } from "@/lib/tasks";
 import type { CallerContext } from "@/lib/tasks";
-import { canStartCase, turnaroundLabel } from "@/lib/workflow";
+import { canManageTemplates, canStartCase, turnaroundLabel } from "@/lib/workflow";
 import type { WorkflowCase, WorkflowStep, WorkflowTemplate } from "@/lib/workflow";
 
 interface TemplatesResult {
@@ -206,7 +206,22 @@ function StartWorkflowContent() {
           {templatesLoading ? <p className="text-sm text-gray-400">Loading templates…</p> : null}
 
           {!templatesLoading && templates.length === 0 && !(templatesResult && templatesResult.error) ? (
-            <p className="text-sm text-gray-400">There are no workflow templates to start yet. An HR administrator or manager needs to create one first.</p>
+            <div className="space-y-3">
+              <p className="text-sm text-gray-400">
+                There are no workflow templates to start yet. A template is the list of steps a case goes through,
+                and it has to exist before a case can be started.
+              </p>
+              {canManageTemplates(ctx) ? (
+                <Link
+                  href="/workflow/new-template"
+                  className="inline-block rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600"
+                >
+                  Create a template
+                </Link>
+              ) : (
+                <p className="text-sm text-gray-500">Ask an HR administrator or a manager to create one.</p>
+              )}
+            </div>
           ) : null}
 
           {!templatesLoading && templates.length > 0 ? (
