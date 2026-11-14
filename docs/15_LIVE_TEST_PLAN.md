@@ -17,6 +17,36 @@ company, never a real customer's.
 - Keep a simple note per stage: **did / expected / saw**. A screenshot for anything odd.
 - Time is UTC on the server and Lagos (UTC+1) on screen.
 
+## Recommended order from here (2026-11-14; Stages 1 to 4 and Stage 11 steps 17 to 32 are done)
+
+The stages are numbered by feature, but they feed each other, so walk them in this order. The numbers stay as
+they are so other documents still point at the right place.
+
+1. **Stage 7, steps 1 to 3 only (set-up):** a template with three steps in different departments, then two cases.
+   Each department needs a head or a person who can receive the task (Stage 3 gave you people with logins).
+2. **Stage 5, attendance:** the employee clocks in and out. Do this BEFORE touching tasks: an employee who has not
+   clocked in is told to clock in first, so a task cannot be opened or completed without it.
+3. **Stage 6, tasks:** assign, open without clocking in (expect the "clock in first" message), clock in, complete;
+   a task with a deadline a few minutes away, let it pass; blocked and reassign. Do this for the workflow tasks
+   from step 1 and for a department of your choice.
+4. **Stage 7, steps 4 to 7 (outcomes):** overdue shows the money figure At risk, completing step 1 drops step 2's
+   task on the right person, cancelling a case shows Lost, and the dashboard totals add up.
+5. **Stage 8, notifications and audit log:** it collects the events from steps 3 and 4.
+6. **Stage 10, settings and role limits** (quick, three roles).
+7. **Stage 11, steps 1 to 14, then step 15 (the phone-width walkthrough).** Step 15 can also be done lightly while
+   you do the stages above: whenever a screen looks wrong at a narrow width, note it.
+8. **Stage 9, scoring, LAST:** it needs real tasks, KPIs and results inside the current quarter, which steps 1 to 4
+   have just created for you.
+
+**About time: only ONE stage depends on the calendar.** You never have to wait three months.
+
+| What needs time | How to get it |
+|---|---|
+| Overdue tasks (Stages 6 and 7) | Minutes: give the task a deadline 2 to 3 minutes ahead; the overdue scan runs every 10 minutes. |
+| Attendance auto-close past midnight (Stage 5, step 2) | Either clock in and check after midnight (Lagos time), or move the clock-in back a day as the database owner and run the job; see Stage 5, step 2. |
+| Scoring and quarter close (Stage 9) | The helper `backend/scripts/admin/stage9_time_helper.py` runs the real nightly job "as if" it were another date, on the test company only. |
+| The reminder two weeks before a quarter (Stage 9, step 5) | Not live: it depends on the real date. It is covered by a unit test. |
+
 ## Stage 1: Registration, email and login (M2)
 
 1. Open the site, choose sign up, create the first account (this person becomes the owner).
@@ -100,7 +130,10 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 ## Stage 5: Attendance (M9)
 
 1. As the employee: clock in, then clock out. Expect: times recorded, shown in Lagos time.
-2. Clock in and leave it past midnight (or ask me for the helper): expect an automatic close.
+2. Clock in and leave it past midnight (Lagos time): expect an automatic close (the job runs at five past every hour).
+   To test without waiting for midnight, as the database owner move that clock-in back a day, then run the job now
+   (see `14_PRODUCTION_TROUBLESHOOTING.md` section 14; TEST company only):
+   expect the record to be closed and the employee told.
 
 ## Stage 6: Tasks (M10)
 
