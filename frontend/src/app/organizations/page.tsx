@@ -24,6 +24,8 @@ interface DeletedCompany {
   organization_id: string;
   name: string | null;
   deleted_at: string;
+  // After this day the company is erased for good (set by the server, 30 days after deleting).
+  will_be_erased_on: string;
 }
 
 interface MeResponse {
@@ -195,7 +197,7 @@ export default function OrganizationsPage() {
       }
       const deletedName = deleteTarget.organization.name || "The company";
       closeDeleteWindow();
-      setNotice(deletedName + " was deleted. You can restore it under Deleted companies.");
+      setNotice(deletedName + " was deleted. You can restore it under Deleted companies for 30 days.");
       await loadLists();
       setDeleteBusy(false);
     } catch (err) {
@@ -399,7 +401,8 @@ export default function OrganizationsPage() {
           <div className="mt-8 rounded-xl border border-white/10 bg-[#0d1220] px-5 py-4">
             <p className="text-sm font-semibold text-white">Deleted companies</p>
             <p className="mt-1 text-xs text-gray-400">
-              You deleted these. Restoring one brings back its people too.
+              You deleted these. Restoring one brings back its people too. After the date shown, a company is erased
+              for good, with all its people, plans and records, and can no longer be restored.
             </p>
             <div className="mt-3 space-y-2">
               {deletedCompanies.map(function (company) {
@@ -410,7 +413,12 @@ export default function OrganizationsPage() {
                   >
                     <div>
                       <p className="text-sm font-medium text-white">{company.name || "Untitled organization"}</p>
-                      <p className="text-xs text-gray-500">Deleted on {new Date(company.deleted_at).toLocaleDateString()}</p>
+                      <p className="text-xs text-gray-500">
+                        Deleted on {new Date(company.deleted_at).toLocaleDateString()}.{" "}
+                        <span className="text-amber-300">
+                          Erased for good on {new Date(company.will_be_erased_on).toLocaleDateString()}.
+                        </span>
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -462,7 +470,11 @@ export default function OrganizationsPage() {
                 Everyone in this company loses access straight away, and it disappears from every list.
                 {deleteTarget.organization.id === currentOrganizationId()
                   ? " You will be moved to your other company."
-                  : " You stay where you are. You can restore it later from Deleted companies."}
+                  : " You stay where you are."}
+              </p>
+              <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                You can restore it from Deleted companies for 30 days. After that it is erased for good, with all
+                its people, plans and records, and cannot be brought back.
               </p>
               <label htmlFor="delete-name" className="block text-xs text-gray-400">
                 Type the company name to confirm: <span className="font-semibold text-white">{deleteTarget.organization.name}</span>

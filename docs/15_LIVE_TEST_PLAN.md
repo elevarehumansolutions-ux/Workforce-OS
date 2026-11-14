@@ -273,6 +273,17 @@ what is described, and send what you saw.
     deletion stays removed. Try restoring while you own 3 companies: refused in words. Delete a company, create
     another with the same name, then restore the first: refused in words ("already have a company with that name").
 
+32. (35) Permanent purge (TEST companies only, this is irreversible). On the live site: make a throwaway company
+    ("Purge Test Ltd") with a department, a role and two people, then delete it from "Your companies". Check the
+    delete window warns about 30 days, and the Deleted companies box shows "Erased for good on <date 30 days away>".
+    To avoid waiting a month, pretend it was deleted long ago, as the database owner (get the id from query 1 in
+    `14_PRODUCTION_TROUBLESHOOTING.md` section 13; ONLY this one throwaway company):
+    `UPDATE organizations SET archived_at = now() - interval '31 days' WHERE id = '<id>' AND name = 'Purge Test Ltd';`
+    Then run the scan now (command 3 of the same section, "After 30 days") and read the log (command 2): expect one
+    "Deleted company erased" line. Then: the company is gone from the Deleted companies box, and your other company
+    still has all its own people and plan. In the database, `SELECT count(*) FROM employees WHERE organization_id =
+    '<id>'` (as owner) is 0.
+
 **E. Scoring (needs the helper in Stage 9)**
 16. (7, 8) Done inside Stage 9: the reminder for a department below 100% and "Scored on X% of its KPI
     weights".

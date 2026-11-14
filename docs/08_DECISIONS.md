@@ -1334,9 +1334,24 @@ Raised by Emmanuel in live testing: there was no way to delete a company. Decide
 - **Everyone in it loses access** at the moment of deletion; their accounts and any other company they belong to are untouched. Invites not yet accepted stop working.
 - **Never the last company:** the Owner must have another company they can enter (409 `LAST_COMPANY`), or they would be left with nowhere to go. They are moved into their newest other company.
 - **How it is built:** `organizations.archived_at` plus every membership deactivated with the SAME timestamp, so all existing "deactivated" checks refuse the company with no new rule (and the 3-company limit frees a place). The four background-job lookups skip archived companies.
-- **Deliberately NOT built, and why: the permanent purge after 30 days.** 26 of the 27 foreign keys to `organizations` have no `ON DELETE CASCADE`, so a purge would have to delete from every tenant table in the right order (or a migration would have to add cascades to all of them). That is a risky, separate piece. Until it exists, archived data stays; it also means we promise nothing about erasure to a customer. If erasure is ever needed (a legal request), design the purge first.
+- **(Superseded the same day: the permanent purge WAS then built, to-do 35, see "Permanent purge" below.)** It was first left out because 26 of the 27 foreign keys to `organizations` have no `ON DELETE CASCADE`, so a purge has to delete from every tenant table in the right order. That is what to-do 35 does.
 - **Not built, nice to have:** a Restore button (support restores with SQL for now), deleting a company other than the current one.
 - **Rejected:** hard delete; a plain confirm dialog; letting the Owner delete their only company.
+
+## 2026-11-14 — Permanent purge of a company deleted 30 days ago (BUILT, branch `company-restore`, to-do 35)
+
+Asked for by Emmanuel ("implement the permanent purge"), completing what he accepted earlier ("archive, then purge after 30 days"). Decisions and the reasons:
+
+- **Automatic, daily, after 30 days.** A Celery beat job at 04:00 UTC (`purge-deleted-companies`) finds companies archived more than 30 days ago and queues one erase job per company; each runs in its own transaction, so one failing company never holds up the others, and a repeat run is harmless. The owner cannot trigger it early (a "delete forever now" button was not asked for; it can be added).
+- **How rows are removed: in dependency order read from the database's own foreign-key list at run time**, children before parents, one `DELETE ... WHERE organization_id = X` per tenant table (27 today), then the company row. Chosen over (a) a migration adding `ON DELETE CASCADE` to ~27 foreign keys (a wide schema change touching every module, and cascades silently widen what a mistaken delete can do forever) and (b) a hand-written table list (goes stale the moment a table is added and then fails, or worse, leaves data behind). A new table with an `organization_id` is covered automatically.
+- **One known loop** (a department points at its head, an employee points at a role in a department) is broken by clearing `departments.head_employee_id` first. **Any other loop makes the purge refuse and delete nothing** (loud failure beats a half-erased company).
+- **All or nothing** per company (one transaction). Before deleting, the job locks the company row and checks again that it is still archived and old enough, so a restore landing at the same moment can never half-restore and half-erase it.
+- **Who is erased:** every row that carries the company's `organization_id`: people, structure, KPIs, tasks, workflows, scores, notifications, invites, memberships, audit log, plan history, AI usage records. **Not erased: people's own login accounts** (`users`). A person may belong to other companies, and an account with no company simply has nowhere to enter. If someone asks for their account to be erased as well, that is a separate request.
+- **Runs as the normal app database role** under the company's own row-level security (it already has DELETE on every tenant table), plus one narrow `SECURITY DEFINER` lookup, `organizations_due_for_purge(days)`, to find which companies are due (migration `b7d31f9e2c60`). No superuser, no `BYPASSRLS`.
+- **No separate erasure ledger.** The job writes one log line per company ("Deleted company erased", the id and the number of rows) and nothing else, because the company's own audit log is erased with it. A permanent record that a purge happened (id, date, row counts) is a nice-to-have, not built.
+- **The screen says so plainly:** the delete window warns that after 30 days it is erased for good, and the Deleted companies list shows the date each one will be erased (`will_be_erased_on`, from the server so the number lives in one place).
+- **After the purge the company cannot be restored** (the list no longer shows it; restore answers 403). Support has no way back either: it is gone.
+- **Not built:** purge of the people's accounts; a "delete forever now" button; a record of purges; a dry-run command that only counts (see the troubleshooting doc for the counts query).
 
 ## 2026-11-14 — Delete from the list, and restore from the app (BUILT, branch `company-restore`, to-dos 33 and 34)
 
@@ -1347,7 +1362,7 @@ Raised by Emmanuel after merging: (1) the delete control should be on each compa
 - **Restore brings teammates back automatically** (Emmanuel agreed), but only those who lost access THROUGH the deletion (same timestamp); people removed earlier stay removed. Invites that were waiting are not restored.
 - **Restore obeys the same limits as creating:** at most 3 owned companies, and no live company of theirs with the same name, both refused in words. Restoring uses the same per-person lock as creating, so the two cannot race past the limit.
 - **Restore asks for a simple confirmation, no password** (restoring is not dangerous, unlike deleting).
-- **Still not built:** the permanent purge (see the entry above) and any limit on how long a company stays restorable (it stays indefinitely until a purge exists).
+- **Restorable for 30 days**, then erased for good by the purge (to-do 35, below).
 - **Rejected:** keeping the delete only inside the current company (clumsy); letting any former member restore; restoring everyone including people removed earlier.
 
 ## 2026-11-14 — Company name prefilled on Business DNA (to-do 31)

@@ -486,6 +486,42 @@ Line by line:
   companies are untouched, so they just open "Switch company".
 - Check afterwards: the owner's name menu shows "Switch company (N)" again, and the restored company opens.
 
+### After 30 days: the company is erased for good (2026-11-14)
+A daily job (`purge-deleted-companies`, 04:00 UTC, `auth/purge_tasks.py`) erases every company that was deleted
+more than 30 days ago, with everything in it. **After that the SQL above cannot bring it back: the rows are gone.**
+Look before you restore anything old: if the company is no longer in the first query, it has been purged.
+
+What was deleted, what is due, and whether the job ran:
+
+```bash
+# 1. Deleted companies waiting, and the day each will be erased (read only).
+docker compose -f docker-compose.prod.yml exec -T db psql -U elevare -d elevare_db -c \
+  "SELECT id, name, archived_at, archived_at + interval '30 days' AS erased_on
+   FROM organizations WHERE archived_at IS NOT NULL ORDER BY archived_at;"
+
+# 2. Did the job erase anything? One line per company, with how many rows went.
+docker compose -f docker-compose.prod.yml logs celery_worker --no-log-prefix --since 48h 2>&1 \
+  | grep "Deleted company erased"
+
+# 3. Run the daily scan now, instead of waiting for 04:00 (it only touches companies already 30 days old).
+docker compose -f docker-compose.prod.yml exec -T celery_worker \
+  celery -A app.core.celery_app call app.modules.auth.purge_tasks.purge_scan
+```
+
+Line by line:
+- Query 1 filters on `archived_at IS NOT NULL` (that is what "deleted" means) and adds 30 days to show the erase day.
+  Run it as `-U elevare` (the owner), the app's own role cannot see across companies.
+- Command 2: `logs ... --since 48h` is the worker's recent output; `--no-log-prefix` drops the container name;
+  `grep "Deleted company erased"` keeps only the purge line. No line after a company passed its erase day means
+  the job did not run (is `celery_beat` up? section 8) or it failed (see "A failed erase" below).
+- Command 3: `celery ... call <task name>` queues the scan once, now. The scan finds the due companies and queues one
+  erase job for each; their lines then show up in command 2.
+- A failed erase: `logs celery_worker ... | grep -B5 -A15 purge_organization`. The usual cause is a NEW table with a
+  foreign key the purge could not order. Then the message is "Unknown loop between tables, refusing to purge" and
+  **nothing was deleted** (the whole company is one transaction), so nothing is lost; the order logic
+  (`auth/purge.py`, `KNOWN_LOOP`) needs updating.
+- The job erases only rows that carry the company's id. People's own login accounts stay.
+
 ---
 
 ## Incident log

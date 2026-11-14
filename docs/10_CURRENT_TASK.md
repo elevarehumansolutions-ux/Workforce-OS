@@ -12,10 +12,10 @@ short explanation (see `CLAUDE.md`).
   windows, the role-change 500 fix, and deleting a company (to-dos 22 to 32). Emmanuel live-tested Stage 2c and
   Stage 11 steps 17 to 28 and they passed.
 - **Branch `company-restore` (this work, not merged yet):** to-do 33 (a bin icon on every company you own in
-  "Your companies") and to-do 34 ("Deleted companies" with Restore). No migration. Details: `09_PROGRESS.md`
-  to-dos 33 and 34, `08_DECISIONS.md` 2026-11-14.
-- After the merge, deploy needs a restart of the API (and hard refresh); `alembic upgrade head` should already
-  have reached `a9c52e7d1b48`.
+  "Your companies"), to-do 34 ("Deleted companies" with Restore) and to-do 35 (a daily job erases a company for
+  good 30 days after it was deleted). Details: `09_PROGRESS.md` to-dos 33 to 35, `08_DECISIONS.md` 2026-11-14.
+- After the merge, deploy needs `alembic upgrade head` (reaches `b7d31f9e2c60`) and a restart of the API,
+  celery_worker AND celery_beat (a new daily Beat entry), then a hard refresh.
 
 ## Immediate next action
 
@@ -29,8 +29,8 @@ short explanation (see `CLAUDE.md`).
 
 ## Still open (not built)
 
-- **The permanent purge of a deleted company** (26 of 27 foreign keys to `organizations` do not cascade; needs its
-  own design before anyone is promised erasure).
+- Purge extras (not built): erasing people's own login accounts, a "delete forever now" button, a record that a
+  purge happened. (The purge itself is built: to-do 35.)
 - Pending-invites list; "what changed" wording in the activity log; no in-app prompt for an existing account with
   an invite waiting; the plan history is shown only in onboarding and the backend does not gate on it; per-card
   Undo is not recorded in the history.
