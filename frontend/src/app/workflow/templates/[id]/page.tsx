@@ -421,10 +421,10 @@ export default function WorkflowTemplateDetailPage() {
             />
           ) : null}
         </div>
-        <div>
+        <div className="sm:col-span-2">
           <label className="mb-1 block text-xs text-gray-500">Turnaround (optional)</label>
-          <div className="flex gap-2">
-            <input type="number" min={1} step={1} value={stepHours} onChange={function (e) { setStepHours(e.target.value); }} placeholder="No deadline" className={inputClass} />
+          <div className="flex max-w-md gap-2">
+            <input type="number" min={1} step={1} value={stepHours} onChange={function (e) { setStepHours(e.target.value); }} placeholder="No deadline" className={inputClass + " min-w-0 flex-1"} />
             <select
               value={stepUnit}
               onChange={function (e) { setStepUnit(e.target.value === "days" ? "days" : "hours"); }}
