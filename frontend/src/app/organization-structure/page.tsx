@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "@/lib/api";
 import PositionsEditor from "@/components/PositionsEditor";
 import { isHrRole, loadMe } from "@/lib/settings";
-import { personLabel } from "@/lib/personLabel";
+import PersonSelect from "@/components/PersonSelect";
 import FormerHeadDialog from "@/components/FormerHeadDialog";
 import { findFormerHead } from "@/lib/formerHead";
 import type { FormerHead } from "@/lib/formerHead";
@@ -342,26 +342,19 @@ export default function OrganizationStructurePage() {
                         </div>
                         <div className="flex items-center gap-3">
                           <label className="text-xs text-gray-500">Head</label>
-                          <select
+                          <PersonSelect
+                            people={headChoices(department)}
+                            positions={positions}
+                            departments={departments}
                             value={headId}
                             disabled={isBusy || !canEdit}
-                            onChange={function (e) {
-                              changeHead(department, e.target.value);
+                            onChange={function (personId) {
+                              changeHead(department, personId);
                             }}
+                            emptyLabel="No head"
+                            extraOption={!headIsListed ? { id: headId, label: employeeName(headId) + " (no longer active)" } : undefined}
                             className={selectClass}
-                          >
-                            <option value="">No head</option>
-                            {!headIsListed ? (
-                              <option value={headId}>{employeeName(headId)} (no longer active)</option>
-                            ) : null}
-                            {headChoices(department).map(function (e) {
-                              return (
-                                <option key={e.id} value={e.id}>
-                                  {personLabel(e, positions, departments)}
-                                </option>
-                              );
-                            })}
-                          </select>
+                          />
                         </div>
                         {headId === "" && canEdit && suggestedHead(department) ? (
                           <p className="w-full text-xs text-gray-400">

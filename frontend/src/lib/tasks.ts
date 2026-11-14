@@ -136,6 +136,8 @@ export interface CallerContext {
   // The department the caller's own position belongs to, if any.
   employeeDepartmentId: string | null;
   departments: Department[];
+  // Every role in the company; with `departments` they let a dropdown group people by department.
+  positions: Position[];
   employees: Employee[];
   kpis: Kpi[];
 }
@@ -198,6 +200,7 @@ export async function loadCaller(): Promise<CallerContext> {
     employee: employee,
     employeeDepartmentId: employeeDepartmentId,
     departments: departments,
+    positions: positions,
     employees: employees,
     kpis: kpis,
   };

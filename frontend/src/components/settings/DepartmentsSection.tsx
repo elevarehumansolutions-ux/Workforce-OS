@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import { fetchAllPages, fullName } from "@/lib/tasks";
 import type { Employee, Position } from "@/lib/tasks";
-import { personLabel } from "@/lib/personLabel";
+import PersonSelect from "@/components/PersonSelect";
 import { useLoad } from "@/lib/useLoad";
 import { SETTINGS_INPUT_CLASS, isHrRole } from "@/lib/settings";
 import type { SectionProps } from "./types";
@@ -120,23 +120,18 @@ export default function DepartmentsSection(props: SectionProps) {
                       </td>
                       <td className="px-4 py-3">
                         {canEdit ? (
-                          <select
+                          <PersonSelect
+                            people={pickable}
+                            positions={positions}
+                            departments={departments}
                             value={d.head_employee_id || ""}
                             disabled={busyId === d.id}
-                            onChange={function (e) {
-                              changeHead(d, e.target.value);
+                            onChange={function (personId) {
+                              changeHead(d, personId);
                             }}
+                            emptyLabel="No head set"
                             className={SETTINGS_INPUT_CLASS}
-                          >
-                            <option value="">No head set</option>
-                            {pickable.map(function (e) {
-                              return (
-                                <option key={e.id} value={e.id}>
-                                  {personLabel(e, positions, departments)}
-                                </option>
-                              );
-                            })}
-                          </select>
+                          />
                         ) : (
                           <span className="text-gray-300">{headName(d.head_employee_id)}</span>
                         )}

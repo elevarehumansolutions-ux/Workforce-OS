@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
+import PersonSelect from "@/components/PersonSelect";
 import {
   BLOCK_CATEGORY_OPTIONS,
   activeEmployees,
@@ -20,7 +21,6 @@ import {
   errorMessage,
   formatDateTime,
   formatDuration,
-  fullName,
   isNotClockedIn,
   isoToLocalInput,
   loadCaller,
@@ -779,26 +779,17 @@ function TaskDetailContent() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs text-gray-500">Assign to</label>
-                  <select
+                  <PersonSelect
+                    people={activeEmployees(ctx).filter(function (emp) {
+                      return emp.id !== task.assigned_to_employee_id;
+                    })}
+                    positions={ctx.positions}
+                    departments={ctx.departments}
                     value={reassignTo}
-                    onChange={function (e) {
-                      setReassignTo(e.target.value);
-                    }}
+                    onChange={setReassignTo}
+                    emptyLabel="Select person…"
                     className={inputClass}
-                  >
-                    <option value="">Select person…</option>
-                    {activeEmployees(ctx)
-                      .filter(function (emp) {
-                        return emp.id !== task.assigned_to_employee_id;
-                      })
-                      .map(function (emp) {
-                        return (
-                          <option key={emp.id} value={emp.id}>
-                            {fullName(emp)}
-                          </option>
-                        );
-                      })}
-                  </select>
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs text-gray-500">New deadline (required)</label>

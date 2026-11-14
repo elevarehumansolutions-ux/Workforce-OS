@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import AppShell from "@/components/AppShell";
+import PersonSelect from "@/components/PersonSelect";
 import { ApiError, apiFetch } from "@/lib/api";
-import { errorMessage, formatDuration, fullName, loadCaller, roleLabel } from "@/lib/tasks";
+import { errorMessage, formatDuration, loadCaller, roleLabel } from "@/lib/tasks";
 import type { PaginatedResponse } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
 
@@ -207,17 +208,18 @@ export default function AttendancePage() {
         {canSeeOthers && ctx ? (
           <div>
             <label className="mb-1 block text-xs text-gray-500">Whose attendance</label>
-            <select value={employeeId} onChange={function (e) { chooseEmployee(e.target.value); }} className={INPUT_CLASS}>
-              <option value="">My attendance</option>
-              {ctx.employees.map(function (e) {
-                return (
-                  <option key={e.id} value={e.id}>
-                    {fullName(e)}
-                    {e.status === "inactive" ? " (inactive)" : ""}
-                  </option>
-                );
+            <PersonSelect
+              people={ctx.employees.map(function (e) {
+                // Offboarded people stay in this list (their history is still readable); the label says so.
+                return e.status === "inactive" ? { ...e, last_name: e.last_name + " (inactive)" } : e;
               })}
-            </select>
+              positions={ctx.positions}
+              departments={ctx.departments}
+              value={employeeId}
+              onChange={chooseEmployee}
+              emptyLabel="My attendance"
+              className={INPUT_CLASS}
+            />
           </div>
         ) : null}
         <div>

@@ -5,7 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
-import { activeEmployees, departmentName, employeeName, errorMessage, fullName, loadCaller, roleLabel } from "@/lib/tasks";
+import PersonSelect from "@/components/PersonSelect";
+import { activeEmployees, departmentName, employeeName, errorMessage, loadCaller, roleLabel } from "@/lib/tasks";
 import type { CallerContext } from "@/lib/tasks";
 import { canManageTemplates, canStartCase, turnaroundLabel } from "@/lib/workflow";
 import type { WorkflowStep, WorkflowTemplate } from "@/lib/workflow";
@@ -326,18 +327,17 @@ export default function WorkflowTemplateDetailPage() {
         </div>
         <div>
           <label className="mb-1 block text-xs text-gray-500">Default person (optional)</label>
-          <select value={stepAssignee} onChange={function (e) { setStepAssignee(e.target.value); }} className={inputClass}>
-            <option value="">No one. The task lands with the department</option>
-            {ctx
-              ? activeEmployees(ctx).map(function (emp) {
-                  return (
-                    <option key={emp.id} value={emp.id}>
-                      {fullName(emp)}
-                    </option>
-                  );
-                })
-              : null}
-          </select>
+          {ctx ? (
+            <PersonSelect
+              people={activeEmployees(ctx)}
+              positions={ctx.positions}
+              departments={ctx.departments}
+              value={stepAssignee}
+              onChange={setStepAssignee}
+              emptyLabel="No one. The task lands with the department"
+              className={inputClass}
+            />
+          ) : null}
         </div>
         <div>
           <label className="mb-1 block text-xs text-gray-500">Turnaround in hours (optional)</label>

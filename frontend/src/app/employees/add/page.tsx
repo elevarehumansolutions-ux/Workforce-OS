@@ -8,7 +8,7 @@ import OrgChartPicker from "@/components/OrgChartPicker";
 import FormerHeadDialog from "@/components/FormerHeadDialog";
 import { findFormerHead } from "@/lib/formerHead";
 import type { FormerHead } from "@/lib/formerHead";
-import { personLabel } from "@/lib/personLabel";
+import PersonSelect from "@/components/PersonSelect";
 
 import RoleSidebarNav from "@/components/SidebarNav";
 import Logo from "@/components/Logo";
@@ -720,22 +720,17 @@ export default function AddEmployeePage() {
                           Choose on chart
                         </button>
                       </div>
-                      <select
+                      <PersonSelect
+                        people={managerChoices}
+                        positions={positions}
+                        departments={departments}
                         value={form.managerId}
-                        onChange={function (e) {
-                          updateField("managerId", e.target.value);
+                        onChange={function (personId) {
+                          updateField("managerId", personId);
                         }}
+                        emptyLabel="No manager"
                         className="w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-2.5 text-sm text-gray-300 outline-none focus:border-indigo-500"
-                      >
-                        <option value="">No manager</option>
-                        {managerChoices.map(function (employee) {
-                          return (
-                            <option key={employee.id} value={employee.id}>
-                              {personLabel(employee, positions, departments)}
-                            </option>
-                          );
-                        })}
-                      </select>
+                      />
                       {bossRoleIsEmpty && bossRole && form.managerId === "" ? (
                         <p className="mt-1.5 text-xs text-amber-300">
                           Nobody holds {bossRole.title} yet, the role above this one. Add that person first, or leave the
