@@ -148,7 +148,10 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 
 ## Stage 7: Workflow and the money figure (M11 + task cost)
 
-1. Build a template with three steps in different departments.
+1. Build a template with three steps in different departments. (To-do 39: the step form has a "Turnaround" number
+   with an Hours/Days choice and a line saying how long one day is for your company. Give step 1 "1 day", step 2
+   "6 hours" and leave step 3 empty: the list shows "1 business day", "6 business hours" and "No deadline". Edit
+   step 2 and switch it to "1 day": only the days shows afterwards.)
 2. Start a case with a client figure (for example 2000000) and NO deadline. Expect: the warning
    before saving; save without a deadline.
 3. Start a second case with a figure and a deadline.

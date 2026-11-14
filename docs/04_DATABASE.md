@@ -468,6 +468,7 @@ CREATE TABLE workflow_steps (
     department_id UUID NOT NULL REFERENCES departments(id),  -- can differ from the template's owning department
     default_assignee_employee_id UUID REFERENCES employees(id),
     default_turnaround_hours INTEGER,
+    default_turnaround_days INTEGER,   -- 2026-11-14 (migration d5f2b7a93c18): the alternative to hours; only ONE of the two may be set (CHECK). A day = a full working day of the company's own hours (organizations.workday_*), worked out when the task is created.
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     deleted_at TIMESTAMPTZ

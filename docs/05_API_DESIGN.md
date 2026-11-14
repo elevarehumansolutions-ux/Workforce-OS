@@ -248,7 +248,7 @@ Response: `period_start`, `period_end`, `is_final`; the **headline**: `headline_
 **Who:** building (every create, edit, archive, delete, add/edit/delete step, reorder) is `hr_administrator` or `manager` (any manager may edit any template); anyone else gets 403 `PERMISSION_DENIED`. Reads are open to every member of the organization. Anything outside the caller's organization is a 404.
 
 `TemplateResponse`: `id, organization_id, department_id, name, created_by_user_id, archived_at, created_at, updated_at`.
-`StepResponse`: `id, organization_id, workflow_template_id, step_order, name, department_id, default_assignee_employee_id, default_turnaround_hours, created_at, updated_at`.
+`StepResponse`: `id, organization_id, workflow_template_id, step_order, name, department_id, default_assignee_employee_id, default_turnaround_hours, default_turnaround_days, created_at, updated_at`. **(2026-11-14, to-do 39) The turnaround is given in hours OR in working days:** `default_turnaround_days` (> 0) is the alternative to `default_turnaround_hours`; sending both is a 422 ("Give the turnaround in hours or in days, not both"); on `PATCH`, sending one clears the other (switching the unit is one edit) and `null` on both means no deadline. One day is a full working day of the company's own hours (`GET /working-hours`, `hours_per_day`), looked up when the task is created, so "2 days" stays right if the hours change. The step form shows a number plus an Hours/Days choice and the company's day length under it; the step list and the Start screen print "2 business days" or "6 business hours".
 
 | Endpoint | What it does |
 |---|---|

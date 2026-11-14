@@ -341,7 +341,7 @@ function StartWorkflowContent() {
                             {s.name}
                             <span className="text-xs text-gray-500">
                               {" "}
-                              · {departmentName(ctx, s.department_id)} · {turnaroundLabel(s.default_turnaround_hours)}
+                              · {departmentName(ctx, s.department_id)} · {turnaroundLabel(s.default_turnaround_hours, s.default_turnaround_days)}
                             </span>
                           </li>
                         );
