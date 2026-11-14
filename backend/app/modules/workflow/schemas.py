@@ -40,6 +40,18 @@ class WorkingHoursResponse(BaseModel):
     hours_per_day: int
 
 
+class FiscalYearRequest(BaseModel):
+    """The month the company's financial year starts in: 1 (January) to 12 (December)."""
+
+    fiscal_year_start_month: int = Field(ge=1, le=12)
+
+
+class FiscalYearResponse(BaseModel):
+    """The month now in force."""
+
+    fiscal_year_start_month: int
+
+
 # ---------------------------------------------------------------------------
 # Template
 # ---------------------------------------------------------------------------

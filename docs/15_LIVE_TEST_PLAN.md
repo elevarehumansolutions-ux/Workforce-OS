@@ -168,6 +168,12 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
    BEFORE the change keeps its old deadline.
 9. (to-do 38) On a NEW company's first onboarding page (Business DNA) there is a "Working hours" block under the
    timezone; change it, press Continue, and check it in Settings afterwards.
+10. (to-do 40) Financial year. Settings > General > "Financial year" now has a month dropdown (it used to be
+    greyed out). As an HR administrator pick April and press "Save financial year": "Saved." and "Now: April";
+    reload the page and it still says April. Put it back to January. As a manager or an employee the card is
+    read-only ("Only an HR administrator can change this").
+11. (to-do 40) On a NEW company's onboarding Business DNA page there is a "Financial year starts in" dropdown
+    under the working hours; pick a month, press Continue, and check it in Settings afterwards.
 
 ## Stage 8: Notifications and the audit log (M3)
 

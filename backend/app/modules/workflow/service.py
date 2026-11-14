@@ -42,7 +42,7 @@ from .deadlines import WorkingWeek, add_business_hours, turnaround_in_hours
 from .enums import InstanceStatus
 from .models import WorkflowInstance, WorkflowStep, WorkflowTemplate
 from .repository import InstanceRepository, InstanceScope, StepRepository, TemplateRepository
-from .schemas import WorkingHoursRequest, WorkingHoursResponse
+from .schemas import FiscalYearResponse, WorkingHoursRequest, WorkingHoursResponse
 
 
 def week_of(organization) -> WorkingWeek:
@@ -99,6 +99,37 @@ class WorkingHoursService:
             changes={"old": old, "new": {"start_hour": data.start_hour, "end_hour": data.end_hour, "work_days": new_days}},
         )
         return self._as_response(organization)
+
+
+class FiscalYearService:
+    """Changing the month the company's financial year starts in (08_DECISIONS.md 2026-11-14)."""
+
+    def __init__(self, db: AsyncSession):
+        """Initialize the service with a session and its collaborators."""
+        self._organization_repo = OrganizationRepository(db)
+        self._audit = AuditService(db)
+
+    async def set(self, caller: Membership, new_month: int) -> FiscalYearResponse:
+        """Change the start month. The caller (router) commits, after the answer is built.
+
+        Quarters already closed keep their saved dates; the quarter in progress and every later one
+        follow the new month. Nothing is rewritten here.
+        """
+        organization = await self._organization_repo.get_organization_by_id(caller.organization_id)
+        old_month = organization.fiscal_year_start_month
+        if old_month == new_month:
+            # Nothing to change, so no write and no audit entry.
+            return FiscalYearResponse(fiscal_year_start_month=old_month)
+        await self._organization_repo.update_organization(organization, {"fiscal_year_start_month": new_month})
+        await self._audit.log_action(
+            organization_id=caller.organization_id,
+            actor_user_id=caller.user_id,
+            action="update",
+            entity_type="fiscal_year",
+            entity_id=caller.organization_id,
+            changes={"old": {"fiscal_year_start_month": old_month}, "new": {"fiscal_year_start_month": new_month}},
+        )
+        return FiscalYearResponse(fiscal_year_start_month=new_month)
 
 
 class TemplateService:
