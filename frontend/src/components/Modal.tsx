@@ -6,10 +6,12 @@ interface ModalProps {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  // A wider window for forms with two columns of fields.
+  wide?: boolean;
 }
 
 // A window over the page. It closes with the X, a click on the dark area, or the Esc key.
-export default function Modal({ title, onClose, children }: ModalProps) {
+export default function Modal({ title, onClose, children, wide }: ModalProps) {
   useEffect(function () {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -31,7 +33,7 @@ export default function Modal({ title, onClose, children }: ModalProps) {
         aria-modal="true"
         aria-label={title}
         onClick={function (e) { e.stopPropagation(); }}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-indigo-400/30 bg-[#0a0e1a] p-6 shadow-2xl"
+        className={"max-h-[90vh] w-full overflow-y-auto " + (wide ? "max-w-2xl" : "max-w-lg") + " rounded-2xl border border-indigo-400/30 bg-[#0a0e1a] p-6 shadow-2xl"}
       >
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 className="text-base font-semibold text-white">{title}</h2>

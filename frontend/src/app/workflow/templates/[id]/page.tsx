@@ -7,6 +7,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
 import { activeEmployees, departmentName, employeeName, errorMessage, loadCaller, roleLabel } from "@/lib/tasks";
+import Modal from "@/components/Modal";
 import type { CallerContext } from "@/lib/tasks";
 import { canManageTemplates, canStartCase, turnaroundLabel } from "@/lib/workflow";
 import type { WorkflowStep, WorkflowTemplate } from "@/lib/workflow";
@@ -336,8 +337,7 @@ export default function WorkflowTemplateDetailPage() {
   const smallButton = "rounded-lg border border-white/15 px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40";
 
   const stepForm = (
-    <div className="space-y-4 rounded-2xl border border-indigo-500/30 bg-[#0d1220]/80 p-6">
-      <h3 className="text-base font-semibold">{panel === "add" ? "Add a step" : "Edit step"}</h3>
+    <div className="space-y-4">
       {panelError ? <p className="text-sm text-red-300">{panelError}</p> : null}
       <div>
         <label className="mb-1 block text-xs text-gray-500">Step name</label>
@@ -387,11 +387,6 @@ export default function WorkflowTemplateDetailPage() {
               <option value="days">Days</option>
             </select>
           </div>
-          <p className="mt-1 text-xs text-gray-500">
-            {week
-              ? "Counted in your working hours (" + describeWorkingHours(week) + "). One day is a full working day, " + week.hours_per_day + " hours. HR can change this in Settings."
-              : "Counted in your company's working hours. One day is a full working day."}
-          </p>
         </div>
         {panel === "add" ? (
           <div>
@@ -401,7 +396,7 @@ export default function WorkflowTemplateDetailPage() {
               {steps.map(function (s, index) {
                 return (
                   <option key={s.id} value={String(index + 1)}>
-                    {"Step " + (index + 1) + " (the current step " + (index + 1) + " moves down)"}
+                    {"Before step " + (index + 1)}
                   </option>
                 );
               })}
@@ -409,7 +404,12 @@ export default function WorkflowTemplateDetailPage() {
           </div>
         ) : null}
       </div>
-      <div className="flex items-center gap-2">
+      <p className="text-xs text-gray-500">
+        {week
+          ? "Turnaround is counted in your working hours (" + describeWorkingHours(week) + "). One day is a full working day, " + week.hours_per_day + " hours. HR can change this in Settings."
+          : "Turnaround is counted in your company's working hours. One day is a full working day."}
+      </p>
+      <div className="flex items-center justify-end gap-2 border-t border-white/10 pt-4">
         <button type="button" disabled={busy} onClick={saveStep} className="rounded-lg bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60">
           {busy ? "Saving…" : panel === "add" ? "Add step" : "Save step"}
         </button>
@@ -580,7 +580,11 @@ export default function WorkflowTemplateDetailPage() {
             )}
           </div>
 
-          {panel === "add" || panel === "edit" ? stepForm : null}
+          {panel === "add" || panel === "edit" ? (
+            <Modal title={panel === "add" ? "Add a step" : "Edit step"} onClose={function () { if (!busy) closePanel(); }} wide>
+              {stepForm}
+            </Modal>
+          ) : null}
         </div>
       ) : null}
     </AppShell>
