@@ -25,6 +25,7 @@ Each entry: what the person had to do by hand, the cause, what was done, and the
 | A6 | The Add-step form sat at the bottom of the page and asked for a numeric "Position" | Form below the list; position as a number | Fixed (to-dos 41, 42: window, insert-in-place, drag) | Draft the whole template from a sentence |
 | A7 | A step had no way to say which KPI its work counts toward, so workflow work counted for no one's score | No field | Fixed (to-do 46: optional KPI per step) | Suggest the KPI by matching names, person confirms |
 | A8 | Template building is step by step by hand, every field | No drafting | OPEN | **Describe the process, system drafts the template (top candidate)** |
+| A9 | Some steps need two or more departments to do the work together (for example Legal and Finance both sign off); a step has exactly one department and steps run strictly one after another | Settled MVP decision 2026-10-12: sequential only, one department per step | OPEN, needs a decision (changes a settled decision; proposal: a "together" step with one task per department, the case moves on when all are done) | Draft "together" steps from the description (A8) |
 
 ## Journey B: department head receives and hands out work
 
@@ -41,7 +42,7 @@ Each entry: what the person had to do by hand, the cause, what was done, and the
 | # | Friction | Cause | Status | Automation it suggests |
 |---|---|---|---|---|
 | C1 | After clocking in, "My tasks" can be empty because the task was never assigned to this person | Unassigned work is invisible to members | Eased for heads (B1); members still cannot see or pick up unassigned work | Auto-assign; or "pick up" for members (not decided) |
-| C2 | Tasks only appear after clocking in; a person who forgets sees an empty list | Attendance gate | OPEN, still being tested (Stage 5, Stage 6) | Prompt to clock in when the first task arrives |
+| C2 | Tasks only appear after clocking in; a person who forgets sees an empty list. Emmanuel (Stage 5): "one could forget to clock in; what about having to clock in first when logging in?" | Attendance gate, nothing prompts at sign-in | OPEN, proposal made: a clock-in prompt window right after sign-in (employees only, on a working day, inside the company's working hours, once per sign-in, "Not now" allowed); NOT a hard block (HR, executives and people with no employee record must still be able to sign in). Optional later: a company setting to clock in automatically at sign-in (rejected for now: attendance would only mean "logged in") | Clock-in prompt at sign-in; reminder when the first task arrives |
 | C3 | "Linked KPI: None" with no explanation | Bare text | Fixed (to-do 46: says what it costs) | none |
 
 ## Still to examine (not yet walked)
