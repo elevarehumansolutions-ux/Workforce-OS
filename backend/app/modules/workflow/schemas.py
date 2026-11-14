@@ -38,6 +38,9 @@ class WorkingHoursResponse(BaseModel):
     end_hour: int
     work_days: list[int]
     hours_per_day: int
+    # The company's timezone (for example "Africa/Lagos"): the week above is in this clock. The sign-in
+    # clock-in prompt uses it to know whether it is a working day and inside working hours right now.
+    timezone: str
 
 
 class FiscalYearRequest(BaseModel):

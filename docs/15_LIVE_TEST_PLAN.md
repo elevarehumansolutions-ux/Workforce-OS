@@ -130,6 +130,11 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 ## Stage 5: Attendance (M9)
 
 1. As the employee: clock in, then clock out. Expect: times recorded, shown in Lagos time.
+3. (to-do 47, do after step 1 on a new working day, or after step 2 clears today's record) The sign-in prompt: sign out,
+   sign in as an employee who has NOT clocked in today, during working hours on a working day. Expect a window
+   "Clock in to start your day" on the first page. "Clock in" shows "You're clocked in"; "Not now" closes it and it
+   does not return on the next page. Sign in as HR with no employee record: no prompt. Outside working hours
+   (before the start or after the end): no prompt. After clocking out, moving around does not bring it back.
 2. Clock in and leave it past midnight (Lagos time): expect an automatic close (the job runs at five past every hour).
    To test without waiting for midnight, as the database owner move that clock-in back a day, then run the job now
    (see `14_PRODUCTION_TROUBLESHOOTING.md` section 14; TEST company only):

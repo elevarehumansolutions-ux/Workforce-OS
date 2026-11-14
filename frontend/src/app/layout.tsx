@@ -1,4 +1,5 @@
 ﻿import type { Metadata, Viewport } from "next";
+import ClockInPrompt from "@/components/ClockInPrompt";
 import PwaRegister from "@/components/PwaRegister";
 import "./globals.css";
 
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-full flex flex-col" style={{ fontFamily: "var(--font-geist-sans)" }}>
         {children}
+        <ClockInPrompt />
         <PwaRegister />
       </body>
     </html>

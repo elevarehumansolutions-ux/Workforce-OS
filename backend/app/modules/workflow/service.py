@@ -69,6 +69,7 @@ class WorkingHoursService:
             end_hour=week.end_hour,
             work_days=sorted(week.days),
             hours_per_day=week.hours_per_day(),
+            timezone=organization.timezone,
         )
 
     async def get(self, caller: Membership) -> WorkingHoursResponse:
