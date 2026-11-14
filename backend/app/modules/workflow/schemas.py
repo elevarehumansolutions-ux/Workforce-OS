@@ -4,7 +4,40 @@ import decimal
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+# ---------------------------------------------------------------------------
+# Working hours (a company setting that workflow deadlines use)
+# ---------------------------------------------------------------------------
+
+class WorkingHoursRequest(BaseModel):
+    """The company's working week. Whole hours; days are weekday numbers, Monday 0 to Sunday 6."""
+
+    start_hour: int = Field(ge=0, le=22)
+    end_hour: int = Field(ge=1, le=23)
+    work_days: list[int] = Field(min_length=1, max_length=7)
+
+    @model_validator(mode="after")
+    def check_the_week(self):
+        """The day must start before it ends, and the days must be real weekdays with no repeats."""
+        if self.start_hour >= self.end_hour:
+            raise ValueError("The working day must start before it ends")
+        for day in self.work_days:
+            if day < 0 or day > 6:
+                raise ValueError("Working days are numbered 0 (Monday) to 6 (Sunday)")
+        if len(set(self.work_days)) != len(self.work_days):
+            raise ValueError("A working day is listed twice")
+        return self
+
+
+class WorkingHoursResponse(BaseModel):
+    """The company's working week, plus how long one working day is (what "1 day" means for a step)."""
+
+    start_hour: int
+    end_hour: int
+    work_days: list[int]
+    hours_per_day: int
 
 
 # ---------------------------------------------------------------------------
