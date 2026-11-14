@@ -1338,6 +1338,18 @@ Raised by Emmanuel in live testing: there was no way to delete a company. Decide
 - **Not built, nice to have:** a Restore button (support restores with SQL for now), deleting a company other than the current one.
 - **Rejected:** hard delete; a plain confirm dialog; letting the Owner delete their only company.
 
+## 2026-11-14 — Workflow: working hours per company, turnaround in days, one person picker (DECIDED, to-dos 36 to 39)
+
+Raised by Emmanuel while setting up the first workflow template in the Stage 7 live test.
+
+- **Working hours become a company setting** (this resolves the "Option C, left for later" in the 2026-10-12 entry). Each company has a start hour, an end hour and working days; the default stays 9 to 5, Monday to Friday, so nothing changes for a company that never touches it. **Whole hours only for now** (a half-hour start such as 8:30 is a later extension; it needs minute-level counting in `deadlines.py`).
+- **Where it is set:** during onboarding on the Business DNA page next to the timezone (Emmanuel: "during onboarding it should be set"), and later in Settings by HR administrators only. It is stored on the company, like the timezone.
+- **It affects new tasks only.** A deadline already worked out for an existing task is not recalculated when the hours change; the Settings screen says so.
+- **Not built, written down as later:** public holidays and lunch or break times. Each would make the deadline counting a calendar problem (a list of dates per company and per year; a gap inside the working day); both are deliberately left out of the first version.
+- **Turnaround in days:** a step's turnaround is a number plus a unit, Hours or Days. **"1 day" is a full working day of the company's own hours** (Emmanuel's answer): 8 hours at 9 to 5, 9 at 8 to 5, 10 at 8 to 6. It is stored as typed ("2 days") and converted when the task is created, so it stays correct if the company changes its hours. Rejected: converting to hours when the step is saved (simpler, but silently wrong after a change of hours); weeks as a third unit (not asked).
+- **One person picker.** Every dropdown that chooses a person becomes a single shared component: a group per department, each person shown as "Name, Position", people without a position under "No position yet". Chosen over a searchable combobox for now (a native select works the same on a phone and needs no new behaviour to learn); search can be added to the one component later.
+- **The Start Workflow page** gets a way forward when there are no templates (a button for HR administrators and managers, a sentence for everyone else).
+
 ## 2026-11-14 — Permanent purge of a company deleted 30 days ago (BUILT, branch `company-restore`, to-do 35)
 
 Asked for by Emmanuel ("implement the permanent purge"), completing what he accepted earlier ("archive, then purge after 30 days"). Decisions and the reasons:
