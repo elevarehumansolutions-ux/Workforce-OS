@@ -157,6 +157,14 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 5. Complete step 1. Expect: step 2's task appears for the right person.
 6. Cancel the second case with a reason. Expect: the figure shows **Lost**, the open task closes.
 7. Check the dashboard totals add up (at risk, lost, secured, on track).
+8. (to-do 38) Working hours. Settings > General > "Working hours": it shows 9 AM to 5 PM, Mon to Fri unless changed.
+   As an HR administrator change it to 8 AM to 5 PM and press "Save working hours": "Saved." and "Now: Mon to Fri,
+   8 AM to 5 PM". As a manager or an employee the same card is read-only ("Only an HR administrator can change
+   this"). Try to make the day end before it starts: refused in words. Start a case with a step of 1 hour just
+   before closing time: the deadline falls the next working morning, counted from 8 AM, not 9 AM. A task created
+   BEFORE the change keeps its old deadline.
+9. (to-do 38) On a NEW company's first onboarding page (Business DNA) there is a "Working hours" block under the
+   timezone; change it, press Continue, and check it in Settings afterwards.
 
 ## Stage 8: Notifications and the audit log (M3)
 
