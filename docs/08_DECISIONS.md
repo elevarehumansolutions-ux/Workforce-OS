@@ -1324,6 +1324,24 @@ Raised in live testing: the owner merged several roles in the onboarding org cha
 - **`created_at` comes from the application clock.** The database's `now()` is the start of the transaction, so two changes in one transaction tie and the "later change" check would guess.
 - **Not built:** history outside onboarding (changes then touch real people and tasks); undoing a department or role merged away AFTER it was added (still needs the Organization module).
 
+## 2026-11-14 — Deleting a company: archive, not erase (BUILT, branch `people-flow`, to-do 32)
+
+Raised by Emmanuel in live testing: there was no way to delete a company. Decided with him (he accepted the recommendations).
+
+- **Only the Owner may delete.** An HR administrator who is not the owner is refused (403).
+- **Archive, do not erase.** The company disappears for everyone and nobody can enter it, but its data stays, so a mistaken click is recoverable by support. Chosen over a hard delete because it cannot be undone and this product is shown to investors.
+- **Two proofs:** the company name typed exactly (any capitals) and the Owner's password. A single "Are you sure?" is too easy to click through.
+- **Everyone in it loses access** at the moment of deletion; their accounts and any other company they belong to are untouched. Invites not yet accepted stop working.
+- **Never the last company:** the Owner must have another company they can enter (409 `LAST_COMPANY`), or they would be left with nowhere to go. They are moved into their newest other company.
+- **How it is built:** `organizations.archived_at` plus every membership deactivated with the SAME timestamp, so all existing "deactivated" checks refuse the company with no new rule (and the 3-company limit frees a place). The four background-job lookups skip archived companies.
+- **Deliberately NOT built, and why: the permanent purge after 30 days.** 26 of the 27 foreign keys to `organizations` have no `ON DELETE CASCADE`, so a purge would have to delete from every tenant table in the right order (or a migration would have to add cascades to all of them). That is a risky, separate piece. Until it exists, archived data stays; it also means we promise nothing about erasure to a customer. If erasure is ever needed (a legal request), design the purge first.
+- **Not built, nice to have:** a Restore button (support restores with SQL for now), deleting a company other than the current one.
+- **Rejected:** hard delete; a plain confirm dialog; letting the Owner delete their only company.
+
+## 2026-11-14 — Company name prefilled on Business DNA (to-do 31)
+
+A company started from "Start another company" already has its name, but the first onboarding page read it only from the Business DNA record, which does not exist until the first save. The page now falls back to the current company's name when there is no record yet. Frontend only.
+
 ## 2026-11-13 (round 2) — A window for "the head was replaced" and for the org chart person panel (BUILT, to-do 30)
 
 Raised by Emmanuel: notes that appear below the page are missed, and on the org chart he did not know a panel had opened under the chart.

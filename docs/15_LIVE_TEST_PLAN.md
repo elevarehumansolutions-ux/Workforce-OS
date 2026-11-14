@@ -257,6 +257,18 @@ what is described, and send what you saw.
     name again (any capitals): refused in words. Create a third company, then try a fourth: the button is
     disabled at 3 and says why. Double click "Create and open it" once on a fresh name: only one company appears.
 
+29. (31) Create another company ("Start another company"). Expect the first onboarding page to open with the
+    company name ALREADY filled in (you can still change it).
+30. (32) Delete a company. With TWO companies, open "Your companies" while inside the one to delete (you must be its
+    Owner): a red "Delete <name>" section. Press it: a window asks for the name and your password; the red button
+    stays disabled until the name matches (capitals do not matter). Try a wrong password: "That password is not
+    correct." and nothing is deleted. Then delete: you land on the dashboard of your other company; the deleted one
+    is gone from "Your companies" and from the name menu. With ONE company only: the section says it cannot be
+    deleted. As an HR administrator who is not the owner, or any other role: no delete section. A teammate who was
+    in the deleted company cannot enter it any more (they are sent to log in); a pending invite to it no longer
+    works. After deleting one of three companies, "Start another company" works again. (Restoring is done by
+    support, `14_PRODUCTION_TROUBLESHOOTING.md` section 13.)
+
 **E. Scoring (needs the helper in Stage 9)**
 16. (7, 8) Done inside Stage 9: the reminder for a department below 100% and "Scored on X% of its KPI
     weights".

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { INDUSTRY_OPTIONS, OTHER_INDUSTRY, resolveIndustry, splitIndustry } from "@/lib/industry";
 import Logo from "@/components/Logo";
+import { loadMe } from "@/lib/settings";
 
 interface BusinessDnaFormData {
   companyName: string;
@@ -109,6 +110,19 @@ export default function BusinessDnaPage() {
       .catch(function () {
         // 404 (no profile yet) or any other failure: start from the blank
         // defaults above, with Africa/Lagos as the org's default timezone.
+        // A company started from "Start another company" already has its name, so use it.
+        loadMe()
+          .then(function (me) {
+            const savedName = me.organization && me.organization.name ? me.organization.name : "";
+            if (savedName) {
+              setFormData(function (current) {
+                return current.companyName ? current : { ...current, companyName: savedName };
+              });
+            }
+          })
+          .catch(function () {
+            // The field just stays empty.
+          });
       })
       .finally(function () {
         setLoadingExisting(false);

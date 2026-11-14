@@ -214,6 +214,13 @@ class CreateOrganizationRequest(BaseModel):
     name: str = Field(min_length=2, max_length=255)
 
 
+class DeleteOrganizationRequest(BaseModel):
+    """Delete the company this session acts for. Two proofs that it is meant: its name and the password."""
+
+    confirm_name: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=255)
+
+
 class SwitchOrganizationRequest(BaseModel):
     """Pick which of the caller's organizations this session acts for."""
 
