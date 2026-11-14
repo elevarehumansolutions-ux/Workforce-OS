@@ -64,6 +64,7 @@ from app.core.exceptions import (
     ValidationException,
 )
 from app.modules.auth.repository import AuthRepository
+from .purge import PURGE_AFTER_DAYS
 from .tasks import dispatch_verification_email, dispatch_password_reset_email
 
 logger = logging.getLogger(__name__)
@@ -947,7 +948,14 @@ class AuthService:
         items = []
         for membership in await self._companies_this_owner_deleted(user):
             org = membership.organization
-            items.append(DeletedCompanyItem(organization_id=org.id, name=org.name, deleted_at=org.archived_at))
+            items.append(
+                DeletedCompanyItem(
+                    organization_id=org.id,
+                    name=org.name,
+                    deleted_at=org.archived_at,
+                    will_be_erased_on=org.archived_at + timedelta(days=PURGE_AFTER_DAYS),
+                )
+            )
         return DeletedCompaniesResponse(data=items)
 
     async def restore_company(self, user: User, organization_id: uuid.UUID) -> MessageResponse:

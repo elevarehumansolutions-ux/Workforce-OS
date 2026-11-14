@@ -32,6 +32,7 @@ celery = Celery(
     backend=_backend_url,
     include=[
         "app.modules.auth.tasks",
+        "app.modules.auth.purge_tasks",
         "app.modules.ai.tasks",
         "app.modules.blueprint.tasks",
         "app.modules.attendance.tasks",
@@ -88,6 +89,12 @@ celery.conf.update(
         "scoring-nightly": {
             "task": "app.modules.scoring.tasks.scoring_nightly",
             "schedule": crontab(hour=2, minute=0),
+        },
+        # Once a day at 04:00 UTC: erases deleted companies that have been deleted for 30 days
+        # (auth/purge_tasks.py). Safe to run late or twice.
+        "purge-deleted-companies": {
+            "task": "app.modules.auth.purge_tasks.purge_scan",
+            "schedule": crontab(hour=4, minute=0),
         },
         # Once a week, Monday 03:00 UTC: writes each organization's executive summary
         # (scoring/tasks.py). A week with unchanged facts makes no model call.

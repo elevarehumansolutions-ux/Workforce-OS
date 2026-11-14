@@ -240,6 +240,8 @@ class DeletedCompanyItem(BaseModel):
     organization_id: uuid.UUID
     name: str | None
     deleted_at: datetime
+    # After this moment the company is erased for good and can no longer be restored.
+    will_be_erased_on: datetime
 
 
 class DeletedCompaniesResponse(BaseModel):
