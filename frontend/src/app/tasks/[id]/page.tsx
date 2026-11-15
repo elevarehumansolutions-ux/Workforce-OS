@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
+import { NOTIFICATIONS_CHANGED } from "@/components/NotificationBell";
 import TogetherCard from "@/components/TogetherCard";
 import {
   BLOCK_CATEGORY_OPTIONS,
@@ -84,6 +85,26 @@ function TaskDetailContent() {
   const key = taskId + "|" + reloadCounter;
   const loading = result === null || result.key !== key;
   const task = result && result.key === key ? result.task : null;
+
+  // Opening a task directly (not through the bell) also clears its notification, so the bell does not
+  // keep flagging something the person has already seen.
+  const openedTaskId = task ? task.id : "";
+  useEffect(
+    function () {
+      if (!openedTaskId) return;
+      apiFetch<{ marked_read: number }>("/notifications/read-by-link", {
+        method: "POST",
+        body: { link_type: "task", link_id: openedTaskId },
+      })
+        .then(function (res) {
+          if (res.marked_read > 0) window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED));
+        })
+        .catch(function () {
+          // The task is shown either way; the bell just keeps its number until the next refresh.
+        });
+    },
+    [openedTaskId]
+  );
 
   useEffect(function () {
     let cancelled = false;

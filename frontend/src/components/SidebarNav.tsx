@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { loadMe } from "@/lib/settings";
 import { itemsForRole } from "@/lib/navigation";
-import { useWaitingCount } from "@/lib/waitingCount";
 
 // The role is looked up once and kept, so moving between pages does not
 // call /auth/me again just to draw the menu.
@@ -14,7 +13,6 @@ let knownRole = "";
 // older pages that draw their own shell.
 export default function SidebarNav(props: { activeLabel: string }) {
   const [role, setRole] = useState(knownRole);
-  const waiting = useWaitingCount();
 
   useEffect(function () {
     if (knownRole !== "") {
@@ -51,16 +49,8 @@ export default function SidebarNav(props: { activeLabel: string }) {
           );
         }
         return (
-          <Link key={item.label} href={item.href} className={linkClass + " flex items-center justify-between"}>
+          <Link key={item.label} href={item.href} className={linkClass}>
             {item.label}
-            {item.label === "Tasks" && waiting > 0 ? (
-              <span
-                className="rounded-full bg-red-500 px-2 py-0.5 text-[11px] font-semibold text-white"
-                aria-label={waiting + " tasks waiting"}
-              >
-                {waiting > 99 ? "99+" : waiting}
-              </span>
-            ) : null}
           </Link>
         );
       })}

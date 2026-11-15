@@ -4,14 +4,12 @@ import { useState } from "react";
 import Logo from "@/components/Logo";
 import SidebarNav from "@/components/SidebarNav";
 import UserMenu from "@/components/UserMenu";
-import { useWaitingCount } from "@/lib/waitingCount";
 
 // Below the desktop width the sidebar is hidden, so this bar takes its place: a menu button that
 // slides the same menu in from the left. It is not drawn on desktop (lg and wider).
 export default function MobileNav(props: { activeLabel: string }) {
   // Each page draws its own shell, so moving to another page starts with the menu closed again.
   const [open, setOpen] = useState(false);
-  const waiting = useWaitingCount();
 
   return (
     <div className="lg:hidden">
@@ -20,11 +18,9 @@ export default function MobileNav(props: { activeLabel: string }) {
           type="button"
           aria-label="Open menu"
           onClick={function () { setOpen(true); }}
-          className="relative rounded-lg border border-white/10 px-3 py-2 text-lg leading-none text-gray-200 hover:bg-white/5"
+          className="rounded-lg border border-white/10 px-3 py-2 text-lg leading-none text-gray-200 hover:bg-white/5"
         >
           ☰
-          {/* The menu is closed on a phone, so a dot says that tasks are waiting inside it. */}
-          {waiting > 0 ? <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500" aria-label="Tasks waiting" /> : null}
         </button>
         <Logo size={28} textClassName="text-sm font-bold text-white" />
         <span className="ml-auto truncate text-sm text-gray-400">{props.activeLabel}</span>

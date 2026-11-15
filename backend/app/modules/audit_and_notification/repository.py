@@ -346,4 +346,33 @@ class NotificationRepository:
         result = await self._db.execute(stmt)
         return result.rowcount
 
+    async def mark_read_by_link(
+        self,
+        organization_id: uuid.UUID,
+        recipient_user_id: uuid.UUID,
+        link_type: str,
+        link_id: uuid.UUID,
+    ) -> int:
+        """Mark a recipient's unread notifications about one thing (for example one task) as read.
+
+        Used when the person opens that thing directly (not through the notification), so the bell does not
+        keep flagging something they have already seen.
+
+        Returns:
+            The number of rows updated.
+        """
+        stmt = (
+            update(Notification)
+            .where(
+                Notification.organization_id == organization_id,
+                Notification.recipient_user_id == recipient_user_id,
+                Notification.link_type == link_type,
+                Notification.link_id == link_id,
+                Notification.read_at.is_(None),
+            )
+            .values(read_at=datetime.now(UTC))
+        )
+        result = await self._db.execute(stmt)
+        return result.rowcount
+
 

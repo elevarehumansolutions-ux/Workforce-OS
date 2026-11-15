@@ -22,7 +22,7 @@ interface AppShellProps {
 export default function AppShell(props: AppShellProps) {
   return (
     <div className="flex min-h-screen w-full bg-[#05070f] text-white">
-      <aside className="hidden w-64 flex-col justify-between border-r border-white/10 bg-[#0a0e1a] py-6 lg:flex">
+      <aside className="hidden w-64 flex-col justify-between border-r border-white/10 bg-[#0a0e1a] py-6 lg:sticky lg:top-0 lg:flex lg:h-screen lg:overflow-y-auto">
         <div>
           <div className="mb-8 flex items-center gap-3 px-6">
             <Logo size={36} textClassName="text-base font-bold text-white" />

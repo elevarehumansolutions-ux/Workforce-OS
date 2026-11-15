@@ -284,4 +284,15 @@ class NotificationService:
             organization_id=organization_id,
             recipient_user_id=recipient_user_id,
         )
+
+    async def mark_read_by_link(
+        self,
+        *,
+        organization_id: uuid.UUID,
+        recipient_user_id: uuid.UUID,
+        link_type: str,
+        link_id: uuid.UUID,
+    ) -> int:
+        """Mark the recipient's unread notifications about one thing (for example a task) as read."""
+        return await self._repo.mark_read_by_link(organization_id, recipient_user_id, link_type, link_id)
         

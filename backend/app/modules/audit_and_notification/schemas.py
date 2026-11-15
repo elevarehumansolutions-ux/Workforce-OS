@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .enums import NotificationCategory
 
@@ -49,6 +49,13 @@ class UnreadCountResponse(BaseModel):
     """How many notifications the caller has not read (the number on the bell)."""
 
     unread: int
+
+
+class ReadByLinkRequest(BaseModel):
+    """Which thing the person has just opened: its kind (for example ``task``) and id."""
+
+    link_type: str = Field(min_length=1, max_length=50)
+    link_id: UUID
 
 
 class MarkAllReadResponse(BaseModel):
