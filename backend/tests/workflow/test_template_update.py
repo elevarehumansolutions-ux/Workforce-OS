@@ -27,15 +27,17 @@ async def test_hr_renames_a_template_and_the_old_name_is_audited(client, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_any_manager_may_edit_any_template_but_an_employee_may_not(client, monkeypatch):
-    """Sam (Sales manager) edits a template HR built; Chidi (employee) gets a 403."""
+async def test_only_the_owning_departments_manager_may_edit_and_an_employee_may_not(client, monkeypatch):
+    """Dana (manager of Dispatch, the owner) edits it; Sam (Sales manager) cannot even see it (404); Chidi gets a 403."""
     w = await _world(client, monkeypatch, "tu2")
     template = await _create(client, w.hr, "Onboarding", w.dispatch)
 
-    by_manager = await client.patch(f"{TEMPLATES}/{template['id']}", json={"name": "Renamed"}, headers=w.sam.h)
+    by_owner_manager = await client.patch(f"{TEMPLATES}/{template['id']}", json={"name": "Renamed"}, headers=w.dana.h)
+    by_other_manager = await client.patch(f"{TEMPLATES}/{template['id']}", json={"name": "Hacked"}, headers=w.sam.h)
     by_employee = await client.patch(f"{TEMPLATES}/{template['id']}", json={"name": "Hacked"}, headers=w.chidi.h)
 
-    assert by_manager.status_code == 200 and by_manager.json()["name"] == "Renamed"
+    assert by_owner_manager.status_code == 200 and by_owner_manager.json()["name"] == "Renamed"
+    assert by_other_manager.status_code == 404
     assert by_employee.status_code == 403
 
 

@@ -157,6 +157,15 @@ export interface CaseDetail extends WorkflowCase {
   tasks: CaseTask[];
 }
 
+// The departments a person may own a new template for: HR any, a manager only their own department
+// (the server enforces it; a template is seen only by its owning department, HR and executives).
+export function departmentsToBuildFor(ctx: CallerContext): { id: string; name: string }[] {
+  if (isHr(ctx)) return ctx.departments;
+  return ctx.departments.filter(function (d) {
+    return d.id === ctx.employeeDepartmentId || (ctx.employee !== null && d.head_employee_id === ctx.employee.id);
+  });
+}
+
 // HR administrators and anyone with the manager role may build templates.
 export function canManageTemplates(ctx: CallerContext): boolean {
   return isHr(ctx) || ctx.role === "manager";

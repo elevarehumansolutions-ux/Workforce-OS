@@ -179,7 +179,7 @@ async def get_template(
         WorkflowTemplateNotFoundException: If it doesn't exist in the caller's org.
     """
     service = TemplateService(db)
-    template = await service.get_template(template_id)
+    template = await service.get_template(caller, template_id)
     return TemplateResponse.model_validate(template)
 
 
@@ -470,7 +470,7 @@ async def list_steps(
         WorkflowTemplateNotFoundException: If the template isn't in the caller's org.
     """
     service = StepService(db)
-    steps = await service.list_steps(template_id)
+    steps = await service.list_steps(caller, template_id)
     return [StepResponse.model_validate(step) for step in steps]
 
 

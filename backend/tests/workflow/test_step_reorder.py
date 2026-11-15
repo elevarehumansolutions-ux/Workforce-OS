@@ -110,7 +110,7 @@ async def test_finished_cases_do_not_block_and_only_builders_reorder(client, mon
     swapped = {"step_ids": _ids(steps, "Finance", "Sales")}
 
     by_employee = await client.put(url, json=swapped, headers=w.chidi.h)
-    by_manager = await client.put(url, json=swapped, headers=w.sam.h)
+    by_manager = await client.put(url, json=swapped, headers=w.dana.h)  # Dana manages Dispatch, the owning department
     unknown = await client.put(
         f"{TEMPLATES}/00000000-0000-0000-0000-000000000000/steps/order", json={"step_ids": []}, headers=w.hr
     )

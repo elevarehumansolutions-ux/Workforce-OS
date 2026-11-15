@@ -200,7 +200,9 @@ export default function WorkflowTemplatesPage() {
               {templates.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-5 py-10 text-center text-gray-500">
-                    {manage ? "No templates yet. Create one to get started." : "No workflow templates are available yet."}
+                    {manage
+                      ? "No templates yet. Create one to get started. Each template is seen only by the department that owns it, and HR."
+                      : "Your department has no workflow templates yet. Each template is seen only by the department that owns it, and HR."}
                   </td>
                 </tr>
               ) : (

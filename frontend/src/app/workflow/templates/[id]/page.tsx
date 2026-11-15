@@ -122,7 +122,7 @@ export default function WorkflowTemplateDetailPage() {
             steps: [],
             error:
               err instanceof ApiError && err.code === "WORKFLOW_TEMPLATE_NOT_FOUND"
-                ? "This template wasn't found. It may have been deleted."
+                ? "This template wasn't found. It may have been deleted, or it belongs to another department (a template is seen only by the department that owns it, and HR)."
                 : errorMessage(err, "Couldn't load this template. Check your connection and try again."),
           });
         });

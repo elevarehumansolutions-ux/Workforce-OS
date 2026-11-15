@@ -40,6 +40,7 @@ from app.modules.tenancy_identity.models import Membership
 from app.modules.tenancy_identity.repository import OrganizationRepository, UserRepository
 
 from . import value
+from .access import template_access_for
 from .deadlines import WorkingWeek, add_business_hours, turnaround_in_hours
 from .enums import InstanceStatus
 from .models import WorkflowInstance, WorkflowStep, WorkflowTemplate
@@ -163,6 +164,9 @@ class TemplateService:
         department = await self._department_repo.get_department_by_id(data["department_id"])
         if department is None:
             raise DepartmentNotFoundException()
+        access = await template_access_for(self._db, caller)
+        if not access.can_build_for(department.id):
+            raise PermissionDeniedException("A manager can build workflows only for their own department")
 
         template = await self._repo.create_template(
             {
@@ -202,11 +206,15 @@ class TemplateService:
             WorkflowTemplateNotFoundException: If the template isn't in the caller's org.
             DepartmentNotFoundException: If the new department isn't in the caller's org.
         """
-        template = await self.get_template(template_id)
+        template = await self.get_template(caller, template_id, build=True)
         if "department_id" in data:
             department = await self._department_repo.get_department_by_id(data["department_id"])
             if department is None:
                 raise DepartmentNotFoundException()
+            # Moving a template to another department needs the right to build there too.
+            access = await template_access_for(self._db, caller)
+            if not access.can_build_for(department.id):
+                raise PermissionDeniedException("A manager can build workflows only for their own department")
 
         # Read the old values before the update: it changes this same object.
         old_values = {field: getattr(template, field) for field in data}
@@ -234,7 +242,7 @@ class TemplateService:
             WorkflowTemplateNotFoundException: If the template isn't in the caller's org.
             ResourceInUseException: If any case is still in progress on it.
         """
-        template = await self.get_template(template_id)
+        template = await self.get_template(caller, template_id, build=True)
         running = await self._repo.count_running_instances(template.id)
         if running > 0:
             raise ResourceInUseException(
@@ -266,7 +274,7 @@ class TemplateService:
             WorkflowTemplateNotFoundException: If the template isn't in the caller's org.
             WorkflowTemplateAlreadyArchivedException: If it is already archived.
         """
-        template = await self.get_template(template_id)
+        template = await self.get_template(caller, template_id, build=True)
         if template.archived_at is not None:
             raise WorkflowTemplateAlreadyArchivedException()
         return await self._set_archived(caller, template, datetime.now(UTC), "archive")
@@ -280,7 +288,7 @@ class TemplateService:
             WorkflowTemplateNotFoundException: If the template isn't in the caller's org.
             WorkflowTemplateNotArchivedException: If it is not archived.
         """
-        template = await self.get_template(template_id)
+        template = await self.get_template(caller, template_id, build=True)
         if template.archived_at is None:
             raise WorkflowTemplateNotArchivedException()
         return await self._set_archived(caller, template, None, "unarchive")
@@ -304,22 +312,33 @@ class TemplateService:
         )
         return template
 
-    async def get_template(self, template_id: uuid.UUID) -> WorkflowTemplate:
-        """Fetch one template. Open to any member.
+    async def get_template(
+        self, caller: Membership, template_id: uuid.UUID, build: bool = False
+    ) -> WorkflowTemplate:
+        """Fetch one template the caller may see (its owning department's members, HR and executives).
 
         Args:
+            caller: The caller's membership.
             template_id: Id of the template to fetch.
+            build: ``True`` when the caller is about to change it: a manager must then belong to the
+                owning department (HR may change any).
 
         Returns:
             The matching template.
 
         Raises:
-            WorkflowTemplateNotFoundException: If it doesn't exist, was deleted,
-                or belongs to another organization.
+            WorkflowTemplateNotFoundException: If it doesn't exist, was deleted, belongs to another
+                organization, or the caller may not see it (the same answer, so it is not revealed).
+            PermissionDeniedException: If ``build`` and the caller sees it but may not change it.
         """
         template = await self._repo.get_template_by_id(template_id)
         if template is None:
             raise WorkflowTemplateNotFoundException()
+        access = await template_access_for(self._db, caller)
+        if not access.can_see(template.department_id):
+            raise WorkflowTemplateNotFoundException()
+        if build and not access.can_build_for(template.department_id):
+            raise PermissionDeniedException("A manager can build workflows only for their own department")
         return template
 
     async def list_templates(
@@ -330,7 +349,7 @@ class TemplateService:
         page: int = 1,
         limit: int = 20,
     ) -> PaginationResponse:
-        """List the organization's templates. Open to any member.
+        """List the templates the caller may see: their own department's, or all for HR and executives.
 
         Args:
             caller: The caller's membership (gives the organization).
@@ -342,8 +361,14 @@ class TemplateService:
         Returns:
             A paginated response wrapping the matching templates.
         """
+        access = await template_access_for(self._db, caller)
         return await self._repo.list_templates(
-            caller.organization_id, include_archived, department_id, page, limit
+            caller.organization_id,
+            include_archived,
+            department_id,
+            page,
+            limit,
+            visible_department_ids=access.visible_department_ids(),
         )
 
 
@@ -391,6 +416,7 @@ class StepService:
         template = await self._template_repo.get_template_by_id(template_id, lock=True)
         if template is None:
             raise WorkflowTemplateNotFoundException()
+        await self._check_template_access(caller, template.department_id, build=True)
         await self._check_department(data["department_id"])
         if data.get("default_assignee_employee_id") is not None:
             await self._check_assignee(data["default_assignee_employee_id"])
@@ -461,6 +487,7 @@ class StepService:
         step = await self._step_repo.get_step_by_id(step_id)
         if step is None:
             raise WorkflowStepNotFoundException()
+        await self._check_step_template_access(caller, step, build=True)
         if "department_id" in data:
             await self._check_department(data["department_id"])
         if data.get("default_assignee_employee_id") is not None:
@@ -537,6 +564,7 @@ class StepService:
         template = await self._template_repo.get_template_by_id(template_id, lock=True)
         if template is None:
             raise WorkflowTemplateNotFoundException()
+        await self._check_template_access(caller, template.department_id, build=True)
 
         running = await self._template_repo.count_running_instances(template.id)
         if running > 0:
@@ -587,6 +615,7 @@ class StepService:
         step = await self._step_repo.get_step_by_id(step_id)
         if step is None:
             raise WorkflowStepNotFoundException()
+        await self._check_step_template_access(caller, step, build=True)
         # Lock the template so renumbering takes turns with other changes to
         # its steps, then look the step up again: someone else may have
         # deleted it while we waited for the lock.
@@ -619,18 +648,38 @@ class StepService:
         )
         return step
 
-    async def list_steps(self, template_id: uuid.UUID) -> list[WorkflowStep]:
-        """List a template's steps in order. Open to any member.
+    async def list_steps(self, caller: Membership, template_id: uuid.UUID) -> list[WorkflowStep]:
+        """List a template's steps in order, for someone who may see the template.
 
         Works for archived templates too.
 
         Raises:
-            WorkflowTemplateNotFoundException: If the template isn't in the caller's org.
+            WorkflowTemplateNotFoundException: If the template isn't in the caller's org, or the caller may
+                not see it (its owning department's members, HR and executives may).
         """
         template = await self._template_repo.get_template_by_id(template_id)
         if template is None:
             raise WorkflowTemplateNotFoundException()
+        await self._check_template_access(caller, template.department_id, build=False)
         return await self._step_repo.list_steps(template.id)
+
+    async def _check_template_access(self, caller: Membership, template_department_id: uuid.UUID, build: bool) -> None:
+        """Refuse a caller who may not see (404) or, for ``build``, may not change (403) a template.
+
+        A template the caller may not see answers as "not found", so its existence is not revealed.
+        """
+        access = await template_access_for(self._db, caller)
+        if not access.can_see(template_department_id):
+            raise WorkflowTemplateNotFoundException()
+        if build and not access.can_build_for(template_department_id):
+            raise PermissionDeniedException("A manager can build workflows only for their own department")
+
+    async def _check_step_template_access(self, caller: Membership, step: WorkflowStep, build: bool) -> None:
+        """The same check, for the template a step belongs to (a step whose template is gone is not found)."""
+        template = await self._template_repo.get_template_by_id(step.workflow_template_id)
+        if template is None:
+            raise WorkflowStepNotFoundException()
+        await self._check_template_access(caller, template.department_id, build)
 
     async def _check_department(self, department_id: uuid.UUID) -> None:
         """Make sure the department exists in the caller's organization."""
@@ -830,6 +879,10 @@ class InstanceService:
 
         template = await self._template_repo.get_template_by_id(template_id, lock=True)
         if template is None:
+            raise WorkflowTemplateNotFoundException()
+        # Only people who may see the template may start a case from it (the same "not found" otherwise).
+        access = await template_access_for(self._db, caller)
+        if not access.can_see(template.department_id):
             raise WorkflowTemplateNotFoundException()
         if template.archived_at is not None:
             raise WorkflowTemplateArchivedException()

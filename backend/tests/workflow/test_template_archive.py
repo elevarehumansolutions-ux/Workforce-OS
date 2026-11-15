@@ -70,7 +70,7 @@ async def test_only_hr_and_managers_archive_and_the_template_must_exist(client, 
     url = f"{TEMPLATES}/{template['id']}"
 
     by_employee = await client.post(f"{url}/archive", headers=w.chidi.h)
-    by_manager = await client.post(f"{url}/archive", headers=w.sam.h)
+    by_manager = await client.post(f"{url}/archive", headers=w.dana.h)  # Dana manages Dispatch, the owner
     employee_unarchive = await client.post(f"{url}/unarchive", headers=w.chidi.h)
     unknown = await client.post(f"{TEMPLATES}/00000000-0000-0000-0000-000000000000/archive", headers=w.hr)
 
