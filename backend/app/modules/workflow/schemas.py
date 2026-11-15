@@ -3,6 +3,7 @@
 import decimal
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -38,6 +39,9 @@ class WorkingHoursResponse(BaseModel):
     end_hour: int
     work_days: list[int]
     hours_per_day: int
+    # The company's timezone (for example "Africa/Lagos"): the week above is in this clock. The sign-in
+    # clock-in prompt uses it to know whether it is a working day and inside working hours right now.
+    timezone: str
 
 
 class FiscalYearRequest(BaseModel):
@@ -169,6 +173,8 @@ class InstanceTaskResponse(BaseModel):
 
     id: uuid.UUID
     workflow_step_id: uuid.UUID | None
+    # "lead" or "participant" for a step done together by several departments; null for an ordinary step.
+    workflow_task_role: str | None
     department_id: uuid.UUID
     assigned_to_employee_id: uuid.UUID | None
     title: str
@@ -182,6 +188,29 @@ class InstanceTaskResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Step
 # ---------------------------------------------------------------------------
+
+class StepParticipantRequest(BaseModel):
+    """An extra department that does a step together with the step's own department.
+
+    Works like the step's own fields: ``default_assignee_employee_id`` may be left out (the task goes to
+    that department's head, else HR) and ``kpi_id``, when given, must be a KPI of THIS department.
+    """
+
+    department_id: uuid.UUID
+    default_assignee_employee_id: uuid.UUID | None = None
+    kpi_id: uuid.UUID | None = None
+
+
+class StepParticipantResponse(BaseModel):
+    """An extra department of a step, as returned inside a step."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    department_id: uuid.UUID
+    default_assignee_employee_id: uuid.UUID | None
+    kpi_id: uuid.UUID | None
+
 
 class StepCreateRequest(BaseModel):
     """Request body for adding a step to a template.
@@ -204,6 +233,12 @@ class StepCreateRequest(BaseModel):
     default_turnaround_days: int | None = Field(default=None, gt=0)
     # The KPI the step's tasks count toward: one of the step's own department's KPIs.
     kpi_id: uuid.UUID | None = None
+    # Other departments that do this step together with ``department_id`` (at most 5). Each gets a task of
+    # its own when the step starts.
+    participants: list[StepParticipantRequest] = Field(default_factory=list, max_length=5)
+    # With participants: "all" = the case moves on when every task of the step has ended; "lead" = only
+    # ``department_id``'s task counts and the others are helpers.
+    completion_rule: Literal["all", "lead"] = "all"
     step_order: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
@@ -236,6 +271,10 @@ class StepUpdateRequest(BaseModel):
     # ``null`` removes the KPI link. Changing the department without naming a KPI also removes it
     # (the old KPI belonged to the old department).
     kpi_id: uuid.UUID | None = None
+    # When sent, REPLACES the whole list of extra departments (send [] to remove them all). Typed without
+    # ``| None`` so ``null`` is a 422; the ``None`` default only means "not sent".
+    participants: list[StepParticipantRequest] = Field(default=None, max_length=5)
+    completion_rule: Literal["all", "lead"] = None
 
     @model_validator(mode="after")
     def hours_or_days_not_both(self):
@@ -272,6 +311,10 @@ class StepResponse(BaseModel):
     default_turnaround_days: int | None
     # The KPI the step's tasks count toward; null = they are not linked to a KPI.
     kpi_id: uuid.UUID | None
+    # The extra departments that do this step together with ``department_id`` (empty = a one-department
+    # step), and the rule for when the case moves on.
+    participants: list[StepParticipantResponse]
+    completion_rule: str
     created_at: datetime
     updated_at: datetime
 

@@ -101,8 +101,8 @@ async def test_the_detail_shows_the_current_steps_and_the_tasks_so_far(client, m
     assert task["title"] == "Sales hand-off: Zenith Ltd" and task["status"] == "open"
     assert task["assigned_to_employee_id"] == w.sam.employee_id
     assert set(task) == {
-        "id", "workflow_step_id", "department_id", "assigned_to_employee_id", "title", "status",
-        "due_at", "completed_at", "cancel_reason", "created_at",
+        "id", "workflow_step_id", "workflow_task_role", "department_id", "assigned_to_employee_id", "title",
+        "status", "due_at", "completed_at", "cancel_reason", "created_at",
     }
 
 

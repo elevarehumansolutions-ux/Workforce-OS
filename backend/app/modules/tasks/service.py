@@ -339,6 +339,52 @@ class TaskService:
         await self._notify_about_new_task(task, department.name, caller, head_missing)
         return task
 
+    async def create_shared_tasks(self, caller: Membership, data: dict, also_for: list[dict]) -> Task:
+        """Create one task and a copy of it for each other department, all linked together.
+
+        Each task is made by the normal ``create_task``, so every rule (who may create for a department, who
+        may be named, the notification and email to the person or head) applies to each one exactly as if
+        it had been created alone; if any one is refused, the whole request fails and nothing is saved
+        (the router commits once, at the end). The siblings share a ``shared_group_id``.
+
+        Args:
+            caller: The acting membership.
+            data: The first task's fields (as for ``create_task``).
+            also_for: One dict per other department: ``department_id`` and optionally
+                ``assigned_to_employee_id`` and ``kpi_id``.
+
+        Returns:
+            The first task (the one for ``data["department_id"]``).
+
+        Raises:
+            ValidationException: If the same department and person appear twice.
+        """
+        seen = {(data["department_id"], data.get("assigned_to_employee_id"))}
+        for target in also_for:
+            key = (target["department_id"], target.get("assigned_to_employee_id"))
+            if key in seen:
+                raise ValidationException(
+                    message="The same department and person is listed twice. Remove the repeat."
+                )
+            seen.add(key)
+
+        group_id = uuid.uuid4()
+        first = await self.create_task(caller, {**data, "shared_group_id": group_id})
+        for target in also_for:
+            await self.create_task(
+                caller,
+                {
+                    "department_id": target["department_id"],
+                    "title": data["title"],
+                    "description": data.get("description"),
+                    "due_at": data.get("due_at"),
+                    "kpi_id": target.get("kpi_id"),
+                    "assigned_to_employee_id": target.get("assigned_to_employee_id"),
+                    "shared_group_id": group_id,
+                },
+            )
+        return first
+
     async def _notify_about_new_task(
         self, task: Task, department_name: str, caller: Membership, head_missing: bool
     ) -> None:
@@ -453,6 +499,7 @@ class TaskService:
         assigned_to_employee_id: uuid.UUID | None = None,
         description: str | None = None,
         kpi_id: uuid.UUID | None = None,
+        workflow_task_role: str | None = None,
     ) -> Task:
         """Create the task for one step of a running workflow.
 
@@ -478,6 +525,8 @@ class TaskService:
             description: Optional longer description.
             kpi_id: The KPI the step counts toward, if any. Like a bad assignee, a KPI that has been
                 deleted since the step was set up is not an error: the task is created without it.
+            workflow_task_role: ``"lead"`` or ``"participant"`` when several departments do the step
+                together; left empty for an ordinary one-department step.
 
         Returns:
             The newly created ``Task``.
@@ -507,6 +556,7 @@ class TaskService:
                 "due_at": due_at,
                 "assigned_to_employee_id": assignee_id,
                 "kpi_id": kpi_id,
+                "workflow_task_role": workflow_task_role,
                 "workflow_instance_id": workflow_instance_id,
                 "workflow_step_id": workflow_step_id,
                 "created_by_user_id": None,
@@ -555,6 +605,7 @@ class TaskService:
         overdue: bool | None = None,
         now: datetime | None = None,
         unassigned: bool = False,
+        shared_group_id: uuid.UUID | None = None,
     ) -> PaginationResponse:
         """List the tasks the caller may see, with optional filters.
 
@@ -603,6 +654,7 @@ class TaskService:
             overdue=overdue,
             now=now,
             unassigned=unassigned,
+            shared_group_id=shared_group_id,
         )
 
     async def update_task(self, caller: Membership, task_id: uuid.UUID, data: dict) -> Task:
@@ -813,6 +865,77 @@ class TaskService:
             )
             cancelled_count += 1
         return cancelled_count
+
+    async def get_workflow_task_role(self, task_id: uuid.UUID) -> str | None:
+        """A workflow task's role in a step done together: ``"lead"``, ``"participant"``, or ``None``.
+
+        For the Workflow module, to know which rule applies when a task ends. An internal question: no
+        caller and no visibility check (RLS keeps it inside the organization).
+        """
+        task = await self._repo.get_task_by_id(task_id)
+        return task.workflow_task_role if task is not None else None
+
+    async def count_open_tasks_for_instance_step(
+        self, workflow_instance_id: uuid.UUID, workflow_step_id: uuid.UUID
+    ) -> int:
+        """How many tasks of one case's step are still open (for the Workflow module; internal)."""
+        return await self._repo.count_open_tasks_for_instance_step(workflow_instance_id, workflow_step_id)
+
+    async def cancel_open_helper_tasks_for_step(
+        self,
+        workflow_instance_id: uuid.UUID,
+        workflow_step_id: uuid.UUID,
+        reason: str,
+        actor_user_id: uuid.UUID | None,
+    ) -> int:
+        """Close the helper ("participant") tasks of a step that are still open, because the lead finished.
+
+        For the Workflow module, when a step is done together by "the lead decides" and the lead's task has
+        ended. Like cancelling a whole case's tasks, it is an internal step (no permission check) and is
+        audited, ends any open block and tells each assignee. It does NOT publish ``task.cancelled``:
+        these are not skips, and the case is already moving on.
+
+        Returns:
+            How many helper tasks were closed.
+        """
+        closed = 0
+        for task in await self._repo.list_tasks_for_workflow_instance(workflow_instance_id):
+            if (
+                task.workflow_step_id != workflow_step_id
+                or task.workflow_task_role != "participant"
+                or task.status not in OPEN_STATUSES
+            ):
+                continue
+            old_status = task.status
+            await self._end_open_block(task.id, datetime.now(UTC))
+            cancelled = await self._repo.cancel_task(task.id, reason)
+            if cancelled is None:
+                continue  # completed or cancelled at the same moment
+            await self._audit.log_action(
+                organization_id=cancelled.organization_id,
+                actor_user_id=actor_user_id,
+                action="cancel",
+                entity_type="task",
+                entity_id=cancelled.id,
+                changes={
+                    "old": {"status": old_status},
+                    "new": {"status": cancelled.status, "cancel_reason": reason},
+                },
+            )
+            if cancelled.assigned_to_employee_id is not None:
+                assignee = await self._employee_repo.get_employee_by_id(cancelled.assigned_to_employee_id)
+                if assignee is not None and assignee.user_id not in (None, actor_user_id):
+                    await self._notifications.notify(
+                        organization_id=cancelled.organization_id,
+                        recipient_user_ids=[assignee.user_id],
+                        category=NotificationCategory.TASK,
+                        title=f"Task closed: {cancelled.title}",
+                        body=f"The lead department finished this step, so your help task was closed. {reason}",
+                        link_type="task",
+                        link_id=cancelled.id,
+                    )
+            closed += 1
+        return closed
 
     async def _tell_assignee_workflow_task_cancelled(
         self, task: Task, actor_user_id: uuid.UUID | None, reason: str

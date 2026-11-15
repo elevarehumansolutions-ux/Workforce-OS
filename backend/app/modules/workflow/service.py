@@ -69,6 +69,7 @@ class WorkingHoursService:
             end_hour=week.end_hour,
             work_days=sorted(week.days),
             hours_per_day=week.hours_per_day(),
+            timezone=organization.timezone,
         )
 
     async def get(self, caller: Membership) -> WorkingHoursResponse:
@@ -395,6 +396,10 @@ class StepService:
             await self._check_assignee(data["default_assignee_employee_id"])
         if data.get("kpi_id") is not None:
             await self._check_kpi(data["kpi_id"], data["department_id"])
+        # The extra departments are stored in their own rows, not as columns of the step.
+        participants = data.get("participants") or []
+        await self._check_participants(participants, data["department_id"], data.get("default_assignee_employee_id"))
+        data = {key: value for key, value in data.items() if key != "participants"}
 
         step_count = await self._step_repo.count_steps(template.id)
         position = data.get("step_order") or step_count + 1
@@ -412,6 +417,8 @@ class StepService:
                 "workflow_template_id": template.id,
             }
         )
+        if participants:
+            step = await self._step_repo.replace_participants(step, participants)
         await self._audit.log_action(
             organization_id=caller.organization_id,
             actor_user_id=caller.user_id,
@@ -420,7 +427,9 @@ class StepService:
             entity_id=step.id,
             changes={
                 "old": None,
-                "new": jsonable_encoder({**data, "step_order": position, "workflow_template_id": template.id}),
+                "new": jsonable_encoder(
+                    {**data, "participants": participants, "step_order": position, "workflow_template_id": template.id}
+                ),
             },
         )
         return step
@@ -457,6 +466,25 @@ class StepService:
         if data.get("default_assignee_employee_id") is not None:
             await self._check_assignee(data["default_assignee_employee_id"])
 
+        # The extra departments are replaced as a set when sent; they are kept apart from the step's columns.
+        participants_given = "participants" in data
+        new_participants = data.get("participants") or []
+        old_participants = [
+            {
+                "department_id": p.department_id,
+                "default_assignee_employee_id": p.default_assignee_employee_id,
+                "kpi_id": p.kpi_id,
+            }
+            for p in step.participants
+        ]
+        data = {key: value for key, value in data.items() if key != "participants"}
+        if participants_given:
+            await self._check_participants(
+                new_participants,
+                data.get("department_id", step.department_id),
+                data.get("default_assignee_employee_id", step.default_assignee_employee_id),
+            )
+
         # The KPI must belong to the department the step will have after this edit.
         new_department_id = data.get("department_id", step.department_id)
         if data.get("kpi_id") is not None:
@@ -476,6 +504,10 @@ class StepService:
         # Read the old values before the update: it changes this same object.
         old_values = {field: getattr(step, field) for field in data}
         step = await self._step_repo.update_step(step, data)
+        if participants_given:
+            old_values["participants"] = old_participants
+            data = {**data, "participants": new_participants}
+            step = await self._step_repo.replace_participants(step, new_participants)
         await self._audit.log_action(
             organization_id=caller.organization_id,
             actor_user_id=caller.user_id,
@@ -604,6 +636,30 @@ class StepService:
         """Make sure the department exists in the caller's organization."""
         if await self._department_repo.get_department_by_id(department_id) is None:
             raise DepartmentNotFoundException()
+
+    async def _check_participants(
+        self, participants: list[dict], primary_department_id: uuid.UUID, primary_assignee_id: uuid.UUID | None
+    ) -> None:
+        """Check each extra department of a step, and that none repeats another (or the step's own).
+
+        Each department must exist, a named person must be an active employee, and a KPI must be one of
+        that participant's own department. Two entries with the same department AND the same person (or no
+        person) would create the same task twice, so they are refused.
+        """
+        seen = {(primary_department_id, primary_assignee_id)}
+        for participant in participants:
+            await self._check_department(participant["department_id"])
+            assignee_id = participant.get("default_assignee_employee_id")
+            if assignee_id is not None:
+                await self._check_assignee(assignee_id)
+            if participant.get("kpi_id") is not None:
+                await self._check_kpi(participant["kpi_id"], participant["department_id"])
+            key = (participant["department_id"], assignee_id)
+            if key in seen:
+                raise ValidationException(
+                    message="The same department and person is listed twice on this step. Remove the repeat."
+                )
+            seen.add(key)
 
     async def _check_kpi(self, kpi_id: uuid.UUID, department_id: uuid.UUID) -> None:
         """Make sure the KPI exists here and belongs to the step's own department.
@@ -976,6 +1032,20 @@ class InstanceService:
             raise ValidationException(
                 message="This task's workflow step no longer exists. Ask an HR administrator to check the workflow"
             )
+        # A step several departments do together has one task per department, so one ending is not always
+        # the end of the step (08_DECISIONS.md 2026-11-14, "Together steps"). A task with no role belongs
+        # to an ordinary one-department step and moves the case on, as it always did.
+        role = await self._task_service.get_workflow_task_role(finished_task_id)
+        if role is not None:
+            if finished_step.completion_rule == "lead":
+                if role == "participant":
+                    return  # a helper ended: only the lead's task moves the case on
+                await self._task_service.cancel_open_helper_tasks_for_step(
+                    instance.id, finished_step.id, "The lead department finished this step.", actor_user_id
+                )
+            elif await self._task_service.count_open_tasks_for_instance_step(instance.id, finished_step.id) > 0:
+                return  # other departments are still working on this step
+
         steps_after = [step for step in steps if step.step_order > finished_step.step_order]
         next_step = steps_after[0] if steps_after else None
 
@@ -1075,7 +1145,10 @@ class InstanceService:
 
         The deadline is the business-hours deadline from ``now`` (none when
         the step has no turnaround). The Task module deals with a missing or
-        departed default assignee.
+        departed default assignee. A step that several departments do together
+        gets one task per department (the step's own is the "lead", the others
+        are "participants"), all with the same deadline; each department's head or
+        named person is told and emailed by the Task module as usual.
         """
         due_at = None
         if step.default_turnaround_hours is not None or step.default_turnaround_days is not None:
@@ -1084,15 +1157,45 @@ class InstanceService:
             hours = turnaround_in_hours(step.default_turnaround_hours, step.default_turnaround_days, week)
             due_at = add_business_hours(now, hours, organization.timezone, week)
 
+        together = len(step.participants) > 0
+        description = f"Step {step.step_order} of {step_count} in \"{template.name}\" for {instance.subject}."
+        # A step name and a subject can each be 200 characters; keep the title readable.
+        title = f"{step.name}: {instance.subject}"[:255]
+
         await self._task_service.create_workflow_task(
             organization_id=instance.organization_id,
             department_id=step.department_id,
-            # A step name and a subject can each be 200 characters; keep the title readable.
-            title=f"{step.name}: {instance.subject}"[:255],
+            title=title,
             due_at=due_at,
             workflow_instance_id=instance.id,
             workflow_step_id=step.id,
             assigned_to_employee_id=step.default_assignee_employee_id,
-            description=f"Step {step.step_order} of {step_count} in \"{template.name}\" for {instance.subject}.",
+            description=description
+            + (
+                " Other departments do this step with you: the case moves on when everyone has finished."
+                if together and step.completion_rule == "all"
+                else " Other departments help with this step; the case moves on when you finish it."
+                if together
+                else ""
+            ),
             kpi_id=step.kpi_id,
+            workflow_task_role="lead" if together else None,
         )
+        for participant in step.participants:
+            await self._task_service.create_workflow_task(
+                organization_id=instance.organization_id,
+                department_id=participant.department_id,
+                title=title,
+                due_at=due_at,
+                workflow_instance_id=instance.id,
+                workflow_step_id=step.id,
+                assigned_to_employee_id=participant.default_assignee_employee_id,
+                description=description
+                + (
+                    " This step is done together with other departments: the case moves on when everyone has finished."
+                    if step.completion_rule == "all"
+                    else " You are helping on this step; the lead department's task decides when the case moves on."
+                ),
+                kpi_id=participant.kpi_id,
+                workflow_task_role="participant",
+            )

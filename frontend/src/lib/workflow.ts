@@ -30,8 +30,30 @@ export interface WorkflowStep {
   // The KPI the step's tasks count toward (a KPI of the step's department); null = not linked, so the
   // tasks do not count in performance scores.
   kpi_id: string | null;
+  // Other departments that do this step TOGETHER with `department_id` (empty = an ordinary one-department
+  // step). Each gets a task of its own when the step starts.
+  participants: StepParticipant[];
+  // With participants: "all" = the case moves on when every department has finished; "lead" = only
+  // `department_id`'s task counts and the others are helpers.
+  completion_rule: CompletionRule;
   created_at: string;
   updated_at: string;
+}
+
+export type CompletionRule = "all" | "lead";
+
+export interface StepParticipant {
+  id: string;
+  department_id: string;
+  default_assignee_employee_id: string | null;
+  kpi_id: string | null;
+}
+
+// What the step form sends for one extra department (no id: the list is replaced as a whole).
+export interface ParticipantDraft {
+  department_id: string;
+  default_assignee_employee_id: string;
+  kpi_id: string;
 }
 
 export type CaseStatus = "in_progress" | "completed" | "cancelled";
@@ -115,6 +137,8 @@ export function loadValueSummary(): Promise<ValueSummary> {
 export interface CaseTask {
   id: string;
   workflow_step_id: string | null;
+  // "lead" or "participant" for a step done together by several departments; null for an ordinary step.
+  workflow_task_role: "lead" | "participant" | null;
   department_id: string;
   // null = unassigned
   assigned_to_employee_id: string | null;
@@ -172,6 +196,34 @@ export function taskForStep(step: WorkflowStep, tasks: CaseTask[]): CaseTask | n
   return found;
 }
 
+// Every task a case made for a step, oldest first (a step done together has one per department).
+export function tasksForStep(step: WorkflowStep, tasks: CaseTask[]): CaseTask[] {
+  return tasks.filter(function (t) {
+    return t.workflow_step_id === step.id;
+  });
+}
+
+// Where a step stands, looking at all of its tasks. With the rule "lead" only the lead's task counts;
+// otherwise the step is current while any task is open, done when at least one was completed, and
+// skipped when every task was cancelled.
+export function stepStateOf(step: WorkflowStep, tasks: CaseTask[]): StepState {
+  const mine = tasksForStep(step, tasks);
+  if (mine.length === 0) return "waiting";
+  if (step.completion_rule === "lead") {
+    for (const t of mine) {
+      if (t.workflow_task_role === "lead") return stepState(t);
+    }
+  }
+  let anyOpen = false;
+  let anyDone = false;
+  for (const t of mine) {
+    if (t.status === "completed") anyDone = true;
+    else if (t.status !== "cancelled") anyOpen = true;
+  }
+  if (anyOpen) return "current";
+  return anyDone ? "done" : "skipped";
+}
+
 export function stepState(task: CaseTask | null): StepState {
   if (!task) return "waiting";
   if (task.status === "completed") return "done";
@@ -191,6 +243,13 @@ export function stepStateClasses(state: StepState): string {
   if (state === "skipped") return "bg-gray-500/20 text-gray-400";
   if (state === "current") return "bg-indigo-500/20 text-indigo-300";
   return "bg-white/5 text-gray-500";
+}
+
+// How a task relates to a step done together, for a small label on the case page and the task page.
+export function taskRoleLabel(role: "lead" | "participant" | null, rule: CompletionRule): string {
+  if (role === "lead") return rule === "lead" ? "Lead" : "Together";
+  if (role === "participant") return rule === "lead" ? "Helping" : "Together";
+  return "";
 }
 
 // Who gets a step's task when no person is named on the step: the department's head, else HR.

@@ -24,7 +24,9 @@ async def test_a_company_that_never_set_it_has_nine_to_five_monday_to_friday(cli
     resp = await client.get(HOURS, headers=w.hr)
 
     assert resp.status_code == 200
-    assert resp.json() == {"start_hour": 9, "end_hour": 17, "work_days": [0, 1, 2, 3, 4], "hours_per_day": 8}
+    assert resp.json() == {
+        "start_hour": 9, "end_hour": 17, "work_days": [0, 1, 2, 3, 4], "hours_per_day": 8, "timezone": "Africa/Lagos",
+    }
 
 
 @pytest.mark.asyncio
@@ -35,7 +37,9 @@ async def test_hr_sets_the_week_and_everyone_reads_it(client, db_session, monkey
     saved = await client.put(HOURS, json={"start_hour": 8, "end_hour": 17, "work_days": [5, 0, 1, 2, 3, 4]}, headers=w.hr)
 
     assert saved.status_code == 200, saved.text
-    assert saved.json() == {"start_hour": 8, "end_hour": 17, "work_days": [0, 1, 2, 3, 4, 5], "hours_per_day": 9}
+    assert saved.json() == {
+        "start_hour": 8, "end_hour": 17, "work_days": [0, 1, 2, 3, 4, 5], "hours_per_day": 9, "timezone": "Africa/Lagos",
+    }
     # An ordinary employee reads the same answer (a step form needs to know how long "1 day" is).
     seen = await client.get(HOURS, headers=w.chidi.h)
     assert seen.status_code == 200 and seen.json()["hours_per_day"] == 9

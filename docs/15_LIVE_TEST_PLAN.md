@@ -130,6 +130,11 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 ## Stage 5: Attendance (M9)
 
 1. As the employee: clock in, then clock out. Expect: times recorded, shown in Lagos time.
+3. (to-do 47, do after step 1 on a new working day, or after step 2 clears today's record) The sign-in prompt: sign out,
+   sign in as an employee who has NOT clocked in today, during working hours on a working day. Expect a window
+   "Clock in to start your day" on the first page. "Clock in" shows "You're clocked in"; "Not now" closes it and it
+   does not return on the next page. Sign in as HR with no employee record: no prompt. Outside working hours
+   (before the start or after the end): no prompt. After clocking out, moving around does not bring it back.
 2. Clock in and leave it past midnight (Lagos time): expect an automatic close (the job runs at five past every hour).
    To test without waiting for midnight, as the database owner move that clock-in back a day, then run the job now
    (see `14_PRODUCTION_TROUBLESHOOTING.md` section 14; TEST company only):
@@ -187,6 +192,20 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
     read it in the celery_worker log: `docker compose logs celery_worker | grep "STUB TASK EMAIL"`). Check
     that a task you give to yourself does NOT email you.
 
+14. (to-do 48) A step several departments do together, rule "everyone". Edit a step: under "Done together with other
+    departments" press "+ Add a department", choose another department (and optionally a person), keep "When every
+    department has finished its part", save. The step list says "Together with <department>...". Start a case: the case
+    page shows the step with ONE LINE PER DEPARTMENT (each with its own "Open task"), and BOTH people (or heads) get a
+    bell notification and an email. Complete one department's task: the case stays on that step. Complete the other:
+    the next step's task appears.
+15. (to-do 48) Rule "the lead decides". Change the step to "When the department chosen under Done by finishes". Start a
+    case. Complete the helper department's task first: the case does NOT move. Start another case and complete the lead's
+    task first: the case moves on, the helper's still-open task is closed with "The lead department finished this
+    step", and that person is told. On a task of a together step the task page explains it and links to the case.
+16. (to-do 48) One task for several departments. Tasks > Assign task: choose a department, then under "Also needs other
+    departments" add one or two more (naming a person where you may). Create it: each department's person or head is told
+    and emailed; open one task: "The same task is also assigned to" lists the others you may see. Completing one does not
+    complete the others.
 13. (to-dos 45 and 46) Nothing is orphaned. (a) Edit a step: "Counts toward KPI (optional)" lists only the
     step's department's KPIs; pick one and save; the step list shows "KPI: <name>"; start a case and open its
     task: Linked KPI shows that name (a task from a step with no KPI says "Not linked to a KPI, so it does not

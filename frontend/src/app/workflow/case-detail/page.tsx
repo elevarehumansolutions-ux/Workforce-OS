@@ -7,7 +7,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import { departmentName, employeeName, errorMessage, formatDateTime, loadCaller, roleLabel, statusLabel } from "@/lib/tasks";
 import type { CallerContext } from "@/lib/tasks";
-import { canCancelCase, caseStatusClasses, caseStatusLabel, stepState, stepStateClasses, stepStateLabel, taskForStep, valueStatusClasses, valueStatusLabel } from "@/lib/workflow";
+import { canCancelCase, caseStatusClasses, caseStatusLabel, stepStateClasses, stepStateLabel, stepStateOf, taskRoleLabel, tasksForStep, valueStatusClasses, valueStatusLabel } from "@/lib/workflow";
 import { formatMoney } from "@/lib/blueprint";
 import type { CaseDetail, CaseTask, WorkflowTemplate } from "@/lib/workflow";
 
@@ -122,7 +122,7 @@ function CaseDetailContent() {
   let passed = 0;
   if (detail) {
     for (const s of detail.steps) {
-      const st = stepState(taskForStep(s, detail.tasks));
+      const st = stepStateOf(s, detail.tasks);
       if (st === "done" || st === "skipped") passed = passed + 1;
     }
   }
@@ -310,8 +310,8 @@ function CaseDetailContent() {
             {detail.steps.length === 0 && orphanTasks.length === 0 ? <p className="mt-4 text-sm text-gray-500">This template has no steps.</p> : null}
             <ol className="mt-4 space-y-3">
               {detail.steps.map(function (step) {
-                const task = taskForStep(step, detail.tasks);
-                const state = stepState(task);
+                const stepTasks = tasksForStep(step, detail.tasks);
+                const state = stepStateOf(step, detail.tasks);
                 return (
                   <li key={step.id} className="rounded-xl border border-white/10 bg-[#0a0e1a] p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -320,17 +320,39 @@ function CaseDetailContent() {
                           <span className="mr-2 text-indigo-300">{step.step_order}.</span>
                           {step.name}
                         </p>
-                        {task ? taskLine(task) : <p className="mt-0.5 text-xs text-gray-500">{departmentName(ctx, step.department_id)} · Not reached yet</p>}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={"rounded px-2 py-0.5 text-xs font-medium " + stepStateClasses(state)}>{stepStateLabel(state)}</span>
-                        {task ? (
-                          <Link href={"/tasks/" + task.id} className="text-xs font-medium text-indigo-400 hover:text-indigo-300">
-                            Open task
-                          </Link>
+                        {step.participants.length > 0 ? (
+                          <p className="mt-0.5 text-xs text-gray-500">
+                            {step.completion_rule === "lead"
+                              ? "Several departments work on this step; the case moves on when the lead department finishes."
+                              : "Several departments do this step together; the case moves on when every department has finished."}
+                          </p>
                         ) : null}
                       </div>
+                      <span className={"rounded px-2 py-0.5 text-xs font-medium " + stepStateClasses(state)}>{stepStateLabel(state)}</span>
                     </div>
+                    {stepTasks.length === 0 ? (
+                      <p className="mt-1 text-xs text-gray-500">{departmentName(ctx, step.department_id)} · Not reached yet</p>
+                    ) : (
+                      <ul className="mt-2 space-y-1">
+                        {stepTasks.map(function (task) {
+                          return (
+                            <li key={task.id} className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {task.workflow_task_role ? (
+                                  <span className="rounded bg-white/10 px-1.5 py-0.5 text-[11px] font-medium text-gray-300">
+                                    {taskRoleLabel(task.workflow_task_role, step.completion_rule)}
+                                  </span>
+                                ) : null}
+                                {taskLine(task)}
+                              </div>
+                              <Link href={"/tasks/" + task.id} className="text-xs font-medium text-indigo-400 hover:text-indigo-300">
+                                Open task
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </li>
                 );
               })}

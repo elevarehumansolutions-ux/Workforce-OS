@@ -48,6 +48,10 @@ class Task(BaseModel):
 
     __table_args__ = (
         CheckConstraint(
+            "workflow_task_role IS NULL OR workflow_task_role IN ('lead', 'participant')",
+            name="check_task_workflow_task_role",
+        ),
+        CheckConstraint(
             f"status IN {tuple(s.value for s in TaskStatus)}",
             name="check_task_status",
         ),
@@ -89,6 +93,26 @@ class Task(BaseModel):
         ForeignKey("workflow_steps.id", name="fk_tasks_workflow_step_id"),
         nullable=True,
         doc="Workflow step this task came from; null = standalone",
+    )
+
+    workflow_task_role: Mapped[str | None] = mapped_column(
+        String(12),
+        nullable=True,
+        doc=(
+            "Only for a step that several departments do together: 'lead' (the step's own department) or "
+            "'participant' (one of the extra departments). Null = an ordinary one-department step or a "
+            "standalone task."
+        ),
+    )
+
+    shared_group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+        index=True,
+        doc=(
+            "Links the sibling tasks created together when one standalone task is assigned to several "
+            "departments at once; null = not shared. Each sibling is completed on its own."
+        ),
     )
 
     department_id: Mapped[uuid.UUID] = mapped_column(

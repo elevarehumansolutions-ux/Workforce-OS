@@ -22,7 +22,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import BaseModel
 from .enums import InstanceStatus
@@ -112,6 +112,7 @@ class WorkflowStep(BaseModel):
     __tablename__ = "workflow_steps"
 
     __table_args__ = (
+        CheckConstraint("completion_rule IN ('all', 'lead')", name="check_workflow_step_completion_rule"),
         CheckConstraint(
             "default_turnaround_hours IS NULL OR default_turnaround_hours > 0",
             name="check_workflow_step_turnaround_positive",
@@ -177,6 +178,25 @@ class WorkflowStep(BaseModel):
         ),
     )
 
+    completion_rule: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="all",
+        server_default="all",
+        doc=(
+            "Only matters when other departments do the step together with this one: 'all' = the case "
+            "moves on when every task of the step has ended; 'lead' = only this (the step's own) "
+            "department's task counts, the others are helpers"
+        ),
+    )
+
+    participants: Mapped[list[WorkflowStepParticipant]] = relationship(
+        "WorkflowStepParticipant",
+        lazy="selectin",
+        order_by="WorkflowStepParticipant.created_at, WorkflowStepParticipant.id",
+        cascade="all, delete-orphan",
+    )
+
     default_turnaround_hours: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
@@ -193,6 +213,57 @@ class WorkflowStep(BaseModel):
 
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True, doc="Soft-delete timestamp"
+    )
+
+
+class WorkflowStepParticipant(BaseModel):
+    """An extra department that does a step together with the step's own department.
+
+    Example: step 2 "Sign-off" is Legal's (the step's own columns), and Finance is a participant, so
+    starting the step creates one task for Legal and one for Finance. ``default_assignee_employee_id``
+    and ``kpi_id`` work exactly like the same fields on the step: no person means the task goes to that
+    department's head (else HR), and the KPI must be one of this participant's own department.
+    Rows are replaced as a set when the step is edited (nothing else points at them).
+    See 08_DECISIONS.md 2026-11-14, "Together steps".
+    """
+
+    __tablename__ = "workflow_step_participants"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id"),
+        nullable=False,
+        index=True,
+        doc="Organization this row belongs to",
+    )
+
+    workflow_step_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("workflow_steps.id"),
+        nullable=False,
+        index=True,
+        doc="The step this department takes part in",
+    )
+
+    department_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("departments.id"),
+        nullable=False,
+        doc="The extra department",
+    )
+
+    default_assignee_employee_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("employees.id"),
+        nullable=True,
+        doc="Person who gets this department's task automatically; null = its head (else HR)",
+    )
+
+    kpi_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("kpis.id"),
+        nullable=True,
+        doc="KPI this department's task counts toward (one of its own department's)",
     )
 
 

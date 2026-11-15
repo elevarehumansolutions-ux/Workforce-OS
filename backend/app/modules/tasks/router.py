@@ -71,7 +71,14 @@ async def create_task(
         ValidationException: If an outsider names an assignee, or the assignee
             is offboarded (422).
     """
-    task = await TaskService(db).create_task(caller, data.model_dump())
+    service = TaskService(db)
+    if data.also_for:
+        # One task per department, linked together; all saved together or not at all.
+        task = await service.create_shared_tasks(
+            caller, data.model_dump(exclude={"also_for"}), [t.model_dump() for t in data.also_for]
+        )
+    else:
+        task = await service.create_task(caller, data.model_dump(exclude={"also_for"}))
     await db.commit()
     return _task_response(task, datetime.now(UTC))
 
@@ -84,6 +91,7 @@ async def list_tasks(
     kpi_id: uuid.UUID | None = Query(default=None),
     overdue: bool | None = Query(default=None),
     unassigned: bool = Query(default=False),
+    shared_group_id: uuid.UUID | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -104,6 +112,8 @@ async def list_tasks(
             are not overdue, left out for both.
         unassigned: ``true`` for only tasks nobody is assigned to (what a department
             head or HR must hand out). Still limited to what the caller may see.
+        shared_group_id: Only the tasks created together for several departments (the same value
+            as on a task's ``shared_group_id``); still limited to what the caller may see.
         page: 1-indexed page number.
         limit: Maximum number of rows per page (1-100).
         db: Database session dependency.
@@ -125,6 +135,7 @@ async def list_tasks(
         overdue=overdue,
         now=now,
         unassigned=unassigned,
+        shared_group_id=shared_group_id,
     )
     result.data = [_task_response(task, now) for task in result.data]
     return result
