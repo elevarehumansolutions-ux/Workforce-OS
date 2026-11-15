@@ -10,7 +10,7 @@ from app.core.dependencies import get_db, get_current_membership, require_org_ro
 from app.core.schemas import CursorPaginationMeta, CursorPaginationResponse
 from app.modules.tenancy_identity.models import Membership
 from .enums import NotificationCategory
-from .schemas import AuditLogResponse, MarkAllReadResponse, NotificationResponse, UnreadCountResponse
+from .schemas import AuditLogResponse, MarkAllReadResponse, NotificationResponse, ReadByLinkRequest, UnreadCountResponse
 from .service import AuditService, NotificationService
 
 router = APIRouter()
@@ -126,6 +126,27 @@ async def mark_notification_read(
     )
     await db.commit()
     return NotificationResponse.model_validate(notification)
+
+
+@router.post("/notifications/read-by-link", status_code=200)
+async def mark_notifications_read_by_link(
+    data: ReadByLinkRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> MarkAllReadResponse:
+    """Mark the caller's unread notifications about one thing (for example one task) as read.
+
+    Called when the person opens that thing directly, so opening it from the task list clears its
+    notification just as opening it from the bell does. Only the caller's own notifications are touched.
+    """
+    count = await NotificationService(db).mark_read_by_link(
+        organization_id=caller.organization_id,
+        recipient_user_id=caller.user_id,
+        link_type=data.link_type,
+        link_id=data.link_id,
+    )
+    await db.commit()
+    return MarkAllReadResponse(marked_read=count)
 
 
 @router.post("/notifications/read-all", status_code=200)

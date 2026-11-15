@@ -5,7 +5,6 @@ import { apiFetch } from "@/lib/api";
 import PersonSelect from "@/components/PersonSelect";
 import { errorMessage, localInputToIso, peopleOfDepartment } from "@/lib/tasks";
 import type { CallerContext, Task } from "@/lib/tasks";
-import { refreshWaitingCount } from "@/lib/waitingCount";
 
 interface AssignInlineProps {
   task: Task;
@@ -51,7 +50,6 @@ export default function AssignInline({ task, ctx, onAssigned }: AssignInlineProp
         method: "POST",
         body: { assigned_to_employee_id: personId, due_at: dueIso },
       });
-      refreshWaitingCount();
       onAssigned();
     } catch (err) {
       setError(errorMessage(err, "Couldn't assign this task. Check your connection and try again."));

@@ -204,10 +204,13 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
     found or belongs to another department; Start Workflow does not offer it. As HR and as an executive: every
     template is listed. As a manager: New template offers only your own department. A Sales person who takes part in
     a Dispatch step still gets their task and can open the case, but cannot open the template.
-20. (to-do 52) The red number on "Tasks". Give a not-clocked-in employee a task: the menu shows a red 1 on Tasks (and
-    a red dot on the phone menu button); clicking it shows "Clock in to see your tasks". For a department head with
-    an unassigned task, the number counts it; after handing it out the number drops. After completing a task the
-    number drops on the next page change or within a minute.
+20. (to-do 52, changed the same day) There is NO red number on "Tasks" any more (the bell is the one signal). Give a
+    not-clocked-in employee a task: the bell shows 1; the Tasks page says "Clock in to see your tasks".
+21. (to-do 53) Open a task from the TASK LIST (not from the bell): the bell's number drops by one at once. Open another
+    from the bell: same. A notification about a different task stays unread.
+22. (to-do 54) On a long page (the employee directory, a long template, the audit log) scroll down: the left menu stays
+    in view with the person's name and Sign out at the bottom, and the page scrolls on its own. Check it on Settings,
+    Team Management and an employee's page too (they draw their own menu).
 14. (to-do 48) A step several departments do together, rule "everyone". Edit a step: under "Done together with other
     departments" press "+ Add a department", choose another department (and optionally a person), keep "When every
     department has finished its part", save. The step list says "Together with <department>...". Start a case: the case
