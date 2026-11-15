@@ -2,7 +2,7 @@
 
 import AppShell from "@/components/AppShell";
 import SecuritySection from "@/components/settings/SecuritySection";
-import { formatDateTime, roleLabel } from "@/lib/tasks";
+import { departmentName, formatDateTime, loadCaller, roleLabel } from "@/lib/tasks";
 import { loadMe } from "@/lib/settings";
 import { useLoad } from "@/lib/useLoad";
 
@@ -17,6 +17,34 @@ export default function ProfilePage() {
     "Couldn't load your account. Check your connection and try again."
   );
   const me = state.data;
+
+  // Which department and position the person holds comes from their employee record, not from the login.
+  // If this fails the rest of the profile still shows, with "Not available".
+  const work = useLoad("profile-work", loadCaller, "Couldn't load your department.");
+  const ctx = work.data;
+  let departmentText = "Not available";
+  let positionText = "Not available";
+  let headOfText = "";
+  if (ctx) {
+    if (ctx.employee) {
+      departmentText = ctx.employeeDepartmentId ? departmentName(ctx, ctx.employeeDepartmentId) : "No department yet";
+      const position = ctx.positions.find(function (p) {
+        return ctx.employee !== null && p.id === ctx.employee.position_id;
+      });
+      positionText = position ? position.title : "No position yet";
+      headOfText = ctx.departments
+        .filter(function (d) {
+          return ctx.employee !== null && d.head_employee_id === ctx.employee.id;
+        })
+        .map(function (d) {
+          return d.name;
+        })
+        .join(", ");
+    } else {
+      departmentText = "No department yet";
+      positionText = "No employee record yet";
+    }
+  }
 
   return (
     <AppShell activeLabel="" title="My profile" breadcrumb="Dashboard > My profile">
@@ -38,6 +66,20 @@ export default function ProfilePage() {
                 <dt className="text-xs text-gray-500">Role</dt>
                 <dd className="mt-1 text-gray-200">{roleLabel(me.role)}</dd>
               </div>
+              <div>
+                <dt className="text-xs text-gray-500">Department</dt>
+                <dd className="mt-1 text-gray-200">{departmentText}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-gray-500">Position</dt>
+                <dd className="mt-1 text-gray-200">{positionText}</dd>
+              </div>
+              {headOfText ? (
+                <div>
+                  <dt className="text-xs text-gray-500">Head of</dt>
+                  <dd className="mt-1 text-gray-200">{headOfText}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt className="text-xs text-gray-500">Company</dt>
                 <dd className="mt-1 text-gray-200">{me.organization && me.organization.name ? me.organization.name : "Not set"}</dd>

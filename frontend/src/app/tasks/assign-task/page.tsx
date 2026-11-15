@@ -7,7 +7,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
 import {
-  activeEmployees,
+  peopleOfDepartment,
   canCreateTasks,
   canPickAssignee,
   errorMessage,
@@ -265,7 +265,7 @@ export default function AssignTaskPage() {
                 </label>
                 <PersonSelect
                   id="assignee"
-                  people={activeEmployees(ctx)}
+                  people={peopleOfDepartment(ctx, departmentId)}
                   positions={ctx.positions}
                   departments={ctx.departments}
                   value={assigneeId}
@@ -329,7 +329,7 @@ export default function AssignTaskPage() {
                       <label className="mb-1 block text-xs text-gray-500">Assign to</label>
                       {x.department_id && pick ? (
                         <PersonSelect
-                          people={activeEmployees(ctx)}
+                          people={peopleOfDepartment(ctx, x.department_id)}
                           positions={ctx.positions}
                           departments={ctx.departments}
                           value={x.assignee}

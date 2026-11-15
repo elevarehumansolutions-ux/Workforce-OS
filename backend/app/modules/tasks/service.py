@@ -657,6 +657,25 @@ class TaskService:
             shared_group_id=shared_group_id,
         )
 
+    async def count_waiting(self, caller: Membership) -> tuple[int, int]:
+        """How much work is waiting for the caller: ``(assigned to them, theirs to hand out)``.
+
+        "Assigned to them" is their open tasks, counted even if they have not clocked in (they cannot OPEN
+        them until they do, but they should know work is waiting). "To hand out" is the open tasks nobody is
+        assigned to that they may give to someone: every department's for an HR administrator, their own
+        departments' for a department head, none for anyone else.
+        """
+        ctx = await self._context(caller)
+        assigned = 0
+        if ctx.employee is not None:
+            assigned = await self._repo.count_open_assigned_to(ctx.employee.id)
+        to_hand_out = 0
+        if ctx.is_hr:
+            to_hand_out = await self._repo.count_open_unassigned(None)
+        elif ctx.headed_department_ids:
+            to_hand_out = await self._repo.count_open_unassigned(ctx.headed_department_ids)
+        return assigned, to_hand_out
+
     async def update_task(self, caller: Membership, task_id: uuid.UUID, data: dict) -> Task:
         """Edit a task's title, description, deadline or KPI link.
 

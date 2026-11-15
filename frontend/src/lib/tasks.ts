@@ -244,6 +244,27 @@ export function activeEmployees(ctx: CallerContext): Employee[] {
   });
 }
 
+// The active people of one department: a person belongs to the department of their position, so
+// someone with no position yet cannot be matched and is not listed. Used where a person is chosen to
+// do work for a department (a workflow step, a task). Display only: the server does not enforce it.
+export function peopleOfDepartment(ctx: CallerContext, departmentId: string): Employee[] {
+  if (!departmentId) return [];
+  return activeEmployees(ctx).filter(function (e) {
+    return ctx.positions.some(function (p) {
+      return p.id === e.position_id && p.department_id === departmentId;
+    });
+  });
+}
+
+// For a person who is already chosen but is not in `people` (for example a step saved earlier with someone
+// from another department): an extra entry so the field shows them instead of a blank.
+export function currentPersonOption(ctx: CallerContext, personId: string, people: Employee[]): { id: string; label: string } | undefined {
+  if (!personId) return undefined;
+  if (people.some(function (e) { return e.id === personId; })) return undefined;
+  const found = ctx.employees.find(function (e) { return e.id === personId; });
+  return { id: personId, label: (found ? fullName(found) : "Someone") + " (not in this department)" };
+}
+
 // ---- who may do what (mirrors the server rules; the server has the last word)
 
 export function isHr(ctx: CallerContext): boolean {

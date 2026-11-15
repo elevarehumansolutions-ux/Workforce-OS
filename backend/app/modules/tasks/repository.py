@@ -246,6 +246,30 @@ class TaskRepository:
         result = await self._db.execute(stmt)
         return result.scalar_one()
 
+    async def count_open_assigned_to(self, employee_id: uuid.UUID) -> int:
+        """How many open tasks (``open`` or ``in_progress``) are assigned to this employee.
+
+        A plain count with no clock-in rule: it is what the "Tasks" count in the menu shows, so a person
+        who has not clocked in yet can still see that work is waiting (they cannot open it until they do).
+        """
+        stmt = select(func.count()).select_from(Task).where(
+            Task.assigned_to_employee_id == employee_id,
+            Task.deleted_at.is_(None),
+            Task.status.in_(OPEN_STATUSES),
+        )
+        return (await self._db.execute(stmt)).scalar_one()
+
+    async def count_open_unassigned(self, department_ids: list[uuid.UUID] | None) -> int:
+        """How many open tasks have no assignee, in the given departments (``None`` = every department)."""
+        stmt = select(func.count()).select_from(Task).where(
+            Task.assigned_to_employee_id.is_(None),
+            Task.deleted_at.is_(None),
+            Task.status.in_(OPEN_STATUSES),
+        )
+        if department_ids is not None:
+            stmt = stmt.where(Task.department_id.in_(department_ids))
+        return (await self._db.execute(stmt)).scalar_one()
+
     async def count_open_tasks_for_instance_step(
         self, workflow_instance_id: uuid.UUID, workflow_step_id: uuid.UUID
     ) -> int:
