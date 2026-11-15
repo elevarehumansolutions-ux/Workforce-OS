@@ -168,6 +168,15 @@ class Task(BaseModel):
         ),
     )
 
+    due_soon_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc=(
+            "When the 'due soon' reminder (before the deadline) was sent; null = not sent yet. "
+            "Cleared in the same places as overdue_notified_at, when the deadline moves"
+        ),
+    )
+
     blocked_since: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

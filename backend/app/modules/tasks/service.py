@@ -11,6 +11,7 @@ The decisions behind these rules are in 08_DECISIONS.md 2026-10-07.
 import decimal
 import uuid
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1636,7 +1637,53 @@ class TaskService:
                 link_type="task",
                 link_id=task.id,
             )
-            await self._prompt_assignee_to_explain(task)
+            # The "was something holding it up?" question is part of the earlier reminder; asking it again
+            # here would repeat it. It is still sent for a task too short to have had a reminder.
+            if task.due_soon_notified_at is None:
+                await self._prompt_assignee_to_explain(task)
+        return len(tasks)
+
+    async def announce_due_soon_tasks(self, organization_id: uuid.UUID, now: datetime) -> int:
+        """Remind the assignee of every task inside its reminder window, once (08_DECISIONS.md 2026-11-15).
+
+        Called by the task scan once per organization, with that organization's RLS context already set,
+        just before the overdue announcements. The reminder says when the task is due and asks whether
+        something is holding it up, so a block can be recorded BEFORE the deadline, when a reviewer can judge
+        it fairly. It goes to the assignee only, in the app and by email. The router/job commits afterwards.
+
+        Returns:
+            How many tasks were claimed (marked reminded); a task whose assignee cannot be told is still marked.
+        """
+        tasks = await self._repo.claim_due_soon_tasks(now)
+        if not tasks:
+            return 0
+        organization = await self._organization_repo.get_organization_by_id(organization_id)
+        timezone_name = organization.timezone if organization is not None else "UTC"
+        try:
+            zone = ZoneInfo(timezone_name)
+        except Exception:
+            zone, timezone_name = UTC, "UTC"
+        for task in tasks:
+            assignee = await self._employee_repo.get_employee_by_id(task.assigned_to_employee_id)
+            if assignee is None or assignee.status == EmployeeStatus.INACTIVE.value or assignee.user_id is None:
+                continue
+            real_deadline = task.due_at + timedelta(seconds=task.approved_blocked_seconds)
+            due_text = real_deadline.astimezone(zone).strftime("%a %d %b, %H:%M")
+            title = f"Due soon: {task.title}"
+            body = (
+                f'"{task.title}" is due {due_text} ({timezone_name}). Is something holding it up? '
+                "If so, mark it blocked now, so a reviewer can take it into account before the deadline."
+            )
+            await self._notifications.notify(
+                organization_id=organization_id,
+                recipient_user_ids=[assignee.user_id],
+                category=NotificationCategory.TASK,
+                title=title,
+                body=body,
+                link_type="task",
+                link_id=task.id,
+            )
+            await email_people_about_task(self._db, [assignee.user_id], title, body, task.id)
         return len(tasks)
 
     async def _prompt_assignee_to_explain(self, task: Task) -> None:

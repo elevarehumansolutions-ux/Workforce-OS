@@ -20,10 +20,41 @@ later. ``due_at`` itself never changes. The real deadline is
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, text
 
 from .enums import OPEN_STATUSES
 from .models import Task
+
+# The reminder before a deadline (08_DECISIONS.md 2026-11-15): sent once, to the assignee, when a quarter of the
+# task's time is left, but never less than 1 hour before the deadline and never more than 1 day before it. A task
+# whose whole life is no longer than that window gets no reminder. (The overdue alert covers it after the deadline.)
+REMINDER_SHARE_OF_TIME = 0.25
+REMINDER_MIN_LEAD = timedelta(hours=1)
+REMINDER_MAX_LEAD = timedelta(days=1)
+
+
+def reminder_lead(task_life: timedelta) -> timedelta:
+    """How long before the real deadline the reminder is due, for a task that lives ``task_life`` in all."""
+    return min(max(task_life * REMINDER_SHARE_OF_TIME, REMINDER_MIN_LEAD), REMINDER_MAX_LEAD)
+
+
+def is_due_soon(task: Task, now: datetime) -> bool:
+    """Whether ``task`` is inside its reminder window at ``now`` and has not been reminded yet.
+
+    The Python twin of :func:`due_soon_clause` (and of the lookup function in migration a1d7c3f95e48).
+    """
+    if task.due_at is None or task.assigned_to_employee_id is None:
+        return False  # nobody to remind
+    if task.status not in OPEN_STATUSES or task.blocked_since is not None:
+        return False
+    if task.due_soon_notified_at is not None:
+        return False  # already reminded for this deadline
+    real_deadline = task.due_at + timedelta(seconds=task.approved_blocked_seconds)
+    if real_deadline <= now:
+        return False  # past the deadline: the overdue alert's job
+    task_life = real_deadline - task.created_at
+    lead = reminder_lead(task_life)
+    return (real_deadline - now) <= lead and task_life > lead
 
 
 def is_overdue(task: Task, now: datetime) -> bool:
@@ -36,6 +67,24 @@ def is_overdue(task: Task, now: datetime) -> bool:
         return False  # blocked right now: waiting on something outside the assignee's hands
     real_deadline = task.due_at + timedelta(seconds=task.approved_blocked_seconds)
     return real_deadline < now  # strictly before: exactly on the deadline is not late yet
+
+
+def due_soon_clause(now: datetime):
+    """The database version of :func:`is_due_soon`, as one SQL condition on the ``tasks`` table.
+
+    Written as text because it works in intervals; keep it the same as the Python function and the lookup.
+    """
+    real = "(tasks.due_at + make_interval(secs => tasks.approved_blocked_seconds))"
+    lead = f"LEAST(GREATEST(({real} - tasks.created_at) * 0.25, interval '1 hour'), interval '1 day')"
+    statuses = ", ".join(f"'{status}'" for status in OPEN_STATUSES)
+    return text(
+        f"tasks.due_at IS NOT NULL AND tasks.assigned_to_employee_id IS NOT NULL"
+        f" AND tasks.blocked_since IS NULL AND tasks.due_soon_notified_at IS NULL"
+        f" AND tasks.status IN ({statuses})"
+        f" AND {real} > CAST(:now AS timestamptz)"
+        f" AND {real} - CAST(:now AS timestamptz) <= {lead}"
+        f" AND {real} - tasks.created_at > {lead}"
+    ).bindparams(now=now)
 
 
 def overdue_clause(now: datetime):

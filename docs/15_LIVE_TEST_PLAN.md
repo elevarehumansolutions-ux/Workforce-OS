@@ -150,6 +150,12 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 5. Mark a task blocked with a reason. Expect: the reviewer is notified; approve it; the task is no
    longer overdue.
 6. Reassign a task. Expect: the new person is told.
+7. (to-do 56) The reminder before a deadline. Give the employee a task with a deadline about 3 hours ahead (it lives
+   3 hours, so the reminder is due in its final hour: about 2 hours from now) and wait. The scan runs every 10
+   minutes; in the final hour the employee gets "Due soon: <task>" in the bell and by email, saying when it is due
+   and asking whether something is holding it up; clicking it opens the task with the block form ready. The head
+   gets nothing yet. After the deadline the employee gets "Task overdue" but NOT a second "Was something holding it
+   up?". A task due in 30 minutes gets no reminder (too short) and still gets the old question after the deadline.
 
 ## Stage 7: Workflow and the money figure (M11 + task cost)
 

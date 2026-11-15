@@ -521,6 +521,7 @@ CREATE TABLE tasks (
     cancel_reason TEXT,        -- set exactly when status = 'cancelled' (CHECK check_task_cancel_reason_matches_status); added M10 slice B, migration c8e41d7a5b92
     blocked_since TIMESTAMPTZ,        -- when the current block started; NULL = not blocked right now. Added M10 slice E, migration f7b2c91d4a60
     approved_blocked_seconds INTEGER NOT NULL DEFAULT 0 CHECK (approved_blocked_seconds >= 0),  -- running total of reviewer-approved blocked time; real deadline = due_at + this. Reset to 0 on reassign. Slice E
+    due_soon_notified_at TIMESTAMPTZ, -- 2026-11-15 (migration a1d7c3f95e48): when the "due soon" reminder (before the deadline) was sent; NULL = not sent yet. Cleared in the same places as overdue_notified_at (deadline moved, approved blocked time credited, reassignment). The task scan lookup organizations_needing_task_scan() also returns an organization with an assigned open task inside its reminder window (a quarter of the task's life, between 1 hour and 1 day before the real deadline; no reminder when the whole life is no longer than that).
     overdue_notified_at TIMESTAMPTZ,  -- when the "task is overdue" notification was sent; NULL = not sent yet. Cleared when due_at changes or the task is reassigned. Added M10 slice D, migration e5a07b3c9d14 (same migration adds the function organizations_with_unannounced_overdue_tasks())
     status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','in_progress','completed','cancelled')),
     created_by_user_id UUID REFERENCES users(id),

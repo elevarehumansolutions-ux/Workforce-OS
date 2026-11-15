@@ -285,7 +285,7 @@ class ResendEmailService(EmailService):
             title=safe_title,
             preheader=safe_body,
             body_content_html=body_content_html,
-            footer_note="You get this email because a task was given to you, or needs someone to take it, in Elevare Workforce OS.",
+            footer_note="You get this email because a task needs your attention in Elevare Workforce OS.",
         )
 
         await self._send_html(subject=title[:150] + " — Elevare Workforce OS", recipients=[email], html_body=html_body)

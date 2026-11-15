@@ -1352,6 +1352,17 @@ Raised by Emmanuel while setting up the first workflow template in the Stage 7 l
 - **One person picker.** Every dropdown that chooses a person becomes a single shared component: a group per department, each person shown as "Name, Position", people without a position under "No position yet". Chosen over a searchable combobox for now (a native select works the same on a phone and needs no new behaviour to learn); search can be added to the one component later.
 - **The Start Workflow page** gets a way forward when there are no templates (a button for HR administrators and managers, a sentence for everyone else).
 
+## 2026-11-15 — Reminder before the deadline (BUILT, to-do 56)
+
+Raised by Emmanuel in the Stage 6 live test: the "Was something holding it up?" question arrived together with "Task overdue", too late to be useful. (The requirements already note that a block recorded after the deadline cannot be verified against how long the delay really was, `01_REQUIREMENTS.md` 6a.)
+
+- **A reminder, before the deadline, to the assignee, in the app AND by email.** It says when the task is due (in the company's timezone) and asks whether something is holding it up, so a block can be recorded while a reviewer can still judge it fairly. Its notification opens the task with the block form ready.
+- **When:** a quarter of the task's life is left, but never less than 1 hour and never more than 1 day before the real deadline (the written deadline plus approved blocked time). **A task whose whole life is no longer than that window gets no reminder.** Rejected: a fixed lead time (a 4-hour task would be reminded the moment it is created; a 10-day task only a day before is fine, a 2-day task a day before is half of its life); a reminder at the start (noise).
+- **Once per deadline.** The marker is cleared whenever the deadline moves (edited, approved blocked time credited, reassigned), exactly like the overdue alert, so a new deadline gets its own reminder.
+- **No duplicate question.** After the deadline the overdue alert still goes out, but the "was something holding it up?" question is skipped for a task that was already reminded, and still sent for a task too short to have had a reminder.
+- **Who is not reminded:** the department head (the head hears about it when it is overdue, as before), HR, an unassigned task, a blocked task (it is waiting on something outside the person's hands).
+- **Not built:** a lead time per company, a second reminder, a reminder to the head.
+
 ## 2026-11-15 — Templates belong to their department; people lists follow the department (BUILT, to-dos 49 to 52)
 
 Raised by Emmanuel after the Stage 7 live test (steps 12 to 16 passed).
