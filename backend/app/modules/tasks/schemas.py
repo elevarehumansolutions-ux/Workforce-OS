@@ -26,6 +26,17 @@ def _clean_title(value: str | None) -> str:
     return value
 
 
+class WaitingCountResponse(BaseModel):
+    """How much work is waiting for the caller (the red number on "Tasks" in the menu)."""
+
+    # Open tasks assigned to the caller (counted even when they have not clocked in).
+    assigned_to_me: int
+    # Open tasks nobody is assigned to that the caller may hand out (HR: all; a department head: theirs).
+    to_hand_out: int
+    # The two added together, for the number on the menu.
+    total: int
+
+
 class TaskShareTarget(BaseModel):
     """Another department that gets its own copy of a task created together with the first one.
 

@@ -87,6 +87,7 @@ class TemplateRepository:
         department_id: uuid.UUID | None = None,
         page: int = 1,
         limit: int = 20,
+        visible_department_ids: list[uuid.UUID] | None = None,
     ) -> PaginationResponse:
         """List non-deleted templates for an organization, by name.
 
@@ -96,6 +97,8 @@ class TemplateRepository:
             department_id: If given, restrict results to templates this department owns.
             page: 1-indexed page number.
             limit: Maximum number of rows per page.
+            visible_department_ids: If given, only templates owned by one of these departments (what the
+                caller may see); ``None`` means every department.
 
         Returns:
             A paginated response wrapping the matching templates.
@@ -108,6 +111,8 @@ class TemplateRepository:
             stmt = stmt.where(WorkflowTemplate.archived_at.is_(None))
         if department_id is not None:
             stmt = stmt.where(WorkflowTemplate.department_id == department_id)
+        if visible_department_ids is not None:
+            stmt = stmt.where(WorkflowTemplate.department_id.in_(visible_department_ids))
         # The id breaks ties so two templates with the same name never swap
         # places between one page and the next.
         stmt = stmt.order_by(WorkflowTemplate.name.asc(), WorkflowTemplate.id.asc())

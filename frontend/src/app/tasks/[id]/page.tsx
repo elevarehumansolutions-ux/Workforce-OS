@@ -9,7 +9,7 @@ import PersonSelect from "@/components/PersonSelect";
 import TogetherCard from "@/components/TogetherCard";
 import {
   BLOCK_CATEGORY_OPTIONS,
-  activeEmployees,
+  peopleOfDepartment,
   blockCategoryLabel,
   canBlockTask,
   canCancelTask,
@@ -785,7 +785,7 @@ function TaskDetailContent() {
                 <div>
                   <label className="mb-1 block text-xs text-gray-500">Assign to</label>
                   <PersonSelect
-                    people={activeEmployees(ctx).filter(function (emp) {
+                    people={peopleOfDepartment(ctx, task.department_id).filter(function (emp) {
                       return emp.id !== task.assigned_to_employee_id;
                     })}
                     positions={ctx.positions}

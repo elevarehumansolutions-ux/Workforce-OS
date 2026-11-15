@@ -105,7 +105,7 @@ async def test_only_builders_delete_and_the_step_must_exist(client, monkeypatch)
     url = f"{STEPS}/{steps[0]['id']}"
 
     by_employee = await client.delete(url, headers=w.chidi.h)
-    by_manager = await client.delete(url, headers=w.sam.h)
+    by_manager = await client.delete(url, headers=w.dana.h)  # Dana manages Dispatch, the owning department
     again = await client.delete(url, headers=w.hr)
     unknown = await client.delete(f"{STEPS}/00000000-0000-0000-0000-000000000000", headers=w.hr)
 

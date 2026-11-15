@@ -6,7 +6,7 @@ import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
-import { activeEmployees, departmentName, employeeName, errorMessage, loadCaller, roleLabel } from "@/lib/tasks";
+import { currentPersonOption, departmentName, employeeName, errorMessage, loadCaller, peopleOfDepartment, roleLabel } from "@/lib/tasks";
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -122,7 +122,7 @@ export default function WorkflowTemplateDetailPage() {
             steps: [],
             error:
               err instanceof ApiError && err.code === "WORKFLOW_TEMPLATE_NOT_FOUND"
-                ? "This template wasn't found. It may have been deleted."
+                ? "This template wasn't found. It may have been deleted, or it belongs to another department (a template is seen only by the department that owns it, and HR)."
                 : errorMessage(err, "Couldn't load this template. Check your connection and try again."),
           });
         });
@@ -474,8 +474,9 @@ export default function WorkflowTemplateDetailPage() {
             value={stepDept}
             onChange={function (e) {
               setStepDept(e.target.value);
-              // A KPI belongs to one department, so the choice is cleared when the department changes.
+              // A KPI and a person belong to one department, so both choices are cleared when it changes.
               setStepKpi("");
+              setStepAssignee("");
             }}
             className={inputClass}
           >
@@ -495,12 +496,14 @@ export default function WorkflowTemplateDetailPage() {
           <label className="mb-1 block text-xs text-gray-500">Default person (optional)</label>
           {ctx ? (
             <PersonSelect
-              people={activeEmployees(ctx)}
+              people={peopleOfDepartment(ctx, stepDept)}
               positions={ctx.positions}
               departments={ctx.departments}
               value={stepAssignee}
               onChange={setStepAssignee}
-              emptyLabel="No one named"
+              emptyLabel={stepDept ? "No one named" : "Choose the department first"}
+              extraOption={currentPersonOption(ctx, stepAssignee, peopleOfDepartment(ctx, stepDept))}
+              disabled={!stepDept}
               className={inputClass}
             />
           ) : null}
@@ -549,7 +552,7 @@ export default function WorkflowTemplateDetailPage() {
                   <label className="mb-1 block text-xs text-gray-500">Department</label>
                   <select
                     value={p.department_id}
-                    onChange={function (e) { updateParticipant(index, { department_id: e.target.value, kpi_id: "" }); }}
+                    onChange={function (e) { updateParticipant(index, { department_id: e.target.value, kpi_id: "", default_assignee_employee_id: "" }); }}
                     className={inputClass}
                   >
                     <option value="">Choose a department</option>
@@ -568,12 +571,14 @@ export default function WorkflowTemplateDetailPage() {
                   <label className="mb-1 block text-xs text-gray-500">Person (optional)</label>
                   {ctx ? (
                     <PersonSelect
-                      people={activeEmployees(ctx)}
+                      people={peopleOfDepartment(ctx, p.department_id)}
                       positions={ctx.positions}
                       departments={ctx.departments}
                       value={p.default_assignee_employee_id}
                       onChange={function (id) { updateParticipant(index, { default_assignee_employee_id: id }); }}
-                      emptyLabel="No one named"
+                      emptyLabel={p.department_id ? "No one named" : "Choose the department first"}
+                      extraOption={currentPersonOption(ctx, p.default_assignee_employee_id, peopleOfDepartment(ctx, p.department_id))}
+                      disabled={!p.department_id}
                       className={inputClass}
                     />
                   ) : null}

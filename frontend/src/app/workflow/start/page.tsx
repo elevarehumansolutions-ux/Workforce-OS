@@ -209,7 +209,8 @@ function StartWorkflowContent() {
             <div className="space-y-3">
               <p className="text-sm text-gray-400">
                 There are no workflow templates to start yet. A template is the list of steps a case goes through,
-                and it has to exist before a case can be started.
+                and it has to exist before a case can be started. Each template is seen only by the department that
+                owns it (and HR), so you only see your own department&apos;s.
               </p>
               {canManageTemplates(ctx) ? (
                 <Link
@@ -219,7 +220,7 @@ function StartWorkflowContent() {
                   Create a template
                 </Link>
               ) : (
-                <p className="text-sm text-gray-500">Ask an HR administrator or a manager to create one.</p>
+                <p className="text-sm text-gray-500">Ask an HR administrator or your department&apos;s manager to create one.</p>
               )}
             </div>
           ) : null}

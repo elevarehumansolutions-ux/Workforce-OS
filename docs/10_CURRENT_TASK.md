@@ -16,6 +16,13 @@ onboarding wizard** (no migration, no new deploy step beyond restarting the API)
 Stage 7 step 1 (the template), then goes on: Stage 5, 6, 7 outcomes (and the new steps 8 to 11), 8, 10, Stage 11
 steps 1 to 16, and Stage 9 last. We do each step together, one at a time.
 
+**2026-11-15 update:** Emmanuel passed Stage 7 steps 12 to 16 and raised four more findings, built the same day as
+to-dos 49 (department and position on the profile), 50 (people dropdowns show only the department's people, display
+only), 51 (workflow templates visible only to the owning department, HR and executives; a manager builds only for
+their own department) and 52 (a red count on "Tasks" that works without clocking in). Live tests: Stage 7 steps 17 to
+20. Then the plan continues with Stage 5 step 2 (midnight auto-close), Stage 6, Stage 7 steps 4 to 9, Stage 8, 10, 11
+and 9.
+
 Also on `fiscal-year-setting` (same night): the step form window and drag-to-reorder (to-dos 41, 42), then, from his
 Stage 7 finding that nobody was told about a new task, **a notification bell with an unread count (to-do 43) and
 an email when a task lands on someone (to-do 44)**. Deploy for 44: restart celery_worker, and the server needs a

@@ -134,7 +134,7 @@ async def test_the_department_and_template_must_exist_and_only_builders_add(clie
     foreign_department = await _add(client, w.hr, template["id"], "Step", other.dispatch)
     unknown_template = await _add(client, w.hr, "00000000-0000-0000-0000-000000000000", "Step", w.sales)
     by_employee = await _add(client, w.chidi.h, template["id"], "Step", w.sales)
-    by_manager = await _add(client, w.sam.h, template["id"], "Step", w.sales)
+    by_manager = await _add(client, w.dana.h, template["id"], "Step", w.sales)  # Dana manages Dispatch, the owner
     blank_name = await _add(client, w.hr, template["id"], "   ", w.sales)
 
     assert foreign_department.status_code == 404 and foreign_department.json()["code"] == "DEPARTMENT_NOT_FOUND"

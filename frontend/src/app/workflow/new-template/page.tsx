@@ -7,7 +7,8 @@ import { apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import { errorMessage, loadCaller, roleLabel } from "@/lib/tasks";
 import type { CallerContext } from "@/lib/tasks";
-import { canManageTemplates } from "@/lib/workflow";
+import { isHr } from "@/lib/tasks";
+import { canManageTemplates, departmentsToBuildFor } from "@/lib/workflow";
 import type { WorkflowTemplate } from "@/lib/workflow";
 
 export default function NewWorkflowTemplatePage() {
@@ -109,7 +110,7 @@ export default function NewWorkflowTemplatePage() {
               className={inputClass}
             >
               <option value="">Choose a department</option>
-              {ctx.departments.map(function (d) {
+              {departmentsToBuildFor(ctx).map(function (d) {
                 return (
                   <option key={d.id} value={d.id}>
                     {d.name}
@@ -117,7 +118,11 @@ export default function NewWorkflowTemplatePage() {
                 );
               })}
             </select>
-            <p className="mt-1 text-xs text-gray-500">Each step can still be done by a different department.</p>
+            <p className="mt-1 text-xs text-gray-500">
+              Each step can still be done by a different department. Only this department (and HR) will be able to see
+              the template and start cases from it.
+              {isHr(ctx) ? "" : " As a manager you can build workflows only for your own department."}
+            </p>
           </div>
           <p className="text-xs text-gray-500">You&apos;ll add the steps on the next screen.</p>
           <div className="flex items-center gap-2">

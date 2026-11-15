@@ -192,6 +192,22 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
     read it in the celery_worker log: `docker compose logs celery_worker | grep "STUB TASK EMAIL"`). Check
     that a task you give to yourself does NOT email you.
 
+17. (to-do 49) Open "My profile" as an employee, as a department head, and as HR with no employee record. Expect:
+    Department and Position (and "Head of <department>" for the head); "No department yet" for HR with no record.
+18. (to-do 50) Edit a step: before choosing "Done by", "Default person" says "Choose the department first". Choose
+    Dispatch: only Dispatch's people are listed. Change to Sales: the person and the KPI are cleared. Same for a
+    "Done together" department's person, on Assign task (and its extra departments), the inline "Assign to" on Needs
+    an owner, and Reassign on a task. A step saved earlier with someone from another department still shows that
+    person, marked "(not in this department)".
+19. (to-do 51) Templates belong to their department. As an employee of Dispatch: the template list shows Dispatch's
+    templates only. As the Sales manager: Dispatch's template is not listed, and opening its address says it was not
+    found or belongs to another department; Start Workflow does not offer it. As HR and as an executive: every
+    template is listed. As a manager: New template offers only your own department. A Sales person who takes part in
+    a Dispatch step still gets their task and can open the case, but cannot open the template.
+20. (to-do 52) The red number on "Tasks". Give a not-clocked-in employee a task: the menu shows a red 1 on Tasks (and
+    a red dot on the phone menu button); clicking it shows "Clock in to see your tasks". For a department head with
+    an unassigned task, the number counts it; after handing it out the number drops. After completing a task the
+    number drops on the next page change or within a minute.
 14. (to-do 48) A step several departments do together, rule "everyone". Edit a step: under "Done together with other
     departments" press "+ Add a department", choose another department (and optionally a person), keep "When every
     department has finished its part", save. The step list says "Together with <department>...". Start a case: the case

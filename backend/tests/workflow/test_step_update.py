@@ -115,7 +115,7 @@ async def test_only_builders_edit_and_the_step_must_exist(client, monkeypatch):
     url = f"{STEPS}/{step['id']}"
 
     by_employee = await client.patch(url, json={"name": "Hacked"}, headers=w.chidi.h)
-    by_manager = await client.patch(url, json={"name": "Renamed"}, headers=w.sam.h)
+    by_manager = await client.patch(url, json={"name": "Renamed"}, headers=w.dana.h)  # Dana manages Dispatch, the owner
     unknown = await client.patch(f"{STEPS}/00000000-0000-0000-0000-000000000000", json={"name": "X"}, headers=w.hr)
     someone_elses = await client.patch(f"{STEPS}/{theirs['id']}", json={"name": "X"}, headers=w.hr)
     await client.delete(f"{TEMPLATES}/{step['workflow_template_id']}", headers=w.hr)

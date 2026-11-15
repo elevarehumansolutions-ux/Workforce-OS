@@ -31,16 +31,20 @@ async def test_hr_creates_a_template_and_it_is_audited(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_manager_can_create_a_template_but_an_employee_cannot(client, monkeypatch):
-    """Dana (manager) may build; Chidi (employee) gets a 403."""
+    """Dana (manager of Dispatch) may build for Dispatch, not for Sales; Chidi (employee) gets a 403."""
     w = await _world(client, monkeypatch, "wt2")
-    body = {"name": "Client Onboarding", "department_id": w.sales}
+    body = {"name": "Client Onboarding", "department_id": w.dispatch}
 
     by_manager = await client.post(TEMPLATES, json=body, headers=w.dana.h)
     by_employee = await client.post(TEMPLATES, json=body, headers=w.chidi.h)
+    for_another_department = await client.post(
+        TEMPLATES, json={"name": "Sales process", "department_id": w.sales}, headers=w.dana.h
+    )
 
     assert by_manager.status_code == 200
     assert by_manager.json()["created_by_user_id"] == w.dana.user_id
     assert by_employee.status_code == 403
+    assert for_another_department.status_code == 403  # a manager builds only for their own department
 
 
 @pytest.mark.asyncio

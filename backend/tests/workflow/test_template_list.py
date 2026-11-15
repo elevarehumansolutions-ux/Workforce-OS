@@ -19,19 +19,22 @@ def _names(response) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_any_member_lists_templates_by_name_and_sees_only_their_own_company(client, monkeypatch):
-    """An employee can read; the list is alphabetical; another company's templates never appear."""
+async def test_a_member_sees_only_their_own_departments_templates_and_hr_sees_all(client, monkeypatch):
+    """Chidi (Dispatch) sees Dispatch's template only; HR sees both, alphabetical; another company's never appear."""
     w = await _world(client, monkeypatch, "tl1")
     other = await _world(client, monkeypatch, "tl2")
     await _create(client, w.hr, "Refund Request", w.sales)
     await _create(client, w.hr, "Client Onboarding", w.dispatch)
     await _create(client, other.hr, "Someone Else's Process", other.dispatch)
 
-    listed = await client.get(TEMPLATES, headers=w.chidi.h)
+    by_employee = await client.get(TEMPLATES, headers=w.chidi.h)
+    by_hr = await client.get(TEMPLATES, headers=w.hr)
 
-    assert listed.status_code == 200
-    assert _names(listed) == ["Client Onboarding", "Refund Request"]
-    assert listed.json()["pagination"]["total"] == 2
+    assert by_employee.status_code == 200
+    assert _names(by_employee) == ["Client Onboarding"]
+    assert by_employee.json()["pagination"]["total"] == 1
+    assert _names(by_hr) == ["Client Onboarding", "Refund Request"]
+    assert by_hr.json()["pagination"]["total"] == 2
 
 
 @pytest.mark.asyncio

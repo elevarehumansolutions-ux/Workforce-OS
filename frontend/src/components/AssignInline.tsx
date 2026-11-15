@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { apiFetch } from "@/lib/api";
 import PersonSelect from "@/components/PersonSelect";
-import { activeEmployees, errorMessage, localInputToIso } from "@/lib/tasks";
+import { errorMessage, localInputToIso, peopleOfDepartment } from "@/lib/tasks";
 import type { CallerContext, Task } from "@/lib/tasks";
+import { refreshWaitingCount } from "@/lib/waitingCount";
 
 interface AssignInlineProps {
   task: Task;
@@ -50,6 +51,7 @@ export default function AssignInline({ task, ctx, onAssigned }: AssignInlineProp
         method: "POST",
         body: { assigned_to_employee_id: personId, due_at: dueIso },
       });
+      refreshWaitingCount();
       onAssigned();
     } catch (err) {
       setError(errorMessage(err, "Couldn't assign this task. Check your connection and try again."));
@@ -65,7 +67,7 @@ export default function AssignInline({ task, ctx, onAssigned }: AssignInlineProp
       <div className="min-w-[14rem] flex-1">
         <label className="mb-1 block text-xs text-gray-500">Assign to</label>
         <PersonSelect
-          people={activeEmployees(ctx)}
+          people={peopleOfDepartment(ctx, task.department_id)}
           positions={ctx.positions}
           departments={ctx.departments}
           value={personId}

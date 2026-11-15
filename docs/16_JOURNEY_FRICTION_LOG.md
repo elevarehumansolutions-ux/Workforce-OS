@@ -27,6 +27,9 @@ Each entry: what the person had to do by hand, the cause, what was done, and the
 | A8 | Template building is step by step by hand, every field | No drafting | OPEN | **Describe the process, system drafts the template (top candidate)** |
 | A9 | Some steps need two or more departments to do the work together (for example Legal and Finance both sign off); a step has exactly one department and steps run strictly one after another | Settled MVP decision 2026-10-12: sequential only, one department per step | Fixed (to-do 48, 2026-11-14; Emmanuel approved changing the decision and said all three shapes are valid): extra departments on a step with the rule "everyone" or "the lead decides", and one one-off task assigned to several departments; every department's person is told and emailed | Draft "together" steps from the description (A8) |
 
+| A10 | In the step form, after choosing the department, "Default person" still lists everyone in the company | One shared people dropdown, grouped by department but not filtered | Fixed, display only (to-do 50, 2026-11-15: the list shows only that department's people; the server does not enforce it yet) | Pick the person automatically from the department |
+| A11 | Every member can see every workflow template and its steps | Templates are readable by the whole company (2026-10-12) | Fixed (to-do 51, 2026-11-15: a template is seen and started only by its owning department, HR and executives; a manager builds only for their own department) | none |
+
 ## Journey B: department head receives and hands out work
 
 | # | Friction | Cause | Status | Automation it suggests |
@@ -43,6 +46,8 @@ Each entry: what the person had to do by hand, the cause, what was done, and the
 |---|---|---|---|---|
 | C1 | After clocking in, "My tasks" can be empty because the task was never assigned to this person | Unassigned work is invisible to members | Eased for heads (B1); members still cannot see or pick up unassigned work | Auto-assign; or "pick up" for members (not decided) |
 | C2 | Tasks only appear after clocking in; a person who forgets sees an empty list. Emmanuel (Stage 5): "one could forget to clock in; what about having to clock in first when logging in?" | Attendance gate, nothing prompts at sign-in | Fixed (to-do 47, 2026-11-14): a clock-in prompt window right after sign-in (employees only, on a working day, inside the company's working hours, once per sign-in, "Not now" allowed); NOT a hard block (HR, executives and people with no employee record must still be able to sign in). Optional later: a company setting to clock in automatically at sign-in (rejected for now: attendance would only mean "logged in") | Clock-in prompt at sign-in; reminder when the first task arrives |
+| C4 | A signed-in person cannot see which department they belong to | The profile shows no employee data | Fixed (to-do 49, 2026-11-15: the profile shows department, position and "Head of") | none |
+| C5 | Nothing on the menu says work is waiting; a person who has not clocked in learns only after opening Tasks | No indicator on "Tasks" | Fixed (to-do 52, 2026-11-15: a red count on Tasks that works without clocking in; the click goes to the existing clock-in message) | The sign-in clock-in prompt already helps (to-do 47) |
 | C3 | "Linked KPI: None" with no explanation | Bare text | Fixed (to-do 46: says what it costs) | none |
 
 ## Still to examine (not yet walked)

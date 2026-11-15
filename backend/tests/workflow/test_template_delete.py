@@ -79,7 +79,7 @@ async def test_only_hr_and_managers_delete_and_the_template_must_exist(client, m
     url = f"{TEMPLATES}/{template['id']}"
 
     by_employee = await client.delete(url, headers=w.chidi.h)
-    by_manager = await client.delete(url, headers=w.sam.h)
+    by_manager = await client.delete(url, headers=w.dana.h)  # Dana manages Dispatch, the owning department
     again = await client.delete(url, headers=w.hr)
     unknown = await client.delete(f"{TEMPLATES}/00000000-0000-0000-0000-000000000000", headers=w.hr)
 

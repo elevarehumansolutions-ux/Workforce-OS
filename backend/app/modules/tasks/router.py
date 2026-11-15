@@ -29,6 +29,7 @@ from .schemas import (
     TaskReassignRequest,
     TaskResponse,
     TaskUpdateRequest,
+    WaitingCountResponse,
 )
 from .service import TaskService
 
@@ -139,6 +140,20 @@ async def list_tasks(
     )
     result.data = [_task_response(task, now) for task in result.data]
     return result
+
+
+@router.get("/tasks/waiting-count", status_code=200)
+async def count_waiting_tasks(
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(get_current_membership),
+) -> WaitingCountResponse:
+    """How much work is waiting for the caller: their open tasks, plus the unassigned ones they may hand out.
+
+    Works without being clocked in (it only counts; opening the tasks still needs a clock-in). Cheap, so the
+    menu can ask often. Declared before ``/tasks/{task_id}`` so the word is not read as an id.
+    """
+    assigned, to_hand_out = await TaskService(db).count_waiting(caller)
+    return WaitingCountResponse(assigned_to_me=assigned, to_hand_out=to_hand_out, total=assigned + to_hand_out)
 
 
 @router.get("/tasks/{task_id}", status_code=200)
