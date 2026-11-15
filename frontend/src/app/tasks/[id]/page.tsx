@@ -25,6 +25,7 @@ import {
   formatDuration,
   isNotClockedIn,
   isoToLocalInput,
+  kpiDetail,
   loadCaller,
   localInputToIso,
   reviewStatusClasses,
@@ -710,7 +711,7 @@ function TaskDetailContent() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-gray-500">Linked KPI</label>
+                  <label className="mb-1 block text-xs text-gray-500">Which goal (KPI) does this move forward?</label>
                   <select
                     value={editKpi}
                     onChange={function (e) {
@@ -718,15 +719,26 @@ function TaskDetailContent() {
                     }}
                     className={inputClass}
                   >
-                    <option value="">No linked KPI</option>
-                    {ctx.kpis.map(function (k) {
-                      return (
-                        <option key={k.id} value={k.id}>
-                          {k.name} ({departmentName(ctx, k.department_id)})
-                        </option>
-                      );
-                    })}
+                    <option value="">Not linked: it won&apos;t count in performance scores</option>
+                    {ctx.kpis
+                      .filter(function (k) {
+                        // The department doing the work: its KPIs are the ones that count for it in scoring.
+                        // A KPI already chosen stays listed even if it is from another department.
+                        return k.department_id === task.department_id || k.id === editKpi;
+                      })
+                      .map(function (k) {
+                        return (
+                          <option key={k.id} value={k.id}>
+                            {k.name} ({departmentName(ctx, k.department_id)})
+                          </option>
+                        );
+                      })}
                   </select>
+                  {editKpi ? (
+                    <p className="mt-1 text-xs text-gray-400">
+                      {kpiDetail(ctx.kpis.find(function (k) { return k.id === editKpi; }))}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <p className="text-xs text-gray-500">To change who the task is assigned to, use Reassign.</p>

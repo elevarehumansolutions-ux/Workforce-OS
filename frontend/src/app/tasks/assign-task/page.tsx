@@ -11,8 +11,10 @@ import {
   canCreateTasks,
   canPickAssignee,
   errorMessage,
+  kpiDetail,
   loadCaller,
   localInputToIso,
+  onlyKpiOf,
   roleLabel,
 } from "@/lib/tasks";
 import type { CallerContext, Task } from "@/lib/tasks";
@@ -164,7 +166,8 @@ export default function AssignTaskPage() {
               value={departmentId}
               onChange={function (e) {
                 setDepartmentId(e.target.value);
-                setKpiId("");
+                // A department with just one KPI has it chosen for the person; otherwise they choose.
+                setKpiId(onlyKpiOf(ctx, e.target.value));
                 setAssigneeId("");
               }}
               className={inputClass}
@@ -233,7 +236,7 @@ export default function AssignTaskPage() {
 
             <div>
               <label htmlFor="kpi" className="mb-2 block text-sm font-medium text-gray-200">
-                Linked KPI <span className="text-gray-500">(optional)</span>
+                Which goal (KPI) does this move forward? <span className="text-gray-500">(optional)</span>
               </label>
               <select
                 id="kpi"
@@ -244,7 +247,7 @@ export default function AssignTaskPage() {
                 }}
                 className={inputClass + " disabled:opacity-60"}
               >
-                <option value="">{departmentId ? "No linked KPI" : "Choose a department first"}</option>
+                <option value="">{departmentId ? "Not linked: it won't count in performance scores" : "Choose a department first"}</option>
                 {departmentKpis.map(function (k) {
                   return (
                     <option key={k.id} value={k.id}>
@@ -253,6 +256,19 @@ export default function AssignTaskPage() {
                   );
                 })}
               </select>
+              {kpiId ? (
+                <p className="mt-1 text-xs text-gray-400">
+                  {kpiDetail(departmentKpis.find(function (k) { return k.id === kpiId; }))}
+                </p>
+              ) : null}
+              {departmentId && departmentKpis.length === 1 && kpiId === departmentKpis[0].id ? (
+                <p className="mt-1 text-xs text-gray-500">
+                  This is the only KPI of this department, so it is chosen for you. Pick the empty option to unlink it.
+                </p>
+              ) : null}
+              {departmentId && departmentKpis.length === 0 ? (
+                <p className="mt-1 text-xs text-gray-500">This department has no KPIs yet, so the task cannot count toward a score.</p>
+              ) : null}
               {errors.kpi_id ? <p className="mt-1 text-xs text-red-400">{errors.kpi_id}</p> : null}
             </div>
           </div>

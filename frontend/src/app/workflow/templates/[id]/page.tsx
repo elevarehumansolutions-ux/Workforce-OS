@@ -6,7 +6,7 @@ import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
-import { currentPersonOption, departmentName, employeeName, errorMessage, loadCaller, peopleOfDepartment, roleLabel } from "@/lib/tasks";
+import { currentPersonOption, departmentName, employeeName, errorMessage, kpiDetail, loadCaller, onlyKpiOf, peopleOfDepartment, roleLabel } from "@/lib/tasks";
 import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -474,8 +474,9 @@ export default function WorkflowTemplateDetailPage() {
             value={stepDept}
             onChange={function (e) {
               setStepDept(e.target.value);
-              // A KPI and a person belong to one department, so both choices are cleared when it changes.
-              setStepKpi("");
+              // A KPI and a person belong to one department, so the person is cleared when it changes, and the
+              // KPI is chosen for them if the department has just one (otherwise they choose).
+              setStepKpi(ctx ? onlyKpiOf(ctx, e.target.value) : "");
               setStepAssignee("");
             }}
             className={inputClass}
@@ -537,7 +538,15 @@ export default function WorkflowTemplateDetailPage() {
             {ctx && stepDept && ctx.kpis.filter(function (k) { return k.department_id === stepDept; }).length === 0
               ? " This department has no KPIs yet."
               : ""}
+            {ctx && stepDept && ctx.kpis.filter(function (k) { return k.department_id === stepDept; }).length === 1 && stepKpi
+              ? " It is the department's only KPI, so it is chosen for you."
+              : ""}
           </p>
+          {ctx && stepKpi ? (
+            <p className="mt-1 text-xs text-gray-400">
+              {kpiDetail(ctx.kpis.find(function (k) { return k.id === stepKpi; }))}
+            </p>
+          ) : null}
         </div>
         <div className="rounded-xl border border-white/10 p-4 sm:col-span-2">
           <p className="text-sm font-medium text-gray-200">Done together with other departments (optional)</p>
@@ -552,7 +561,7 @@ export default function WorkflowTemplateDetailPage() {
                   <label className="mb-1 block text-xs text-gray-500">Department</label>
                   <select
                     value={p.department_id}
-                    onChange={function (e) { updateParticipant(index, { department_id: e.target.value, kpi_id: "", default_assignee_employee_id: "" }); }}
+                    onChange={function (e) { updateParticipant(index, { department_id: e.target.value, kpi_id: ctx ? onlyKpiOf(ctx, e.target.value) : "", default_assignee_employee_id: "" }); }}
                     className={inputClass}
                   >
                     <option value="">Choose a department</option>

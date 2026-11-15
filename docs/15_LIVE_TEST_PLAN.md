@@ -208,6 +208,11 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
     not-clocked-in employee a task: the bell shows 1; the Tasks page says "Clock in to see your tasks".
 21. (to-do 53) Open a task from the TASK LIST (not from the bell): the bell's number drops by one at once. Open another
     from the bell: same. A notification about a different task stays unread.
+23. (to-do 55) Choosing the KPI. On Assign task choose a department that has exactly ONE KPI: it is already chosen, with
+    a note and its description and target underneath; choose a department with several KPIs: nothing is chosen, the
+    empty choice says "Not linked: it won't count in performance scores", and picking one shows its description and
+    target. Same in the workflow step form (and each "together" department). On a task's edit form the list shows the
+    KPIs of the task's department.
 22. (to-do 54) On a long page (the employee directory, a long template, the audit log) scroll down: the left menu stays
     in view with the person's name and Sign out at the bottom, and the page scrolls on its own. Check it on Settings,
     Team Management and an employee's page too (they draw their own menu).

@@ -91,6 +91,29 @@ export interface Kpi {
   id: string;
   department_id: string;
   name: string;
+  // What the KPI measures and what the target is, to help people choose the right one.
+  description?: string | null;
+  target_value?: string | number | null;
+  unit?: string | null;
+}
+
+// The id of the department's KPI when it has exactly ONE (so a form can choose it for the person), else "".
+export function onlyKpiOf(ctx: { kpis: Kpi[] }, departmentId: string): string {
+  const mine = ctx.kpis.filter(function (k) {
+    return k.department_id === departmentId;
+  });
+  return mine.length === 1 ? mine[0].id : "";
+}
+
+// One plain line about a KPI for under a dropdown: what it measures and its target, when they are set.
+export function kpiDetail(k: Kpi | undefined): string {
+  if (!k) return "";
+  const parts: string[] = [];
+  if (k.description) parts.push(k.description);
+  if (k.target_value !== null && k.target_value !== undefined && k.target_value !== "") {
+    parts.push("Target: " + String(Number(k.target_value)) + (k.unit ? " " + k.unit : ""));
+  }
+  return parts.join(" · ");
 }
 
 export interface PaginationInfo {
