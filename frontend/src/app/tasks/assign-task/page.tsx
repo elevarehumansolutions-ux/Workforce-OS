@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
+import DeadlineHint from "@/components/DeadlineHint";
 import PersonSelect from "@/components/PersonSelect";
 import {
   peopleOfDepartment,
@@ -231,6 +232,7 @@ export default function AssignTaskPage() {
                 }}
                 className={inputClass}
               />
+              <DeadlineHint value={dueLocal} />
               {errors.due_at ? <p className="mt-1 text-xs text-red-400">{errors.due_at}</p> : null}
             </div>
 

@@ -7,6 +7,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
 import BlockReviewActions from "@/components/BlockReviewActions";
+import DeadlineHint from "@/components/DeadlineHint";
 import { NOTIFICATIONS_CHANGED } from "@/components/NotificationBell";
 import TogetherCard from "@/components/TogetherCard";
 import {
@@ -778,6 +779,13 @@ function TaskDetailContent() {
                     }}
                     className={inputClass}
                   />
+                  <DeadlineHint value={editDue} />
+                  {task.approved_blocked_seconds > 0 ? (
+                    <p className="mt-1 text-xs text-amber-300">
+                      Reviewers have already given this task {formatDuration(task.approved_blocked_seconds)} of extra time. This
+                      box sets the WRITTEN deadline; the real deadline is this plus that extra time.
+                    </p>
+                  ) : null}
                 </div>
                 <div>
                   <label className="mb-1 block text-xs text-gray-500">Which goal (KPI) does this move forward?</label>
@@ -908,6 +916,7 @@ function TaskDetailContent() {
                     }}
                     className={inputClass}
                   />
+                  <DeadlineHint value={reassignDue} />
                 </div>
               </div>
               <div className="flex items-center gap-2">
