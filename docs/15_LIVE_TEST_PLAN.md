@@ -236,6 +236,11 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
     not-clocked-in employee a task: the bell shows 1; the Tasks page says "Clock in to see your tasks".
 21. (to-do 53) Open a task from the TASK LIST (not from the bell): the bell's number drops by one at once. Open another
     from the bell: same. A notification about a different task stays unread.
+24. (to-do 64) The deadline hint. On Assign task, a task's Edit, Reassign, and the inline Assign on "Needs an owner",
+    every deadline box has a line under it saying how far away the chosen time is: pick a time 3 minutes ahead and it
+    says "That is in 3 minutes (...)"; leave the date on tomorrow and it says "That is in 1 day"; pick a past time and it
+    says in amber "That time has already passed". On a task that has extra time from a reviewer, Edit also warns that the
+    box sets the WRITTEN deadline and the real one is that plus the extra time.
 23. (to-do 55) Choosing the KPI. On Assign task choose a department that has exactly ONE KPI: it is already chosen, with
     a note and its description and target underneath; choose a department with several KPIs: nothing is chosen, the
     empty choice says "Not linked: it won't count in performance scores", and picking one shows its description and
