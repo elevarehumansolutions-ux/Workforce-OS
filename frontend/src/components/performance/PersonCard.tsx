@@ -1,6 +1,19 @@
 import Link from "next/link";
 import { scoreClasses, scoreText } from "@/lib/performance";
+import ChartCard from "@/components/charts/ChartCard";
+import BarList, { BarTable } from "@/components/charts/BarList";
+import type { BarRow } from "@/components/charts/BarList";
 import type { PersonPerformance } from "@/lib/performance";
+
+function kpiRows(data: PersonPerformance): BarRow[] {
+  return data.kpis.map(function (line) {
+    return {
+      label: line.kpi_name,
+      value: line.score_percentage === null ? null : Number(line.score_percentage),
+      note: "weight " + scoreText(line.weight) + "%",
+    };
+  });
+}
 
 // The body of a person's performance card: the overall score, how many KPIs it
 // rests on, and one row per KPI. Used for "My performance" and for a colleague's card.
@@ -26,6 +39,17 @@ export default function PersonCard(props: { data: PersonPerformance }) {
           )}
         </div>
       </div>
+
+      {data.kpis.length > 0 ? (
+        <div className="mt-6">
+          <ChartCard
+            title="Score for each KPI"
+            subtitle="The line marks 100. A KPI with no tasks yet shows no bar."
+            chart={<BarList rows={kpiRows(data)} />}
+            table={<BarTable rows={kpiRows(data)} valueHeading="KPI score" />}
+          />
+        </div>
+      ) : null}
 
       {data.kpis.length > 0 ? (
         <div className="mt-6 overflow-x-auto">
