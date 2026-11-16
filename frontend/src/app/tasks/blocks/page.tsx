@@ -3,13 +3,12 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
-import ExtensionPicker from "@/components/ExtensionPicker";
+import BlockReviewActions from "@/components/BlockReviewActions";
 import {
   blockCategoryLabel,
   departmentName,
-  effectiveDeadline,
   errorMessage,
   formatDateTime,
   formatDuration,
@@ -42,13 +41,18 @@ function lengthOf(block: ReviewBlock): string {
   return formatDuration(seconds);
 }
 
-// Where the reviewer's box starts: what the person said they would need, otherwise the time the block has
-// lasted so far, rounded up to a quarter of an hour (at least 15 minutes). The reviewer changes it freely.
-function suggestedMinutes(block: ReviewBlock): number {
-  if (block.estimated_seconds) return Math.max(1, Math.round(block.estimated_seconds / 60));
-  const end = block.unblocked_at ? new Date(block.unblocked_at).getTime() : Date.now();
-  const lived = Math.max(0, (end - new Date(block.blocked_at).getTime()) / 60000);
-  return Math.max(15, Math.ceil(lived / 15) * 15);
+// Blocks that belong to the same task, kept together in the order they first appear (the list is newest first).
+function groupByTask(blocks: ReviewBlock[]): ReviewBlock[][] {
+  const groups: ReviewBlock[][] = [];
+  const indexByTask: Record<string, number> = {};
+  for (const b of blocks) {
+    if (indexByTask[b.task_id] === undefined) {
+      indexByTask[b.task_id] = groups.length;
+      groups.push([]);
+    }
+    groups[indexByTask[b.task_id]].push(b);
+  }
+  return groups;
 }
 
 function BlocksContent() {
@@ -61,11 +65,6 @@ function BlocksContent() {
   const [page, setPage] = useState(1);
   const [reloadCounter, setReloadCounter] = useState(0);
   const [result, setResult] = useState<ListResult | null>(null);
-  const [busyId, setBusyId] = useState("");
-  const [actionError, setActionError] = useState("");
-  // The block whose approve panel is open, and the extra time the reviewer has chosen in it (minutes; 0 = not valid).
-  const [approvingId, setApprovingId] = useState("");
-  const [extensionMinutes, setExtensionMinutes] = useState(0);
 
   const key = [tab, page, reloadCounter].join("|");
   const loading = result === null || result.key !== key;
@@ -119,36 +118,14 @@ function BlocksContent() {
     [tab, page, key]
   );
 
-  async function review(block: ReviewBlock, decision: "approve" | "reject", minutes: number = 0) {
-    setActionError("");
-    setBusyId(block.id);
-    try {
-      // Approving takes the extra time the reviewer chose; rejecting takes nothing.
-      const body = decision === "approve" ? { extension_minutes: minutes } : undefined;
-      await apiFetch("/task-blocks/" + block.id + "/" + decision, { method: "POST", body: body });
-      setApprovingId("");
-      setReloadCounter(reloadCounter + 1);
-    } catch (err) {
-      if (err instanceof ApiError && err.code === "TASK_BLOCK_NOT_FOUND") {
-        setActionError("That block wasn't found. It may be outside your reach now.");
-      } else if (err instanceof ApiError && err.code === "TASK_BLOCK_ALREADY_REVIEWED") {
-        setActionError("This block has already been reviewed. The list has been refreshed.");
-        setReloadCounter(reloadCounter + 1);
-      } else {
-        setActionError(errorMessage(err, "Couldn't save your decision. Check your connection and try again."));
-      }
-    } finally {
-      setBusyId("");
-    }
-  }
-
   function changeTab(next: ReviewStatus) {
     setTab(next);
     setPage(1);
-    setActionError("");
   }
 
   const blocks = result ? result.blocks : [];
+  // Waiting blocks of one task are decided together, so they are shown as one card.
+  const groups = tab === "pending" ? groupByTask(blocks) : blocks.map(function (b) { return [b]; });
 
   return (
     <AppShell
@@ -167,7 +144,8 @@ function BlocksContent() {
         When someone says a task is stuck because of something outside their hands, it shows up here. If you approve
         a block, YOU choose how much extra time the task gets, and its deadline moves later by that amount straight
         away. The block then ends and the task is open again. If you reject it, the task keeps its deadline and the
-        block ends. Either decision is final, so if the cause persists the person raises a new block.
+        block ends. Either decision is final, so if the cause persists the person raises a new block. If a task has
+        several blocks waiting, one decision covers all of them. You can also decide from the task&apos;s own page.
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
@@ -191,10 +169,6 @@ function BlocksContent() {
         })}
       </div>
 
-      {actionError && (
-        <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{actionError}</div>
-      )}
-
       <div className="mt-5 space-y-3">
         {loading ? (
           <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-10 text-center text-sm text-gray-500">Loading…</div>
@@ -205,11 +179,14 @@ function BlocksContent() {
             {tab === "pending" ? "Nothing is waiting for your review." : "No " + tab + " blocks yet."}
           </div>
         ) : (
-          blocks.map(function (b) {
-            const highlighted = b.id === highlightId;
+          groups.map(function (group) {
+            const first = group[0];
+            const highlighted = group.some(function (b) {
+              return b.id === highlightId;
+            });
             return (
               <div
-                key={b.id}
+                key={first.task_id + "|" + first.id}
                 className={
                   "rounded-2xl border bg-[#0d1220]/80 p-5 shadow-xl " +
                   (highlighted ? "border-indigo-500/60" : "border-white/10")
@@ -217,107 +194,54 @@ function BlocksContent() {
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-base font-semibold">{b.task_title}</p>
+                    <Link href={"/tasks/" + first.task_id} className="text-base font-semibold text-white hover:text-indigo-300">
+                      {first.task_title}
+                    </Link>
                     <p className="mt-0.5 text-xs text-gray-500">
-                      {ctx ? departmentName(ctx, b.task_department_id) : "Department"} · Deadline {formatDateTime(b.task_due_at)}
+                      {ctx ? departmentName(ctx, first.task_department_id) : "Department"} · Deadline{" "}
+                      {formatDateTime(first.task_due_at)}
                     </p>
                   </div>
-                  <span className={"rounded-full px-3 py-1 text-xs font-medium " + reviewStatusClasses(b.review_status)}>
-                    {reviewStatusLabel(b.review_status)}
-                  </span>
+                  {tab !== "pending" ? (
+                    <span className={"rounded-full px-3 py-1 text-xs font-medium " + reviewStatusClasses(first.review_status)}>
+                      {reviewStatusLabel(first.review_status)}
+                    </span>
+                  ) : null}
                 </div>
 
-                <div className="mt-3 rounded-lg bg-white/5 p-3 text-sm">
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{blockCategoryLabel(b.category)}</p>
-                  <p className="mt-1 whitespace-pre-wrap text-gray-200">{b.reason}</p>
-                </div>
-
-                <p className="mt-3 text-xs text-gray-500">
-                  Blocked {formatDateTime(b.blocked_at)}
-                  {b.unblocked_at ? " · Ended " + formatDateTime(b.unblocked_at) : ""} · Length: {lengthOf(b)}
-                  {b.reviewed_at ? " · Reviewed " + formatDateTime(b.reviewed_at) : ""}
-                </p>
-                {b.estimated_seconds ? (
-                  <p className="mt-1 text-xs text-gray-400">The person asked for {formatDuration(b.estimated_seconds)} more.</p>
-                ) : null}
-                {b.review_status === "approved" && b.granted_seconds ? (
-                  <p className="mt-1 text-xs text-emerald-300">Extra time given: {formatDuration(b.granted_seconds)}.</p>
-                ) : null}
-
-                {b.review_status === "pending" && approvingId === b.id && (
-                  <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
-                    <p className="text-sm font-medium text-gray-100">How much extra time does this task get?</p>
-                    <p className="mt-1 text-xs text-gray-400">
-                      You decide, and it does not depend on how long the person stays blocked.
-                    </p>
-                    <div className="mt-3">
-                      <ExtensionPicker defaultMinutes={extensionMinutes} onChange={setExtensionMinutes} disabled={busyId === b.id} />
-                    </div>
-                    {b.task_due_at ? (
-                      <p className="mt-3 text-xs text-gray-300">
-                        {extensionMinutes > 0 ? (
-                          <>
-                            New deadline:{" "}
-                            <span className="font-medium text-white">
-                              {formatDateTime(
-                                (effectiveDeadline(b.task_due_at, b.task_approved_blocked_seconds, extensionMinutes * 60) as Date).toISOString()
-                              )}
-                            </span>{" "}
-                            (now {formatDateTime(effectiveDeadline(b.task_due_at, b.task_approved_blocked_seconds)?.toISOString() || null)})
-                          </>
-                        ) : (
-                          "Enter a whole number of minutes, hours or days (at least 1 minute, at most 30 days)."
-                        )}
+                {group.map(function (b) {
+                  return (
+                    <div key={b.id} className="mt-3">
+                      <div className="rounded-lg bg-white/5 p-3 text-sm">
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{blockCategoryLabel(b.category)}</p>
+                        <p className="mt-1 whitespace-pre-wrap text-gray-200">{b.reason}</p>
+                      </div>
+                      <p className="mt-2 text-xs text-gray-500">
+                        Blocked {formatDateTime(b.blocked_at)}
+                        {b.unblocked_at ? " · Ended " + formatDateTime(b.unblocked_at) : ""} · Length: {lengthOf(b)}
+                        {b.reviewed_at ? " · Reviewed " + formatDateTime(b.reviewed_at) : ""}
                       </p>
-                    ) : null}
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      <button
-                        type="button"
-                        disabled={busyId === b.id || extensionMinutes < 1 || extensionMinutes > 43200}
-                        onClick={function () {
-                          review(b, "approve", extensionMinutes);
-                        }}
-                        className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {extensionMinutes >= 1 ? "Approve and give " + formatDuration(extensionMinutes * 60) : "Approve"}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busyId === b.id}
-                        onClick={function () {
-                          setApprovingId("");
-                        }}
-                        className="rounded-lg border border-white/15 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/5"
-                      >
-                        Cancel
-                      </button>
+                      {b.estimated_seconds ? (
+                        <p className="mt-1 text-xs text-gray-400">The person asked for {formatDuration(b.estimated_seconds)} more.</p>
+                      ) : null}
+                      {b.review_status === "approved" && b.granted_seconds ? (
+                        <p className="mt-1 text-xs text-emerald-300">Extra time given: {formatDuration(b.granted_seconds)}.</p>
+                      ) : null}
                     </div>
-                  </div>
-                )}
+                  );
+                })}
 
-                {b.review_status === "pending" && approvingId !== b.id && (
-                  <div className="mt-4 flex gap-3">
-                    <button
-                      type="button"
-                      disabled={busyId === b.id}
-                      onClick={function () {
-                        setApprovingId(b.id);
-                        setExtensionMinutes(suggestedMinutes(b));
+                {tab === "pending" && (
+                  <div className="mt-4">
+                    <BlockReviewActions
+                      block={first}
+                      taskDueAt={first.task_due_at}
+                      taskApprovedSeconds={first.task_approved_blocked_seconds}
+                      waitingCount={group.length}
+                      onDecided={function () {
+                        setReloadCounter(reloadCounter + 1);
                       }}
-                      className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-50"
-                    >
-                      Approve…
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busyId === b.id}
-                      onClick={function () {
-                        review(b, "reject");
-                      }}
-                      className="rounded-lg border border-red-500/40 px-4 py-2 text-sm font-semibold text-red-300 hover:bg-red-500/10 disabled:opacity-50"
-                    >
-                      Reject
-                    </button>
+                    />
                   </div>
                 )}
               </div>

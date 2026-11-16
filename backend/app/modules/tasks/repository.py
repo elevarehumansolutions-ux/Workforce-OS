@@ -509,6 +509,16 @@ class TaskRepository:
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
 
+    async def list_pending_blocks_for_task(self, task_id: uuid.UUID) -> list[TaskBlock]:
+        """The task's blocks that are still waiting for a decision, oldest first."""
+        stmt = (
+            select(TaskBlock)
+            .where(TaskBlock.task_id == task_id, TaskBlock.review_status == ReviewStatus.PENDING.value)
+            .order_by(TaskBlock.blocked_at.asc(), TaskBlock.id)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
     async def close_block(self, block_id: uuid.UUID, now: datetime) -> TaskBlock | None:
         """Atomically end a block, but only if it is still open.
 

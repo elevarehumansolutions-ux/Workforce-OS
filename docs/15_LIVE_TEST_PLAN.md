@@ -150,6 +150,13 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 5. Mark a task blocked with a reason. Expect: the reviewer is notified; approve it; the task is no
    longer overdue.
 6. Reassign a task. Expect: the new person is told.
+10. (to-do 59) Deciding from the task page, and two waiting blocks. As the employee mark a task blocked, press Unblock,
+    then mark it blocked again (two blocks wait). As the reviewer open Tasks: the page opens on "All tasks I can see"
+    (the employee's own page still opens on "My tasks"). Open the blocked task: the Block history shows a panel "A block
+    on this task is waiting for your decision" with Approve… and Reject, and says the decision covers both blocks.
+    Approve with 1 hour: BOTH blocks show Approved, the task's deadline moves by 1 hour once (not 2), and the employee
+    gets ONE notification. On Blocks to review the same task shows as ONE card with both blocks listed and one set of
+    buttons. The employee's "Mark blocked" form warns if a block is already waiting.
 9. (to-do 58) A block left waiting. As the employee mark a task blocked and leave it unreviewed. As the database
    owner move its `blocked_at` back about 25 hours (the same idea as `14_PRODUCTION_TROUBLESHOOTING.md` section 14,
    on `task_blocks`), then run the scan (`celery -A app.core.celery_app call app.modules.tasks.tasks.overdue_scan`).

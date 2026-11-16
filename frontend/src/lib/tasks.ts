@@ -465,6 +465,17 @@ export function effectiveDeadline(dueAt: string | null, approvedSeconds: number,
   return new Date(due.getTime() + (approvedSeconds + extraSeconds) * 1000);
 }
 
+// Whether the signed-in person may approve or reject a block: HR, the head of the task's department, or the
+// blocker's own reporting manager; never the blocker. (Mirrors the server rule; the server has the last word.)
+export function canReviewBlock(ctx: CallerContext, task: Task, block: { blocked_by_user_id: string }): boolean {
+  if (block.blocked_by_user_id === ctx.userId) return false;
+  if (isHr(ctx) || isHeadOf(ctx, task.department_id)) return true;
+  const blocker = ctx.employees.find(function (e) {
+    return e.user_id === block.blocked_by_user_id;
+  });
+  return !!blocker && !!ctx.employee && blocker.manager_id === ctx.employee.id;
+}
+
 // Only the person the task is assigned to can say it is blocked.
 export function canBlockTask(ctx: CallerContext, task: Task): boolean {
   return isActiveTask(task) && task.blocked_since === null && isAssignee(ctx, task);
