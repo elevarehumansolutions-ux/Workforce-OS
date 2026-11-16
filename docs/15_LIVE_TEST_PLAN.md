@@ -150,6 +150,15 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 5. Mark a task blocked with a reason. Expect: the reviewer is notified; approve it; the task is no
    longer overdue.
 6. Reassign a task. Expect: the new person is told.
+8. (to-do 57) The reviewer sets the time. As the employee, open a task and press Mark blocked: there is an optional
+   "How much extra time do you think you will need?" (say 2 hours) and a note that the reviewer decides. As the
+   reviewer open Blocks to review: the block shows "The person asked for 2 hours more". Press Approve…: a panel asks
+   "How much extra time does this task get?" with quick choices and a custom amount, pre-filled with 2 hours, and
+   shows the new deadline. Choose 1 day and confirm: the task is NOT "Blocked" any more (no need to press Unblock),
+   its page says "Deadline = the written deadline (...) + 1 day of extra time given by reviewers", and the Block
+   history shows the block's length, who approved it, when, and "Extra time given: 1 day". The employee's bell says
+   who approved, how much, the new deadline and that the task is open again. Pressing Unblock afterwards is not
+   offered. Reject a second block: the task goes back to its own deadline and is not "Blocked".
 7. (to-do 56) The reminder before a deadline. Give the employee a task with a deadline about 3 hours ahead (it lives
    3 hours, so the reminder is due in its final hour: about 2 hours from now) and wait. The scan runs every 10
    minutes; in the final hour the employee gets "Due soon: <task>" in the bell and by email, saying when it is due

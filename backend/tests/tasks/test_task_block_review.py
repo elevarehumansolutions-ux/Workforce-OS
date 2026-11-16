@@ -15,6 +15,8 @@ from tests.tasks.test_tasks_router import NOTIFICATIONS, TASKS, _clock_in, _task
 BLOCKS = "/api/v1/task-blocks"
 EMPLOYEES = "/api/v1/employees"
 BLOCK = {"category": "awaiting_other_department", "reason": "Waiting for Finance to sign off"}
+# Approving now takes the extra time the reviewer chooses (08_DECISIONS.md 2026-11-16).
+APPROVE = {"extension_minutes": 60}
 
 
 async def _world_with_a_boss(client, monkeypatch, tag):
@@ -46,13 +48,13 @@ async def test_hr_the_head_and_the_boss_can_approve_but_the_blocker_and_stranger
     _, by_boss = await _blocked_task(client, w, "Three")
     _, untouched = await _blocked_task(client, w, "Four")
 
-    own = await client.post(f"{BLOCKS}/{untouched}/approve", headers=w.chidi.h)
-    stranger = await client.post(f"{BLOCKS}/{untouched}/approve", headers=w.bola.h)
-    other_manager = await client.post(f"{BLOCKS}/{untouched}/approve", headers=w.sam.h)
-    unknown = await client.post(f"{BLOCKS}/{uuid.uuid4()}/approve", headers=w.hr)
-    hr = await client.post(f"{BLOCKS}/{by_hr}/approve", headers=w.hr)
-    head = await client.post(f"{BLOCKS}/{by_head}/approve", headers=w.tunde.h)
-    boss = await client.post(f"{BLOCKS}/{by_boss}/approve", headers=w.dana.h)
+    own = await client.post(f"{BLOCKS}/{untouched}/approve", json=APPROVE, headers=w.chidi.h)
+    stranger = await client.post(f"{BLOCKS}/{untouched}/approve", json=APPROVE, headers=w.bola.h)
+    other_manager = await client.post(f"{BLOCKS}/{untouched}/approve", json=APPROVE, headers=w.sam.h)
+    unknown = await client.post(f"{BLOCKS}/{uuid.uuid4()}/approve", json=APPROVE, headers=w.hr)
+    hr = await client.post(f"{BLOCKS}/{by_hr}/approve", json=APPROVE, headers=w.hr)
+    head = await client.post(f"{BLOCKS}/{by_head}/approve", json=APPROVE, headers=w.tunde.h)
+    boss = await client.post(f"{BLOCKS}/{by_boss}/approve", json=APPROVE, headers=w.dana.h)
 
     for refused in (own, stranger, other_manager, unknown):
         assert refused.status_code == 404 and refused.json()["code"] == "TASK_BLOCK_NOT_FOUND"
@@ -68,9 +70,9 @@ async def test_a_block_is_decided_once_and_the_blocker_is_told(client, monkeypat
     _, approved = await _blocked_task(client, w, "Approved one")
     _, rejected = await _blocked_task(client, w, "Rejected one")
 
-    first = await client.post(f"{BLOCKS}/{approved}/approve", headers=w.dana.h)
+    first = await client.post(f"{BLOCKS}/{approved}/approve", json=APPROVE, headers=w.dana.h)
     again = await client.post(f"{BLOCKS}/{approved}/reject", headers=w.hr)
-    same_again = await client.post(f"{BLOCKS}/{approved}/approve", headers=w.hr)
+    same_again = await client.post(f"{BLOCKS}/{approved}/approve", json=APPROVE, headers=w.hr)
     no = await client.post(f"{BLOCKS}/{rejected}/reject", headers=w.tunde.h)
 
     assert first.status_code == 200 and no.json()["review_status"] == "rejected"
@@ -90,8 +92,8 @@ async def _backdate_block(db_session, org_id, block_id, days=1):
 
 
 @pytest.mark.asyncio
-async def test_approving_a_finished_block_gives_the_time_back_and_rejecting_does_not(client, monkeypatch, db_session):
-    """A day-long block: approved after unblocking -> about 86,400 seconds credited; rejected -> none."""
+async def test_approving_a_finished_block_gives_the_reviewers_time_and_rejecting_gives_none(client, monkeypatch, db_session):
+    """A day-long block the person already ended: approved with a day -> exactly 86,400 seconds; rejected -> none."""
     w = await _world_with_a_boss(client, monkeypatch, "er3")
     org_id = w.owner["organization"]["id"]
     good_task, good_block = await _blocked_task(client, w, "Good block")
@@ -101,30 +103,27 @@ async def test_approving_a_finished_block_gives_the_time_back_and_rejecting_does
     await client.post(f"{TASKS}/{good_task}/unblock", headers=w.chidi.h)
     await client.post(f"{TASKS}/{bad_task}/unblock", headers=w.chidi.h)
 
-    await client.post(f"{BLOCKS}/{good_block}/approve", headers=w.dana.h)
+    await client.post(f"{BLOCKS}/{good_block}/approve", json={"extension_minutes": 1440}, headers=w.dana.h)
     await client.post(f"{BLOCKS}/{bad_block}/reject", headers=w.dana.h)
 
     good = (await client.get(f"{TASKS}/{good_task}", headers=w.hr)).json()
     bad = (await client.get(f"{TASKS}/{bad_task}", headers=w.hr)).json()
-    assert 86400 <= good["approved_blocked_seconds"] < 86400 + 120
+    assert good["approved_blocked_seconds"] == 86400
     assert bad["approved_blocked_seconds"] == 0
 
 
 @pytest.mark.asyncio
-async def test_approving_a_block_that_is_still_open_credits_the_time_when_it_ends(client, monkeypatch, db_session):
-    """Approve first, unblock later: nothing yet while blocked; the day is credited at unblock."""
+async def test_approving_a_block_that_is_still_open_credits_the_time_at_once_and_ends_it(client, monkeypatch, db_session):
+    """Approve while blocked: the reviewer's day is credited now and the task is no longer blocked."""
     w = await _world_with_a_boss(client, monkeypatch, "er4")
     org_id = w.owner["organization"]["id"]
     tid, block_id = await _blocked_task(client, w)
     await _backdate_block(db_session, org_id, block_id)
 
-    await client.post(f"{BLOCKS}/{block_id}/approve", headers=w.dana.h)
-    while_blocked = (await client.get(f"{TASKS}/{tid}", headers=w.hr)).json()
-    await client.post(f"{TASKS}/{tid}/unblock", headers=w.chidi.h)
+    await client.post(f"{BLOCKS}/{block_id}/approve", json={"extension_minutes": 1440}, headers=w.dana.h)
     after = (await client.get(f"{TASKS}/{tid}", headers=w.hr)).json()
 
-    assert while_blocked["approved_blocked_seconds"] == 0 and while_blocked["blocked_since"] is not None
-    assert 86400 <= after["approved_blocked_seconds"] < 86400 + 120 and after["blocked_since"] is None
+    assert after["approved_blocked_seconds"] == 86400 and after["blocked_since"] is None
 
 
 @pytest.mark.asyncio
@@ -140,7 +139,7 @@ async def test_the_review_list_shows_exactly_what_a_person_may_review(client, mo
         in_list[name] = block_id in [b["id"] for b in listed.json()["data"]]
     may_approve = {}
     for name, headers in people.items():
-        attempt = await client.post(f"{BLOCKS}/{block_id}/approve", headers=headers)
+        attempt = await client.post(f"{BLOCKS}/{block_id}/approve", json=APPROVE, headers=headers)
         may_approve[name] = attempt.status_code != 404       # 200 the first time, then 409: both mean "allowed"
 
     assert in_list == may_approve
@@ -189,7 +188,7 @@ async def test_another_organization_cannot_review_a_block(client, monkeypatch):
     other = await register_verified_and_login(client, email="tk_other_er5@example.com")
 
     foreign = await client.post(
-        f"{BLOCKS}/{block_id}/approve", headers={"Authorization": f"Bearer {other['access_token']}"}
+        f"{BLOCKS}/{block_id}/approve", json=APPROVE, headers={"Authorization": f"Bearer {other['access_token']}"}
     )
 
     assert foreign.status_code == 404

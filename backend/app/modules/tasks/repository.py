@@ -600,6 +600,7 @@ class TaskRepository:
         decision: ReviewStatus,
         reviewer_user_id: uuid.UUID,
         now: datetime,
+        granted_seconds: int | None = None,
     ) -> TaskBlock | None:
         """Atomically approve or reject a block, but only if it is still pending.
 
@@ -608,6 +609,7 @@ class TaskRepository:
             decision: ``APPROVED`` or ``REJECTED``.
             reviewer_user_id: Who is deciding.
             now: The moment of the decision.
+            granted_seconds: For an approval, the extra time the reviewer gave; ``None`` for a rejection.
 
         Returns:
             The reviewed ``TaskBlock``, or ``None`` if it was not pending any more.
@@ -622,6 +624,7 @@ class TaskRepository:
                 review_status=decision.value,
                 reviewed_by_user_id=reviewer_user_id,
                 reviewed_at=now,
+                granted_seconds=granted_seconds,
             )
             .returning(TaskBlock)
             .execution_options(**_ATOMIC_UPDATE_OPTIONS)

@@ -242,6 +242,16 @@ class TaskBlock(BaseModel):
 
     __table_args__ = (
         CheckConstraint(
+            "estimated_seconds IS NULL OR estimated_seconds > 0", name="check_task_block_estimated_positive"
+        ),
+        CheckConstraint(
+            "granted_seconds IS NULL OR granted_seconds > 0", name="check_task_block_granted_positive"
+        ),
+        CheckConstraint(
+            "granted_seconds IS NULL OR review_status = 'approved'",
+            name="check_task_block_granted_only_when_approved",
+        ),
+        CheckConstraint(
             f"category IN {tuple(c.value for c in BlockCategory)}",
             name="check_task_block_category",
         ),
@@ -331,4 +341,20 @@ class TaskBlock(BaseModel):
         DateTime(timezone=True),
         nullable=True,
         doc="When it was reviewed; null while pending",
+    )
+
+    estimated_seconds: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="How much extra time the assignee said they would need (optional); only pre-fills the reviewer's box",
+    )
+
+    granted_seconds: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc=(
+            "The extra time the reviewer gave when approving, added to the task's approved_blocked_seconds at "
+            "approval. Null for a pending or rejected block, and for a block approved under the old rule "
+            "(time = how long the block lasted)"
+        ),
     )

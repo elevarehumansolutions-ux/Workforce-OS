@@ -64,6 +64,21 @@ _ORG_WIDE_ROLES = [MembershipRole.HR_ADMINISTRATOR.value, MembershipRole.BUSINES
 _CLOCK_IN_MESSAGE = "Clock in to see and work on your tasks."
 
 
+def describe_duration(seconds: int) -> str:
+    """A length of time in plain words for a notification: "1 day 2 hours", "45 minutes", "1 minute"."""
+    minutes = max(1, round(seconds / 60))
+    days, rest = divmod(minutes, 24 * 60)
+    hours, minutes = divmod(rest, 60)
+    parts = []
+    if days:
+        parts.append(f"{days} day" + ("s" if days != 1 else ""))
+    if hours:
+        parts.append(f"{hours} hour" + ("s" if hours != 1 else ""))
+    if minutes:
+        parts.append(f"{minutes} minute" + ("s" if minutes != 1 else ""))
+    return " ".join(parts)
+
+
 class _CallerContext:
     """Who is calling, as far as task rules care.
 
@@ -1072,7 +1087,12 @@ class TaskService:
         return updated
 
     async def block_task(
-        self, caller: Membership, task_id: uuid.UUID, category: BlockCategory, reason: str
+        self,
+        caller: Membership,
+        task_id: uuid.UUID,
+        category: BlockCategory,
+        reason: str,
+        estimated_seconds: int | None = None,
     ) -> TaskBlock:
         """Mark a task blocked: it can't move forward because of something outside the assignee's hands.
 
@@ -1111,6 +1131,8 @@ class TaskService:
                 "category": category.value,
                 "reason": reason,
                 "blocked_at": now,
+                # What the person thinks they will need: it only pre-fills the reviewer's box.
+                "estimated_seconds": estimated_seconds,
             }
         )
         await self._audit.log_action(
@@ -1122,7 +1144,13 @@ class TaskService:
             changes={
                 "old": {"blocked": False},
                 "new": jsonable_encoder(
-                    {"blocked": True, "block_id": block.id, "category": category.value, "reason": reason}
+                    {
+                        "blocked": True,
+                        "block_id": block.id,
+                        "category": category.value,
+                        "reason": reason,
+                        **({"estimated_seconds": estimated_seconds} if estimated_seconds is not None else {}),
+                    }
                 ),
             },
         )
@@ -1211,35 +1239,39 @@ class TaskService:
                     task_title=task.title,
                     task_department_id=task.department_id,
                     task_due_at=task.due_at,
+                    task_approved_blocked_seconds=task.approved_blocked_seconds,
                 )
             )
         result.data = items
         return result
 
-    async def approve_block(self, caller: Membership, block_id: uuid.UUID) -> TaskBlock:
-        """Approve a block: its blocked time is not held against the assignee.
+    async def approve_block(
+        self, caller: Membership, block_id: uuid.UUID, extension_seconds: int
+    ) -> TaskBlock:
+        """Approve a block and give the task the extra time the REVIEWER chooses.
 
-        Allowed to HR, the head of the task's department and the blocker's
-        reporting manager, never to the blocker. If the block has already
-        ended, its length is added to the task's approved blocked time now
-        (pushing the deadline later); if the task is still blocked, that
-        happens when it is unblocked.
+        Allowed to HR, the head of the task's department and the blocker's reporting manager, never to the
+        blocker. The extension is added to the task's approved blocked time now (pushing the deadline later), so
+        it does not depend on how long the person stays blocked (08_DECISIONS.md 2026-11-16). Approving also
+        ENDS the block: the task is open again and its clock runs on the new deadline. If the cause persists,
+        the person raises a new block for a new review.
 
         Raises:
             TaskBlockNotFoundException: If it doesn't exist or the caller may not review it.
             TaskBlockAlreadyReviewedException: If it was already approved or rejected.
         """
-        return await self._review_block(caller, block_id, ReviewStatus.APPROVED)
+        return await self._review_block(caller, block_id, ReviewStatus.APPROVED, extension_seconds)
 
     async def reject_block(self, caller: Membership, block_id: uuid.UUID) -> TaskBlock:
         """Reject a block: the task is judged as if it had never been blocked.
 
-        Same rules and errors as :meth:`approve_block`.
+        Same rules and errors as :meth:`approve_block`. Rejecting also ENDS the block, so a rejected block does
+        not leave the task "blocked" (and never overdue).
         """
-        return await self._review_block(caller, block_id, ReviewStatus.REJECTED)
+        return await self._review_block(caller, block_id, ReviewStatus.REJECTED, None)
 
     async def _review_block(
-        self, caller: Membership, block_id: uuid.UUID, decision: ReviewStatus
+        self, caller: Membership, block_id: uuid.UUID, decision: ReviewStatus, extension_seconds: int | None
     ) -> TaskBlock:
         """Record a reviewer's decision on a block (shared by approve and reject)."""
         ctx = await self._context(caller)
@@ -1253,13 +1285,26 @@ class TaskService:
         if block.review_status != ReviewStatus.PENDING.value:
             raise TaskBlockAlreadyReviewedException()
 
-        reviewed = await self._repo.review_block(block.id, decision, caller.user_id, datetime.now(UTC))
+        now = datetime.now(UTC)
+        reviewed = await self._repo.review_block(
+            block.id, decision, caller.user_id, now, granted_seconds=extension_seconds
+        )
         if reviewed is None:
             raise TaskBlockAlreadyReviewedException()  # someone decided at the same moment
 
-        if decision == ReviewStatus.APPROVED and reviewed.unblocked_at is not None:
-            seconds = int((reviewed.unblocked_at - reviewed.blocked_at).total_seconds())
-            await self._repo.add_approved_seconds(task.id, seconds)
+        # The deadline the task has after this decision: the written deadline plus all approved extensions.
+        total_extension = task.approved_blocked_seconds
+        if decision == ReviewStatus.APPROVED:
+            # The reviewer's time is credited NOW, whatever the person does next.
+            await self._repo.add_approved_seconds(task.id, extension_seconds)
+            total_extension += extension_seconds
+
+        # Either decision ends the block: the task is open again and judged on its deadline from now on.
+        if reviewed.unblocked_at is None:
+            ended = await self._repo.close_block(reviewed.id, now)
+            if ended is not None:
+                await self._repo.clear_blocked_state(task.id, 0)  # nothing more to credit: it was done above
+                reviewed = ended
 
         await self._audit.log_action(
             organization_id=task.organization_id,
@@ -1269,23 +1314,57 @@ class TaskService:
             entity_id=reviewed.id,
             changes={
                 "old": {"review_status": ReviewStatus.PENDING.value},
-                "new": {"review_status": decision.value, "task_id": str(task.id)},
+                "new": {
+                    "review_status": decision.value,
+                    "task_id": str(task.id),
+                    **({"granted_seconds": extension_seconds} if extension_seconds is not None else {}),
+                },
             },
         )
+
+        reviewer_name = await self._person_name_for_user(caller.user_id)
+        deadline_text = await self._deadline_text(task, total_extension)
+        if decision == ReviewStatus.APPROVED:
+            body = (
+                f"{reviewer_name} approved your block and gave this task {describe_duration(extension_seconds)} "
+                f"more. {deadline_text}The task is open again, so its clock is running. "
+                "If something still holds you up, mark it blocked again."
+            )
+        else:
+            body = (
+                f"{reviewer_name} did not approve your block, so the task keeps its deadline. {deadline_text}"
+                "The task is open again."
+            )
         await self._notifications.notify(
             organization_id=task.organization_id,
             recipient_user_ids=[reviewed.blocked_by_user_id],
             category=NotificationCategory.TASK,
             title=f"Block {decision.value}: {task.title}",
-            body=(
-                "Your blocked time was approved and won't count against you."
-                if decision == ReviewStatus.APPROVED
-                else "Your block was rejected, so the task is judged as if it was not blocked."
-            ),
+            body=body,
             link_type="task",
             link_id=task.id,
         )
         return reviewed
+
+    async def _person_name_for_user(self, user_id: uuid.UUID) -> str:
+        """A person's name for a notification: their employee record's name, else a plain "A reviewer"."""
+        employee = await self._employee_repo.get_employee_by_user_id(user_id)
+        if employee is None:
+            return "A reviewer"
+        return f"{employee.first_name} {employee.last_name}"
+
+    async def _deadline_text(self, task: Task, total_extension_seconds: int) -> str:
+        """"New deadline: Thu 14:12 (Africa/Lagos). " for a notification, or "" for a task with no deadline."""
+        if task.due_at is None:
+            return ""
+        organization = await self._organization_repo.get_organization_by_id(task.organization_id)
+        timezone_name = organization.timezone if organization is not None else "UTC"
+        try:
+            zone = ZoneInfo(timezone_name)
+        except Exception:
+            zone, timezone_name = UTC, "UTC"
+        real_deadline = task.due_at + timedelta(seconds=total_extension_seconds)
+        return f"Deadline: {real_deadline.astimezone(zone).strftime('%a %d %b, %H:%M')} ({timezone_name}). "
 
     async def _can_review(self, ctx: _CallerContext, block: TaskBlock, task: Task) -> bool:
         """Whether the caller may approve or reject ``block``.
@@ -1373,7 +1452,9 @@ class TaskService:
         if closed is None:
             raise TaskChangedException()
         approved_seconds = 0
-        if closed.review_status == ReviewStatus.APPROVED.value:
+        # Only a block approved under the OLD rule (no reviewer-set time) is credited by how long it lasted. A block
+        # approved under the new rule was credited at approval, and approval ends the block, so this is rarely reached.
+        if closed.review_status == ReviewStatus.APPROVED.value and closed.granted_seconds is None:
             approved_seconds = int((closed.unblocked_at - closed.blocked_at).total_seconds())
         await self._repo.clear_blocked_state(task_id, approved_seconds)
         return closed
