@@ -75,8 +75,9 @@ function timeAgo(iso: string): string {
 function destinationOf(n: NotificationItem): string | null {
   if (!n.link_type) return null;
   if (n.link_type === "task" && n.link_id) {
-    // "Was something holding up: ...?" opens the task ready to be marked blocked.
-    if (n.title.indexOf("Was something holding up") === 0) {
+    // "Was something holding up: ...?" and the "Due soon: ..." reminder (which asks the same thing) open the
+    // task ready to be marked blocked.
+    if (n.title.indexOf("Was something holding up") === 0 || n.title.indexOf("Due soon") === 0) {
       return "/tasks/" + n.link_id + "?action=block";
     }
     return "/tasks/" + n.link_id;

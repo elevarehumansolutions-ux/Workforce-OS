@@ -168,6 +168,15 @@ class Task(BaseModel):
         ),
     )
 
+    due_soon_notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc=(
+            "When the 'due soon' reminder (before the deadline) was sent; null = not sent yet. "
+            "Cleared in the same places as overdue_notified_at, when the deadline moves"
+        ),
+    )
+
     blocked_since: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
@@ -232,6 +241,16 @@ class TaskBlock(BaseModel):
     __tablename__ = "task_blocks"
 
     __table_args__ = (
+        CheckConstraint(
+            "estimated_seconds IS NULL OR estimated_seconds > 0", name="check_task_block_estimated_positive"
+        ),
+        CheckConstraint(
+            "granted_seconds IS NULL OR granted_seconds > 0", name="check_task_block_granted_positive"
+        ),
+        CheckConstraint(
+            "granted_seconds IS NULL OR review_status = 'approved'",
+            name="check_task_block_granted_only_when_approved",
+        ),
         CheckConstraint(
             f"category IN {tuple(c.value for c in BlockCategory)}",
             name="check_task_block_category",
@@ -322,4 +341,32 @@ class TaskBlock(BaseModel):
         DateTime(timezone=True),
         nullable=True,
         doc="When it was reviewed; null while pending",
+    )
+
+    review_reminded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc="When the reviewers were reminded that this block is still waiting (after 24 hours); null = not yet",
+    )
+
+    review_escalated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc="When HR was told that this block has waited too long for a decision (after 48 hours); null = not yet",
+    )
+
+    estimated_seconds: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc="How much extra time the assignee said they would need (optional); only pre-fills the reviewer's box",
+    )
+
+    granted_seconds: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        doc=(
+            "The extra time the reviewer gave when approving, added to the task's approved_blocked_seconds at "
+            "approval. Null for a pending or rejected block, and for a block approved under the old rule "
+            "(time = how long the block lasted)"
+        ),
     )

@@ -163,6 +163,21 @@ class TaskBlockRequest(BaseModel):
 
     category: BlockCategory
     reason: str = Field(min_length=1, max_length=500)
+    # How much extra time the person thinks they will need (optional, up to 30 days). It only pre-fills the
+    # reviewer's box; the reviewer decides.
+    estimated_minutes: int | None = Field(default=None, ge=1, le=43200)
+
+
+class TaskBlockApproveRequest(BaseModel):
+    """What a reviewer sends to approve a block: how much extra time the task gets.
+
+    The reviewer sets the time (08_DECISIONS.md 2026-11-16), so it does not depend on how long the person stays
+    blocked. At least 1 minute (to give no time, reject instead) and at most 30 days.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    extension_minutes: int = Field(ge=1, le=43200)
 
 
 class TaskBlockResponse(BaseModel):
@@ -181,6 +196,9 @@ class TaskBlockResponse(BaseModel):
     review_status: ReviewStatus
     reviewed_by_user_id: uuid.UUID | None
     reviewed_at: datetime | None
+    # What the assignee said they would need (null if not said), and what the reviewer gave (null unless approved).
+    estimated_seconds: int | None
+    granted_seconds: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -212,6 +230,9 @@ class TaskBlockReviewItem(TaskBlockResponse):
     task_title: str
     task_department_id: uuid.UUID
     task_due_at: datetime | None
+    # Extra time already granted on this task, so the approve box can show the new deadline
+    # (task_due_at plus this plus the time the reviewer is about to give).
+    task_approved_blocked_seconds: int = 0
 
 
 class TaskResponse(BaseModel):

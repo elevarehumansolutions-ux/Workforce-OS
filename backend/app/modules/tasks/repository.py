@@ -1,7 +1,7 @@
 """Data-access layer for the Task module."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import false, func, not_, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,7 @@ from app.modules.organization.models import Employee
 
 from .enums import OPEN_STATUSES, ReviewStatus, TaskStatus
 from .models import Task, TaskBlock
-from .overdue import overdue_clause
+from .overdue import due_soon_clause, overdue_clause
 from .scoring_rows import TaskForScoring
 
 # The atomic complete relies on RETURNING for the truth about what changed.
@@ -407,9 +407,10 @@ class TaskRepository:
         """
         for field, value in data.items():
             setattr(task, field, value)
-        # A new deadline gets its own "overdue" alert, so forget the old one.
+        # A new deadline gets its own "overdue" alert and its own "due soon" reminder, so forget the old ones.
         if "due_at" in data:
             task.overdue_notified_at = None
+            task.due_soon_notified_at = None
         await self._db.flush()
         await self._db.refresh(task)
         return task
@@ -599,6 +600,7 @@ class TaskRepository:
         decision: ReviewStatus,
         reviewer_user_id: uuid.UUID,
         now: datetime,
+        granted_seconds: int | None = None,
     ) -> TaskBlock | None:
         """Atomically approve or reject a block, but only if it is still pending.
 
@@ -607,6 +609,7 @@ class TaskRepository:
             decision: ``APPROVED`` or ``REJECTED``.
             reviewer_user_id: Who is deciding.
             now: The moment of the decision.
+            granted_seconds: For an approval, the extra time the reviewer gave; ``None`` for a rejection.
 
         Returns:
             The reviewed ``TaskBlock``, or ``None`` if it was not pending any more.
@@ -621,6 +624,7 @@ class TaskRepository:
                 review_status=decision.value,
                 reviewed_by_user_id=reviewer_user_id,
                 reviewed_at=now,
+                granted_seconds=granted_seconds,
             )
             .returning(TaskBlock)
             .execution_options(**_ATOMIC_UPDATE_OPTIONS)
@@ -641,6 +645,7 @@ class TaskRepository:
             .values(
                 approved_blocked_seconds=Task.approved_blocked_seconds + seconds,
                 overdue_notified_at=None,
+                due_soon_notified_at=None,
             )
             .execution_options(**_ATOMIC_UPDATE_OPTIONS)
         )
@@ -661,6 +666,7 @@ class TaskRepository:
         if approved_seconds_to_add > 0:
             values["approved_blocked_seconds"] = Task.approved_blocked_seconds + approved_seconds_to_add
             values["overdue_notified_at"] = None
+            values["due_soon_notified_at"] = None
         await self._db.execute(
             update(Task)
             .where(Task.id == task_id)
@@ -768,6 +774,52 @@ class TaskRepository:
         await self._db.flush()
         return list(result.scalars().all())
 
+    async def claim_blocks_waiting_too_long(self, now: datetime, waited_longer_than: timedelta, marker: str) -> list[TaskBlock]:
+        """Mark every pending block that has waited longer than ``waited_longer_than`` as announced, and return them.
+
+        ``marker`` is ``"review_reminded_at"`` (the reviewers' reminder) or ``"review_escalated_at"`` (HR's notice).
+        Same shape as :meth:`claim_unannounced_overdue_tasks`: one UPDATE finds AND marks, so two workers can't both
+        announce the same block, and the caller commits after sending.
+        """
+        column = getattr(TaskBlock, marker)
+        stmt = (
+            update(TaskBlock)
+            .where(
+                TaskBlock.review_status == ReviewStatus.PENDING.value,
+                TaskBlock.blocked_at < now - waited_longer_than,
+                column.is_(None),
+            )
+            .values(**{marker: now})
+            .returning(TaskBlock)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return list(result.scalars().all())
+
+    async def claim_due_soon_tasks(self, now: datetime) -> list[Task]:
+        """Mark every task inside its reminder window as reminded, and return them.
+
+        Same shape as :meth:`claim_unannounced_overdue_tasks`: one UPDATE finds AND marks, so two workers can't
+        both remind the same task, and the caller commits after sending (a failure rolls the marks back too).
+
+        Args:
+            now: The moment the window is judged against, also stored as the time of the reminder.
+
+        Returns:
+            The tasks that were just marked.
+        """
+        stmt = (
+            update(Task)
+            .where(Task.deleted_at.is_(None), due_soon_clause(now))
+            .values(due_soon_notified_at=now)
+            .returning(Task)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return list(result.scalars().all())
+
     async def cancel_task(self, task_id: uuid.UUID, reason: str) -> Task | None:
         """Atomically cancel a task, but only if it is still open or in progress.
 
@@ -843,7 +895,8 @@ class TaskRepository:
                 assigned_to_employee_id=new_assignee_id,
                 due_at=due_at,
                 status=TaskStatus.OPEN.value,
-                overdue_notified_at=None,  # the new deadline gets its own alert
+                overdue_notified_at=None,  # the new deadline gets its own alert...
+                due_soon_notified_at=None,  # ...and its own reminder
                 # A clean slate for the new assignee: blocked time approved for the
                 # previous person belonged to their deadline, not this one.
                 blocked_since=None,

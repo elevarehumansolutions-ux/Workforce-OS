@@ -46,7 +46,13 @@ export interface TaskBlock {
   // null = still blocked
   unblocked_at: string | null;
   review_status: ReviewStatus;
+  reviewed_by_user_id: string | null;
   reviewed_at: string | null;
+  // What the person said they would need when they marked the task blocked (null if they did not say).
+  estimated_seconds: number | null;
+  // The extra time the reviewer gave when approving (null unless approved, and for a block approved under the
+  // old rule, where the time was how long the block lasted).
+  granted_seconds: number | null;
 }
 
 // One row on the "Blocks to review" screen: the block plus the bits of its
@@ -55,6 +61,8 @@ export interface ReviewBlock extends TaskBlock {
   task_title: string;
   task_department_id: string;
   task_due_at: string | null;
+  // Extra time already granted on the task, to work out the new deadline with the time about to be given.
+  task_approved_blocked_seconds: number;
 }
 
 export const BLOCK_CATEGORY_OPTIONS: { value: BlockCategory; label: string }[] = [
@@ -91,6 +99,29 @@ export interface Kpi {
   id: string;
   department_id: string;
   name: string;
+  // What the KPI measures and what the target is, to help people choose the right one.
+  description?: string | null;
+  target_value?: string | number | null;
+  unit?: string | null;
+}
+
+// The id of the department's KPI when it has exactly ONE (so a form can choose it for the person), else "".
+export function onlyKpiOf(ctx: { kpis: Kpi[] }, departmentId: string): string {
+  const mine = ctx.kpis.filter(function (k) {
+    return k.department_id === departmentId;
+  });
+  return mine.length === 1 ? mine[0].id : "";
+}
+
+// One plain line about a KPI for under a dropdown: what it measures and its target, when they are set.
+export function kpiDetail(k: Kpi | undefined): string {
+  if (!k) return "";
+  const parts: string[] = [];
+  if (k.description) parts.push(k.description);
+  if (k.target_value !== null && k.target_value !== undefined && k.target_value !== "") {
+    parts.push("Target: " + String(Number(k.target_value)) + (k.unit ? " " + k.unit : ""));
+  }
+  return parts.join(" · ");
 }
 
 export interface PaginationInfo {
@@ -423,6 +454,15 @@ export function formatDuration(totalSeconds: number): string {
   if (days === 0 && minutes > 0) parts.push(minutes + (minutes === 1 ? " minute" : " minutes"));
   if (parts.length === 0) return "less than a minute";
   return parts.join(" ");
+}
+
+// The deadline a task really has: the written deadline plus all the extra time reviewers have given.
+// `extraSeconds` lets a screen show what it WOULD be after one more extension. null = no deadline.
+export function effectiveDeadline(dueAt: string | null, approvedSeconds: number, extraSeconds: number = 0): Date | null {
+  if (!dueAt) return null;
+  const due = new Date(dueAt);
+  if (Number.isNaN(due.getTime())) return null;
+  return new Date(due.getTime() + (approvedSeconds + extraSeconds) * 1000);
 }
 
 // Only the person the task is assigned to can say it is blocked.

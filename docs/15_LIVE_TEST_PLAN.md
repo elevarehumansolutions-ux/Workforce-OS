@@ -150,6 +150,27 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 5. Mark a task blocked with a reason. Expect: the reviewer is notified; approve it; the task is no
    longer overdue.
 6. Reassign a task. Expect: the new person is told.
+9. (to-do 58) A block left waiting. As the employee mark a task blocked and leave it unreviewed. As the database
+   owner move its `blocked_at` back about 25 hours (the same idea as `14_PRODUCTION_TROUBLESHOOTING.md` section 14,
+   on `task_blocks`), then run the scan (`celery -A app.core.celery_app call app.modules.tasks.tasks.overdue_scan`).
+   The reviewer (the employee's reporting manager, else the head, else HR) gets "Block waiting for your review"; it
+   opens Blocks to review. Move it back to about 49 hours and run the scan again: HR gets "A block has waited 2 days
+   1 hour for review" (and the reviewer is not told again). Decide the block: nothing further.
+8. (to-do 57) The reviewer sets the time. As the employee, open a task and press Mark blocked: there is an optional
+   "How much extra time do you think you will need?" (say 2 hours) and a note that the reviewer decides. As the
+   reviewer open Blocks to review: the block shows "The person asked for 2 hours more". Press Approve…: a panel asks
+   "How much extra time does this task get?" with quick choices and a custom amount, pre-filled with 2 hours, and
+   shows the new deadline. Choose 1 day and confirm: the task is NOT "Blocked" any more (no need to press Unblock),
+   its page says "Deadline = the written deadline (...) + 1 day of extra time given by reviewers", and the Block
+   history shows the block's length, who approved it, when, and "Extra time given: 1 day". The employee's bell says
+   who approved, how much, the new deadline and that the task is open again. Pressing Unblock afterwards is not
+   offered. Reject a second block: the task goes back to its own deadline and is not "Blocked".
+7. (to-do 56) The reminder before a deadline. Give the employee a task with a deadline about 3 hours ahead (it lives
+   3 hours, so the reminder is due in its final hour: about 2 hours from now) and wait. The scan runs every 10
+   minutes; in the final hour the employee gets "Due soon: <task>" in the bell and by email, saying when it is due
+   and asking whether something is holding it up; clicking it opens the task with the block form ready. The head
+   gets nothing yet. After the deadline the employee gets "Task overdue" but NOT a second "Was something holding it
+   up?". A task due in 30 minutes gets no reminder (too short) and still gets the old question after the deadline.
 
 ## Stage 7: Workflow and the money figure (M11 + task cost)
 
@@ -208,6 +229,11 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
     not-clocked-in employee a task: the bell shows 1; the Tasks page says "Clock in to see your tasks".
 21. (to-do 53) Open a task from the TASK LIST (not from the bell): the bell's number drops by one at once. Open another
     from the bell: same. A notification about a different task stays unread.
+23. (to-do 55) Choosing the KPI. On Assign task choose a department that has exactly ONE KPI: it is already chosen, with
+    a note and its description and target underneath; choose a department with several KPIs: nothing is chosen, the
+    empty choice says "Not linked: it won't count in performance scores", and picking one shows its description and
+    target. Same in the workflow step form (and each "together" department). On a task's edit form the list shows the
+    KPIs of the task's department.
 22. (to-do 54) On a long page (the employee directory, a long template, the audit log) scroll down: the left menu stays
     in view with the person's name and Sign out at the bottom, and the page scrolls on its own. Check it on Settings,
     Team Management and an employee's page too (they draw their own menu).

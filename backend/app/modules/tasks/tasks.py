@@ -82,15 +82,23 @@ async def run_announce_for_organization(
     )
     service = TaskService(db)
     released = await service.release_orphaned_tasks(organization_id)
+    # Reminders first: a task is never both "due soon" and overdue, and the overdue step skips its
+    # "was something holding it up?" question for a task that has just been reminded.
+    reminded = await service.announce_due_soon_tasks(organization_id, now)
     announced = await service.announce_overdue_tasks(organization_id, now)
+    # A block nobody has decided on for too long: remind its reviewers, then tell HR (it pauses "overdue").
+    blocks_reminded, blocks_escalated = await service.chase_blocks_waiting_for_review(organization_id, now)
     await db.commit()
-    if released or announced:
+    if released or announced or reminded or blocks_reminded or blocks_escalated:
         logger.info(
             "Task scan finished",
             extra={
                 "organization_id": str(organization_id),
                 "announced_count": announced,
+                "reminded_count": reminded,
                 "released_count": released,
+                "blocks_reminded_count": blocks_reminded,
+                "blocks_escalated_count": blocks_escalated,
             },
         )
     return announced

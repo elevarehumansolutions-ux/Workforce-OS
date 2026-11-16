@@ -25,6 +25,8 @@ import {
   formatDuration,
   isNotClockedIn,
   isoToLocalInput,
+  effectiveDeadline,
+  kpiDetail,
   loadCaller,
   localInputToIso,
   reviewStatusClasses,
@@ -69,6 +71,9 @@ function TaskDetailContent() {
   const [blocksResult, setBlocksResult] = useState<BlocksResult | null>(null);
   const [blockCategory, setBlockCategory] = useState<BlockCategory>("awaiting_approval");
   const [blockReason, setBlockReason] = useState("");
+  // How much extra time the person thinks they will need (optional; it only helps the reviewer decide).
+  const [blockEstimate, setBlockEstimate] = useState("");
+  const [blockEstimateUnit, setBlockEstimateUnit] = useState<"minutes" | "hours" | "days">("hours");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [notice, setNotice] = useState("");
@@ -349,6 +354,8 @@ function TaskDetailContent() {
     setActionError("");
     setBlockCategory("awaiting_approval");
     setBlockReason("");
+    setBlockEstimate("");
+    setBlockEstimateUnit("hours");
     setPanel("block");
   }
 
@@ -364,12 +371,21 @@ function TaskDetailContent() {
       setActionError("The reason can be at most 500 characters.");
       return;
     }
+    // The estimate is optional; when given it must be a whole number above zero (at most 30 days).
+    const body: Record<string, unknown> = { category: blockCategory, reason: reason };
+    const estimate = blockEstimate.trim();
+    if (estimate !== "") {
+      const unitMinutes = blockEstimateUnit === "days" ? 1440 : blockEstimateUnit === "hours" ? 60 : 1;
+      const minutes = Number(estimate) * unitMinutes;
+      if (!/^[0-9]+$/.test(estimate) || Number(estimate) < 1 || minutes > 43200) {
+        setActionError("The extra time you expect to need must be a whole number above zero, and at most 30 days. Or leave it empty.");
+        return;
+      }
+      body.estimated_minutes = minutes;
+    }
     setBusy(true);
     try {
-      await apiFetch("/tasks/" + task.id + "/block", {
-        method: "POST",
-        body: { category: blockCategory, reason: reason },
-      });
+      await apiFetch("/tasks/" + task.id + "/block", { method: "POST", body: body });
       setPanel(null);
       setNotice("Task marked as blocked. Someone will review it.");
       reload();
@@ -504,10 +520,15 @@ function TaskDetailContent() {
               <div>
                 <dt className="text-xs text-gray-500">Deadline</dt>
                 <dd className="mt-0.5 text-gray-200">
-                  {formatDateTime(task.due_at)}
+                  {formatDateTime(
+                    task.approved_blocked_seconds > 0
+                      ? effectiveDeadline(task.due_at, task.approved_blocked_seconds)?.toISOString() || task.due_at
+                      : task.due_at
+                  )}
                   {task.due_at && task.approved_blocked_seconds > 0 ? (
                     <span className="block text-xs text-gray-500">
-                      Extended by {formatDuration(task.approved_blocked_seconds)} for approved blocks
+                      = the written deadline ({formatDateTime(task.due_at)}) + {formatDuration(task.approved_blocked_seconds)} of
+                      extra time given by reviewers (see Block history)
                     </span>
                   ) : null}
                 </dd>
@@ -534,7 +555,8 @@ function TaskDetailContent() {
 
             {task.blocked_since ? (
               <div className="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-                Blocked since {formatDateTime(task.blocked_since)}. A blocked task is never counted as overdue.
+                Blocked since {formatDateTime(task.blocked_since)}. While it waits for a reviewer the task is not counted as
+                overdue. The reviewer decides how much extra time you get; approving or rejecting ends the block.
               </div>
             ) : null}
 
@@ -615,9 +637,10 @@ function TaskDetailContent() {
             <div className="space-y-4 rounded-2xl border border-amber-500/30 bg-[#0d1220]/80 p-6 shadow-xl">
               <h3 className="text-base font-semibold">Mark this task as blocked</h3>
               <p className="text-sm text-gray-400">
-                Use this when something outside your hands is stopping the work. While it is blocked the task isn&apos;t
-                counted as overdue. A reviewer then decides whether the time counts, and only an approved block gives the
-                time back.
+                Use this when something outside your hands is stopping the work. While it waits for review the task
+                isn&apos;t counted as overdue. A reviewer then decides, and if they approve they choose how much extra
+                time the task gets. Approving or rejecting ends the block, so the task is open again; if something still
+                holds you up, you can mark it blocked again.
               </p>
               {actionError ? <p className="text-sm text-red-300">{actionError}</p> : null}
               <div>
@@ -649,6 +672,35 @@ function TaskDetailContent() {
                   }}
                   className={inputClass}
                 />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-gray-500">How much extra time do you think you will need? (optional)</label>
+                <div className="flex max-w-xs gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={blockEstimate}
+                    onChange={function (e) {
+                      setBlockEstimate(e.target.value);
+                    }}
+                    placeholder="e.g. 2"
+                    className={inputClass + " min-w-0 flex-1"}
+                  />
+                  <select
+                    value={blockEstimateUnit}
+                    onChange={function (e) {
+                      setBlockEstimateUnit(e.target.value as "minutes" | "hours" | "days");
+                    }}
+                    className="w-28 shrink-0 rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500"
+                    aria-label="Unit of time"
+                  >
+                    <option value="minutes">Minutes</option>
+                    <option value="hours">Hours</option>
+                    <option value="days">Days</option>
+                  </select>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">This only helps the reviewer. They decide the time you get.</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -710,7 +762,7 @@ function TaskDetailContent() {
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-gray-500">Linked KPI</label>
+                  <label className="mb-1 block text-xs text-gray-500">Which goal (KPI) does this move forward?</label>
                   <select
                     value={editKpi}
                     onChange={function (e) {
@@ -718,15 +770,26 @@ function TaskDetailContent() {
                     }}
                     className={inputClass}
                   >
-                    <option value="">No linked KPI</option>
-                    {ctx.kpis.map(function (k) {
-                      return (
-                        <option key={k.id} value={k.id}>
-                          {k.name} ({departmentName(ctx, k.department_id)})
-                        </option>
-                      );
-                    })}
+                    <option value="">Not linked: it won&apos;t count in performance scores</option>
+                    {ctx.kpis
+                      .filter(function (k) {
+                        // The department doing the work: its KPIs are the ones that count for it in scoring.
+                        // A KPI already chosen stays listed even if it is from another department.
+                        return k.department_id === task.department_id || k.id === editKpi;
+                      })
+                      .map(function (k) {
+                        return (
+                          <option key={k.id} value={k.id}>
+                            {k.name} ({departmentName(ctx, k.department_id)})
+                          </option>
+                        );
+                      })}
                   </select>
+                  {editKpi ? (
+                    <p className="mt-1 text-xs text-gray-400">
+                      {kpiDetail(ctx.kpis.find(function (k) { return k.id === editKpi; }))}
+                    </p>
+                  ) : null}
                 </div>
               </div>
               <p className="text-xs text-gray-500">To change who the task is assigned to, use Reassign.</p>
@@ -867,7 +930,27 @@ function TaskDetailContent() {
                       <p className="mt-1 whitespace-pre-wrap text-gray-400">{b.reason}</p>
                       <p className="mt-1 text-xs text-gray-500">
                         {formatDateTime(b.blocked_at)} to {b.unblocked_at ? formatDateTime(b.unblocked_at) : "still blocked"}
+                        {b.unblocked_at
+                          ? " (" + formatDuration((new Date(b.unblocked_at).getTime() - new Date(b.blocked_at).getTime()) / 1000) + ")"
+                          : ""}
                       </p>
+                      {b.estimated_seconds ? (
+                        <p className="mt-1 text-xs text-gray-500">Asked for {formatDuration(b.estimated_seconds)} more.</p>
+                      ) : null}
+                      {b.review_status !== "pending" && b.reviewed_at ? (
+                        <p className="mt-1 text-xs text-gray-400">
+                          {b.review_status === "approved" ? "Approved" : "Rejected"}
+                          {b.reviewed_by_user_id && ctx ? " by " + reviewerName(ctx, b.reviewed_by_user_id) : ""} on{" "}
+                          {formatDateTime(b.reviewed_at)}
+                          {b.review_status === "approved" && b.granted_seconds
+                            ? ". Extra time given: " + formatDuration(b.granted_seconds) + "."
+                            : b.review_status === "approved"
+                              ? ". The time it lasted was given back."
+                              : ". No extra time; the deadline did not move."}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-xs text-amber-300">Waiting for a reviewer.</p>
+                      )}
                     </div>
                   );
                 })}
@@ -878,6 +961,14 @@ function TaskDetailContent() {
       ) : null}
     </AppShell>
   );
+}
+
+// A reviewer's name for the block history: their employee record's name, else "a reviewer".
+function reviewerName(ctx: CallerContext, userId: string): string {
+  const person = ctx.employees.find(function (e) {
+    return e.user_id === userId;
+  });
+  return person ? person.first_name + " " + person.last_name : "a reviewer";
 }
 
 export default function TaskDetailPage() {

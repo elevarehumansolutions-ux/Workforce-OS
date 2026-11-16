@@ -22,6 +22,7 @@ from .models import Task
 from .overdue import is_overdue
 from .schemas import (
     KPITaskProgressResponse,
+    TaskBlockApproveRequest,
     TaskBlockRequest,
     TaskBlockResponse,
     TaskCancelRequest,
@@ -346,7 +347,8 @@ async def block_task(
         TaskAlreadyBlockedException: If it is already blocked (409).
         TaskChangedException: If somebody changed it at the same moment (409).
     """
-    block = await TaskService(db).block_task(caller, task_id, data.category, data.reason)
+    estimated_seconds = data.estimated_minutes * 60 if data.estimated_minutes is not None else None
+    block = await TaskService(db).block_task(caller, task_id, data.category, data.reason, estimated_seconds)
     await db.commit()
     return TaskBlockResponse.model_validate(block)
 
@@ -463,17 +465,21 @@ async def get_kpi_task_progress(
 @router.post("/task-blocks/{block_id}/approve", status_code=200)
 async def approve_block(
     block_id: uuid.UUID,
+    data: TaskBlockApproveRequest,
     db: AsyncSession = Depends(get_db),
     caller: Membership = Depends(get_current_membership),
 ) -> TaskBlockResponse:
-    """Approve a block: the blocked time is not held against the assignee.
+    """Approve a block and give the task the extra time the reviewer chooses.
 
     Allowed to HR, the head of the task's department and the blocker's
-    reporting manager, never to the blocker. The approved time pushes the
-    task's deadline later (the task's ``approved_blocked_seconds``).
+    reporting manager, never to the blocker. ``extension_minutes`` (1 to
+    43200) is added to the task's ``approved_blocked_seconds`` at once, so it
+    does not depend on how long the person stays blocked. Approving also ends
+    the block: the task is open again on its new deadline.
 
     Args:
         block_id: Id of the block.
+        data: ``extension_minutes``, the extra time the reviewer gives.
         db: Database session dependency.
         caller: Caller's membership.
 
@@ -484,7 +490,7 @@ async def approve_block(
         TaskBlockNotFoundException: If it doesn't exist or the caller may not review it (404).
         TaskBlockAlreadyReviewedException: If it was already decided (409).
     """
-    block = await TaskService(db).approve_block(caller, block_id)
+    block = await TaskService(db).approve_block(caller, block_id, data.extension_minutes * 60)
     await db.commit()
     return TaskBlockResponse.model_validate(block)
 

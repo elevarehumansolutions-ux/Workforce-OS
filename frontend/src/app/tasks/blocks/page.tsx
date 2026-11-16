@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 import AppShell from "@/components/AppShell";
+import ExtensionPicker from "@/components/ExtensionPicker";
 import {
   blockCategoryLabel,
   departmentName,
+  effectiveDeadline,
   errorMessage,
   formatDateTime,
   formatDuration,
@@ -40,6 +42,15 @@ function lengthOf(block: ReviewBlock): string {
   return formatDuration(seconds);
 }
 
+// Where the reviewer's box starts: what the person said they would need, otherwise the time the block has
+// lasted so far, rounded up to a quarter of an hour (at least 15 minutes). The reviewer changes it freely.
+function suggestedMinutes(block: ReviewBlock): number {
+  if (block.estimated_seconds) return Math.max(1, Math.round(block.estimated_seconds / 60));
+  const end = block.unblocked_at ? new Date(block.unblocked_at).getTime() : Date.now();
+  const lived = Math.max(0, (end - new Date(block.blocked_at).getTime()) / 60000);
+  return Math.max(15, Math.ceil(lived / 15) * 15);
+}
+
 function BlocksContent() {
   // A notification opens this screen on one block: /tasks/blocks?block=<id>
   const searchParams = useSearchParams();
@@ -52,6 +63,9 @@ function BlocksContent() {
   const [result, setResult] = useState<ListResult | null>(null);
   const [busyId, setBusyId] = useState("");
   const [actionError, setActionError] = useState("");
+  // The block whose approve panel is open, and the extra time the reviewer has chosen in it (minutes; 0 = not valid).
+  const [approvingId, setApprovingId] = useState("");
+  const [extensionMinutes, setExtensionMinutes] = useState(0);
 
   const key = [tab, page, reloadCounter].join("|");
   const loading = result === null || result.key !== key;
@@ -105,11 +119,14 @@ function BlocksContent() {
     [tab, page, key]
   );
 
-  async function review(block: ReviewBlock, decision: "approve" | "reject") {
+  async function review(block: ReviewBlock, decision: "approve" | "reject", minutes: number = 0) {
     setActionError("");
     setBusyId(block.id);
     try {
-      await apiFetch("/task-blocks/" + block.id + "/" + decision, { method: "POST" });
+      // Approving takes the extra time the reviewer chose; rejecting takes nothing.
+      const body = decision === "approve" ? { extension_minutes: minutes } : undefined;
+      await apiFetch("/task-blocks/" + block.id + "/" + decision, { method: "POST", body: body });
+      setApprovingId("");
       setReloadCounter(reloadCounter + 1);
     } catch (err) {
       if (err instanceof ApiError && err.code === "TASK_BLOCK_NOT_FOUND") {
@@ -148,8 +165,9 @@ function BlocksContent() {
     >
       <div className="rounded-xl border border-white/10 bg-[#0d1220]/80 p-4 text-sm text-gray-400">
         When someone says a task is stuck because of something outside their hands, it shows up here. If you approve
-        a block, the time it lasted is given back by moving that task&apos;s real deadline later. If you reject it, the
-        task is judged as if it was never blocked. Either decision is final.
+        a block, YOU choose how much extra time the task gets, and its deadline moves later by that amount straight
+        away. The block then ends and the task is open again. If you reject it, the task keeps its deadline and the
+        block ends. Either decision is final, so if the cause persists the person raises a new block.
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
@@ -216,21 +234,79 @@ function BlocksContent() {
 
                 <p className="mt-3 text-xs text-gray-500">
                   Blocked {formatDateTime(b.blocked_at)}
-                  {b.unblocked_at ? " · Unblocked " + formatDateTime(b.unblocked_at) : ""} · Length: {lengthOf(b)}
+                  {b.unblocked_at ? " · Ended " + formatDateTime(b.unblocked_at) : ""} · Length: {lengthOf(b)}
                   {b.reviewed_at ? " · Reviewed " + formatDateTime(b.reviewed_at) : ""}
                 </p>
+                {b.estimated_seconds ? (
+                  <p className="mt-1 text-xs text-gray-400">The person asked for {formatDuration(b.estimated_seconds)} more.</p>
+                ) : null}
+                {b.review_status === "approved" && b.granted_seconds ? (
+                  <p className="mt-1 text-xs text-emerald-300">Extra time given: {formatDuration(b.granted_seconds)}.</p>
+                ) : null}
 
-                {b.review_status === "pending" && (
+                {b.review_status === "pending" && approvingId === b.id && (
+                  <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                    <p className="text-sm font-medium text-gray-100">How much extra time does this task get?</p>
+                    <p className="mt-1 text-xs text-gray-400">
+                      You decide, and it does not depend on how long the person stays blocked.
+                    </p>
+                    <div className="mt-3">
+                      <ExtensionPicker defaultMinutes={extensionMinutes} onChange={setExtensionMinutes} disabled={busyId === b.id} />
+                    </div>
+                    {b.task_due_at ? (
+                      <p className="mt-3 text-xs text-gray-300">
+                        {extensionMinutes > 0 ? (
+                          <>
+                            New deadline:{" "}
+                            <span className="font-medium text-white">
+                              {formatDateTime(
+                                (effectiveDeadline(b.task_due_at, b.task_approved_blocked_seconds, extensionMinutes * 60) as Date).toISOString()
+                              )}
+                            </span>{" "}
+                            (now {formatDateTime(effectiveDeadline(b.task_due_at, b.task_approved_blocked_seconds)?.toISOString() || null)})
+                          </>
+                        ) : (
+                          "Enter a whole number of minutes, hours or days (at least 1 minute, at most 30 days)."
+                        )}
+                      </p>
+                    ) : null}
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        disabled={busyId === b.id || extensionMinutes < 1 || extensionMinutes > 43200}
+                        onClick={function () {
+                          review(b, "approve", extensionMinutes);
+                        }}
+                        className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {extensionMinutes >= 1 ? "Approve and give " + formatDuration(extensionMinutes * 60) : "Approve"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === b.id}
+                        onClick={function () {
+                          setApprovingId("");
+                        }}
+                        className="rounded-lg border border-white/15 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-white/5"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {b.review_status === "pending" && approvingId !== b.id && (
                   <div className="mt-4 flex gap-3">
                     <button
                       type="button"
                       disabled={busyId === b.id}
                       onClick={function () {
-                        review(b, "approve");
+                        setApprovingId(b.id);
+                        setExtensionMinutes(suggestedMinutes(b));
                       }}
                       className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-50"
                     >
-                      Approve
+                      Approve…
                     </button>
                     <button
                       type="button"
