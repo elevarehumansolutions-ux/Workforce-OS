@@ -5,6 +5,11 @@ import { formatMoney } from "@/lib/blueprint";
 import { loadValueSummary, valueStatusClasses, valueStatusLabel } from "@/lib/workflow";
 import type { ValueSummary } from "@/lib/workflow";
 import { useLoad } from "@/lib/useLoad";
+import SegmentedBar, { CRITICAL_COLOUR, GOOD_COLOUR, NEUTRAL_COLOUR, WARNING_COLOUR } from "@/components/charts/SegmentedBar";
+
+function formatMoneyValue(value: number): string {
+  return formatMoney(value);
+}
 
 // The money view of the company's jobs: what is at risk right now, what has been lost, and
 // what is secured. A job's figure is counted once however many of its tasks are late. The
@@ -35,6 +40,15 @@ export default function ValueAtRiskCard() {
 
       {data ? (
         <div className="mt-4 space-y-4">
+          <SegmentedBar
+            segments={[
+              { label: "Secured", value: Number(data.secured_total), colour: GOOD_COLOUR },
+              { label: "On track", value: Number(data.on_track_total), colour: NEUTRAL_COLOUR },
+              { label: "At risk", value: Number(data.at_risk_total), colour: WARNING_COLOUR },
+              { label: "Lost", value: Number(data.lost_total), colour: CRITICAL_COLOUR },
+            ]}
+            format={formatMoneyValue}
+          />
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className={tile + " border-amber-500/20"}>
               <p className={label}>At risk now</p>

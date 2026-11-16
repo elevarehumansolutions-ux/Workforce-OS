@@ -8,7 +8,35 @@ import PeriodBar from "@/components/performance/PeriodBar";
 import { loadCaller, roleLabel } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
 import { CURRENT_QUARTER, departmentPath, departmentsICanOpen, scoreClasses, scoreText } from "@/lib/performance";
+import ChartCard from "@/components/charts/ChartCard";
+import BarList, { BarTable } from "@/components/charts/BarList";
+import type { BarRow } from "@/components/charts/BarList";
+import SegmentedBar, { CRITICAL_COLOUR, GOOD_COLOUR, WARNING_COLOUR } from "@/components/charts/SegmentedBar";
+import type { Segment } from "@/components/charts/SegmentedBar";
+import { SegmentedTable } from "@/components/charts/SegmentedBar";
 import type { DepartmentPerformance, Period } from "@/lib/performance";
+
+function countText(value: number): string {
+  return String(value);
+}
+
+function taskSegments(data: DepartmentPerformance): Segment[] {
+  return [
+    { label: "On time", value: data.punctuality_on_time, colour: GOOD_COLOUR },
+    { label: "Late", value: data.punctuality_late, colour: WARNING_COLOUR },
+    { label: "Not done", value: data.punctuality_not_done, colour: CRITICAL_COLOUR },
+  ];
+}
+
+function peopleRows(data: DepartmentPerformance): BarRow[] {
+  return data.people.map(function (person) {
+    return {
+      label: person.employee_name,
+      value: person.overall_score === null ? null : Number(person.overall_score),
+      href: "/performance/person/" + person.employee_id,
+    };
+  });
+}
 
 export default function DepartmentPerformancePage() {
   const [chosenId, setChosenId] = useState("");
@@ -149,6 +177,21 @@ function DepartmentBody(props: { departmentId: string }) {
                 </p>
               )}
             </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <ChartCard
+              title="How the department's tasks ended"
+              subtitle="Every task whose deadline fell in this period, including ones nobody holds."
+              chart={<SegmentedBar segments={taskSegments(data)} format={countText} />}
+              table={<SegmentedTable segments={taskSegments(data)} format={countText} />}
+            />
+            <ChartCard
+              title="People's scores"
+              subtitle="On this page. The line marks 100, the target."
+              chart={<BarList rows={peopleRows(data)} />}
+              table={<BarTable rows={peopleRows(data)} valueHeading="Overall score" />}
+            />
           </div>
 
           <h3 className="mt-8 text-sm font-semibold uppercase tracking-wide text-gray-400">People</h3>

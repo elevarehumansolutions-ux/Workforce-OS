@@ -8,7 +8,21 @@ import PeriodBar from "@/components/performance/PeriodBar";
 import { loadCaller, roleLabel } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
 import { CURRENT_QUARTER, departmentsICanOpen, leaderboardPath, scoreClasses, scoreText } from "@/lib/performance";
-import type { Leaderboard, Period } from "@/lib/performance";
+import ChartCard from "@/components/charts/ChartCard";
+import BarList, { BarTable } from "@/components/charts/BarList";
+import type { BarRow } from "@/components/charts/BarList";
+import type { Leaderboard, LeaderboardEntry, Period } from "@/lib/performance";
+
+function leaderRows(entries: LeaderboardEntry[]): BarRow[] {
+  return entries.map(function (entry) {
+    return {
+      label: entry.rank + ". " + entry.employee_name,
+      value: Number(entry.overall_score),
+      note: entry.department_name + ", " + entry.valid_tasks + (entry.valid_tasks === 1 ? " task" : " tasks"),
+      href: "/performance/person/" + entry.employee_id,
+    };
+  });
+}
 
 export default function LeaderboardPage() {
   const [period, setPeriod] = useState<Period>(CURRENT_QUARTER);
@@ -92,6 +106,17 @@ export default function LeaderboardPage() {
           <p className="mt-6 text-sm text-gray-400">
             No one has a score in this period yet. Scores appear once tasks linked to a KPI have passed their deadlines.
           </p>
+        ) : null}
+
+        {data && data.entries.length > 0 ? (
+          <div className="mt-6">
+            <ChartCard
+              title="Scores on this page"
+              subtitle="Highest first. The line marks 100, the target. The table below shows how many tasks each score rests on."
+              chart={<BarList rows={leaderRows(data.entries)} />}
+              table={<BarTable rows={leaderRows(data.entries)} valueHeading="Overall score" />}
+            />
+          </div>
         ) : null}
 
         {data && data.entries.length > 0 ? (

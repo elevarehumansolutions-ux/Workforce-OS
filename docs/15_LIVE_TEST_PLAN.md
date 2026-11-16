@@ -282,6 +282,14 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 Scoring works in quarters, so this stage uses the helper `backend/scripts/admin/stage9_time_helper.py`
 (commands, with line-by-line explanations, in `14_PRODUCTION_TROUBLESHOOTING.md` section 12). It runs
 the REAL nightly job as if it were another date, on the TEST company only. No fiscal month is changed.
+0. **The graphs (to-do 65), check them on the current quarter before using the helper.** Company
+   performance: a two-line chart "Last four quarters" (blue = company score, orange = punctuality; a
+   quarter with no data is a gap in the line, never a drop to 0) and two bar charts, goals and punctuality
+   per department, with a thin line at 100. Department: a coloured bar of on time (green) / late (amber) /
+   not done (red) with the numbers under it, and a bar per person. Person card: a bar per KPI. Leaderboard:
+   a bar per person. Dashboard "Value of your jobs": one bar split secured / on track / at risk / lost.
+   Every chart has a "View as table" button that shows the same numbers; a person with no score shows
+   "No data yet" and no bar. Check it at phone width too.
 1. Before running it, have real data in the current quarter (Q4 2026, Oct to Dec): tasks done on time,
    late and not done, linked to KPIs; manual KPI results; and one department whose KPI weights add up to
    LESS than 100 (for example one KPI at 70%).
