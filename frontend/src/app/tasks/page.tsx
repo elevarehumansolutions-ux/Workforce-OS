@@ -69,8 +69,11 @@ function TasksContent() {
   const canAssignAny = ctx !== null && (isHr(ctx) || headsAnyDepartment(ctx));
   // Until we know whether anything needs an owner, the page does not guess a tab (it would flicker).
   const waitingForCount = canAssignAny && needsOwnerCount === null;
-  // The page opens where there is something to do: tasks to hand out first, then your own, else everything.
-  let defaultTab: Tab = hasEmployee ? "mine" : "all";
+  // The page opens where there is something to do: tasks to hand out first. After that, people who look after
+  // others (HR, a department head, a manager, an executive) open on everything they can see (their team's tasks,
+  // blocked ones included), and an employee opens on their own tasks.
+  const looksAfterOthers = ctx !== null && (canAssignAny || ctx.role === "manager" || ctx.role === "business_executive");
+  let defaultTab: Tab = hasEmployee && !looksAfterOthers ? "mine" : "all";
   if (canAssignAny && needsOwnerCount !== null && needsOwnerCount > 0) defaultTab = "owner";
   const tab: Tab = tabChoice !== null ? tabChoice : defaultTab;
   const employeeId = ctx && ctx.employee ? ctx.employee.id : "";

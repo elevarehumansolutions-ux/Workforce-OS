@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
+import BlockReviewActions from "@/components/BlockReviewActions";
 import { NOTIFICATIONS_CHANGED } from "@/components/NotificationBell";
 import TogetherCard from "@/components/TogetherCard";
 import {
@@ -25,6 +26,7 @@ import {
   formatDuration,
   isNotClockedIn,
   isoToLocalInput,
+  canReviewBlock,
   effectiveDeadline,
   kpiDetail,
   loadCaller,
@@ -414,6 +416,16 @@ function TaskDetailContent() {
 
   const blocks = blocksResult && blocksResult.key === key ? blocksResult.blocks : [];
   const blocksError = blocksResult && blocksResult.key === key ? blocksResult.error : "";
+  // Blocks still waiting for a decision, and the first one this person may decide (the decision covers them all).
+  const waitingBlocks = blocks.filter(function (b) {
+    return b.review_status === "pending";
+  });
+  const firstReviewable =
+    ctx && task
+      ? waitingBlocks.find(function (b) {
+          return canReviewBlock(ctx, task, b);
+        })
+      : undefined;
 
   const isActive = task !== null && (task.status === "open" || task.status === "in_progress");
   const kpiName =
@@ -643,6 +655,12 @@ function TaskDetailContent() {
                 holds you up, you can mark it blocked again.
               </p>
               {actionError ? <p className="text-sm text-red-300">{actionError}</p> : null}
+              {waitingBlocks.length > 0 ? (
+                <p className="text-sm text-amber-300">
+                  A block on this task is already waiting for a decision. A new one is decided together with it, and the
+                  extra time is given once.
+                </p>
+              ) : null}
               <div>
                 <label className="mb-1 block text-xs text-gray-500">What is it waiting on?</label>
                 <select
@@ -917,6 +935,18 @@ function TaskDetailContent() {
             <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-6 shadow-xl">
               <h3 className="text-base font-semibold">Block history</h3>
               {blocksError ? <p className="mt-2 text-sm text-gray-500">{blocksError}</p> : null}
+              {firstReviewable ? (
+                <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                  <p className="mb-3 text-sm font-medium text-amber-200">A block on this task is waiting for your decision.</p>
+                  <BlockReviewActions
+                    block={firstReviewable}
+                    taskDueAt={task.due_at}
+                    taskApprovedSeconds={task.approved_blocked_seconds}
+                    waitingCount={waitingBlocks.length}
+                    onDecided={reload}
+                  />
+                </div>
+              ) : null}
               <div className="mt-3 space-y-3">
                 {blocks.map(function (b) {
                   return (

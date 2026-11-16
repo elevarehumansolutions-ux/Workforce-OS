@@ -1299,35 +1299,53 @@ class TaskService:
         if reviewed is None:
             raise TaskBlockAlreadyReviewedException()  # someone decided at the same moment
 
+        # ONE decision per task: any other block of this task that is still waiting (for example the person
+        # unblocked and blocked again before anyone decided) is decided the same way, in the same step. Otherwise
+        # two approvals would each add time, and the extension would be doubled. Blocks the caller may not review
+        # (another person's, for a reporting manager) are left waiting.
+        together = []
+        for other in await self._repo.list_pending_blocks_for_task(task.id):
+            if other.id == block.id or not await self._can_review(ctx, other, task):
+                continue
+            decided = await self._repo.review_block(other.id, decision, caller.user_id, now)  # no time of its own
+            if decided is not None:
+                together.append(decided)
+
         # The deadline the task has after this decision: the written deadline plus all approved extensions.
         total_extension = task.approved_blocked_seconds
         if decision == ReviewStatus.APPROVED:
-            # The reviewer's time is credited NOW, whatever the person does next.
+            # The reviewer's time is credited NOW, ONCE, whatever the person does next.
             await self._repo.add_approved_seconds(task.id, extension_seconds)
             total_extension += extension_seconds
 
-        # Either decision ends the block: the task is open again and judged on its deadline from now on.
-        if reviewed.unblocked_at is None:
-            ended = await self._repo.close_block(reviewed.id, now)
-            if ended is not None:
-                await self._repo.clear_blocked_state(task.id, 0)  # nothing more to credit: it was done above
-                reviewed = ended
+        # Either decision ends every block it decided that is still open: the task is open again and judged on
+        # its deadline from now on.
+        decided_blocks = [reviewed] + together
+        for index, decided_block in enumerate(decided_blocks):
+            if decided_block.unblocked_at is None:
+                ended = await self._repo.close_block(decided_block.id, now)
+                if ended is not None:
+                    await self._repo.clear_blocked_state(task.id, 0)  # nothing more to credit: it was done above
+                    decided_blocks[index] = ended
+        reviewed = decided_blocks[0]
 
-        await self._audit.log_action(
-            organization_id=task.organization_id,
-            actor_user_id=caller.user_id,
-            action=f"{decision.value}_block",
-            entity_type="task_block",
-            entity_id=reviewed.id,
-            changes={
-                "old": {"review_status": ReviewStatus.PENDING.value},
-                "new": {
-                    "review_status": decision.value,
-                    "task_id": str(task.id),
-                    **({"granted_seconds": extension_seconds} if extension_seconds is not None else {}),
+        for decided_block in decided_blocks:
+            await self._audit.log_action(
+                organization_id=task.organization_id,
+                actor_user_id=caller.user_id,
+                action=f"{decision.value}_block",
+                entity_type="task_block",
+                entity_id=decided_block.id,
+                changes={
+                    "old": {"review_status": ReviewStatus.PENDING.value},
+                    "new": {
+                        "review_status": decision.value,
+                        "task_id": str(task.id),
+                        **({"granted_seconds": extension_seconds} if decided_block.id == reviewed.id and extension_seconds is not None else {}),
+                        **({"decided_together_with": str(reviewed.id)} if decided_block.id != reviewed.id else {}),
+                    },
                 },
-            },
-        )
+            )
 
         reviewer_name = await self._person_name_for_user(caller.user_id)
         deadline_text = await self._deadline_text(task, total_extension)
@@ -1342,9 +1360,11 @@ class TaskService:
                 f"{reviewer_name} did not approve your block, so the task keeps its deadline. {deadline_text}"
                 "The task is open again."
             )
+        # Everyone whose block was decided is told, once each (the same person may have raised several).
+        blockers = list(dict.fromkeys(b.blocked_by_user_id for b in decided_blocks))
         await self._notifications.notify(
             organization_id=task.organization_id,
-            recipient_user_ids=[reviewed.blocked_by_user_id],
+            recipient_user_ids=blockers,
             category=NotificationCategory.TASK,
             title=f"Block {decision.value}: {task.title}",
             body=body,
@@ -1745,15 +1765,20 @@ class TaskService:
         reminded = 0
         escalated = 0
         reminded_users: dict[uuid.UUID, set[uuid.UUID]] = {}
+        # A task decided as one (see _review_block) is chased as one: two waiting blocks on the same task
+        # must not send the same reminder twice.
+        reminded_tasks: set[uuid.UUID] = set()
+        escalated_tasks: set[uuid.UUID] = set()
 
         for block in await self._repo.claim_blocks_waiting_too_long(now, REVIEW_REMINDER_AFTER, "review_reminded_at"):
             task = await self._repo.get_task_by_id(block.task_id)
-            if task is None:
+            if task is None or task.id in reminded_tasks:
                 continue
             recipients = await self._review_recipients(task, block)
-            reminded_users[block.id] = set(recipients)
+            reminded_users[task.id] = set(recipients)
             if not recipients:
                 continue
+            reminded_tasks.add(task.id)
             await self._notifications.notify(
                 organization_id=organization_id,
                 recipient_user_ids=recipients,
@@ -1770,12 +1795,12 @@ class TaskService:
 
         for block in await self._repo.claim_blocks_waiting_too_long(now, REVIEW_ESCALATION_AFTER, "review_escalated_at"):
             task = await self._repo.get_task_by_id(block.task_id)
-            if task is None:
+            if task is None or task.id in escalated_tasks:
                 continue
             hr_user_ids = await self._membership_service.list_active_user_ids_by_role(
                 organization_id, MembershipRole.HR_ADMINISTRATOR.value
             )
-            already_told = reminded_users.get(block.id, set())
+            already_told = reminded_users.get(task.id, set())
             recipients = [u for u in hr_user_ids if u not in already_told and u != block.blocked_by_user_id]
             if not recipients:
                 continue
@@ -1791,6 +1816,7 @@ class TaskService:
                 link_type="task_block",
                 link_id=block.id,
             )
+            escalated_tasks.add(task.id)
             escalated += 1
         return reminded, escalated
 
