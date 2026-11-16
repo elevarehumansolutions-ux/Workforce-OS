@@ -343,6 +343,18 @@ class TaskBlock(BaseModel):
         doc="When it was reviewed; null while pending",
     )
 
+    review_reminded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc="When the reviewers were reminded that this block is still waiting (after 24 hours); null = not yet",
+    )
+
+    review_escalated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        doc="When HR was told that this block has waited too long for a decision (after 48 hours); null = not yet",
+    )
+
     estimated_seconds: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,

@@ -544,6 +544,8 @@ CREATE TABLE task_blocks (
     reviewed_at TIMESTAMPTZ,
     estimated_seconds INTEGER CHECK (estimated_seconds IS NULL OR estimated_seconds > 0),  -- 2026-11-16 (migration b2e8f4a60c37): what the assignee said they would need (optional); only pre-fills the reviewer's box
     granted_seconds INTEGER CHECK (granted_seconds IS NULL OR granted_seconds > 0),        -- the extra time the REVIEWER gave when approving (added to tasks.approved_blocked_seconds AT approval); CHECK granted_seconds IS NULL OR review_status = 'approved'. NULL for pending/rejected and for a block approved under the old rule (time = how long it lasted), which is still credited that way if it is closed later
+    review_reminded_at TIMESTAMPTZ,   -- 2026-11-16 (migration c3f9a5d81e62): when the reviewers were reminded that the block was still waiting (after 24 hours pending); NULL = not yet
+    review_escalated_at TIMESTAMPTZ,  -- when HR was told it had waited too long (after 48 hours pending); NULL = not yet. organizations_needing_task_scan() also returns an organization with a pending block past either threshold not yet announced
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

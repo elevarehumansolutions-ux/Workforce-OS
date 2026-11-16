@@ -1,7 +1,7 @@
 """Data-access layer for the Task module."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import false, func, not_, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -768,6 +768,29 @@ class TaskRepository:
             )
             .values(overdue_notified_at=now)
             .returning(Task)
+            .execution_options(**_ATOMIC_UPDATE_OPTIONS)
+        )
+        result = await self._db.execute(stmt)
+        await self._db.flush()
+        return list(result.scalars().all())
+
+    async def claim_blocks_waiting_too_long(self, now: datetime, waited_longer_than: timedelta, marker: str) -> list[TaskBlock]:
+        """Mark every pending block that has waited longer than ``waited_longer_than`` as announced, and return them.
+
+        ``marker`` is ``"review_reminded_at"`` (the reviewers' reminder) or ``"review_escalated_at"`` (HR's notice).
+        Same shape as :meth:`claim_unannounced_overdue_tasks`: one UPDATE finds AND marks, so two workers can't both
+        announce the same block, and the caller commits after sending.
+        """
+        column = getattr(TaskBlock, marker)
+        stmt = (
+            update(TaskBlock)
+            .where(
+                TaskBlock.review_status == ReviewStatus.PENDING.value,
+                TaskBlock.blocked_at < now - waited_longer_than,
+                column.is_(None),
+            )
+            .values(**{marker: now})
+            .returning(TaskBlock)
             .execution_options(**_ATOMIC_UPDATE_OPTIONS)
         )
         result = await self._db.execute(stmt)

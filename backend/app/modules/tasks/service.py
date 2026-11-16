@@ -64,6 +64,13 @@ _ORG_WIDE_ROLES = [MembershipRole.HR_ADMINISTRATOR.value, MembershipRole.BUSINES
 _CLOCK_IN_MESSAGE = "Clock in to see and work on your tasks."
 
 
+# A block waits for a reviewer's decision while the task is NOT counted as overdue, so a reviewer who never decides
+# would freeze the clock. After 24 hours the reviewers are reminded, after 48 hours HR is told, each once
+# (08_DECISIONS.md 2026-11-16). The same numbers are written into the lookup in migration c3f9a5d81e62.
+REVIEW_REMINDER_AFTER = timedelta(hours=24)
+REVIEW_ESCALATION_AFTER = timedelta(hours=48)
+
+
 def describe_duration(seconds: int) -> str:
     """A length of time in plain words for a notification: "1 day 2 hours", "45 minutes", "1 minute"."""
     minutes = max(1, round(seconds / 60))
@@ -1723,6 +1730,69 @@ class TaskService:
             if task.due_soon_notified_at is None:
                 await self._prompt_assignee_to_explain(task)
         return len(tasks)
+
+    async def chase_blocks_waiting_for_review(self, organization_id: uuid.UUID, now: datetime) -> tuple[int, int]:
+        """Remind reviewers, then tell HR, about a block that has waited too long for a decision.
+
+        Called by the task scan once per organization (RLS context already set). A block still ``pending`` after
+        24 hours reminds the people who may review it (the blocker's reporting manager, else the department head,
+        else HR); after 48 hours HR administrators are told as well (those already reminded are not told twice).
+        Each happens once per block. Both are in-app only and link to the Blocks to review screen.
+
+        Returns:
+            ``(reminded, escalated)``: how many blocks were announced at each step.
+        """
+        reminded = 0
+        escalated = 0
+        reminded_users: dict[uuid.UUID, set[uuid.UUID]] = {}
+
+        for block in await self._repo.claim_blocks_waiting_too_long(now, REVIEW_REMINDER_AFTER, "review_reminded_at"):
+            task = await self._repo.get_task_by_id(block.task_id)
+            if task is None:
+                continue
+            recipients = await self._review_recipients(task, block)
+            reminded_users[block.id] = set(recipients)
+            if not recipients:
+                continue
+            await self._notifications.notify(
+                organization_id=organization_id,
+                recipient_user_ids=recipients,
+                category=NotificationCategory.TASK,
+                title=f"Block waiting for your review: {task.title}",
+                body=(
+                    f'"{task.title}" was marked blocked {describe_duration((now - block.blocked_at).total_seconds())} ago '
+                    "and still needs your decision. While it waits, the task is not counted as overdue."
+                ),
+                link_type="task_block",
+                link_id=block.id,
+            )
+            reminded += 1
+
+        for block in await self._repo.claim_blocks_waiting_too_long(now, REVIEW_ESCALATION_AFTER, "review_escalated_at"):
+            task = await self._repo.get_task_by_id(block.task_id)
+            if task is None:
+                continue
+            hr_user_ids = await self._membership_service.list_active_user_ids_by_role(
+                organization_id, MembershipRole.HR_ADMINISTRATOR.value
+            )
+            already_told = reminded_users.get(block.id, set())
+            recipients = [u for u in hr_user_ids if u not in already_told and u != block.blocked_by_user_id]
+            if not recipients:
+                continue
+            await self._notifications.notify(
+                organization_id=organization_id,
+                recipient_user_ids=recipients,
+                category=NotificationCategory.TASK,
+                title=f"A block has waited {describe_duration((now - block.blocked_at).total_seconds())} for review: {task.title}",
+                body=(
+                    "Nobody has decided yet, and while it waits the task is not counted as overdue. "
+                    "Please decide, or ask its reviewer to."
+                ),
+                link_type="task_block",
+                link_id=block.id,
+            )
+            escalated += 1
+        return reminded, escalated
 
     async def announce_due_soon_tasks(self, organization_id: uuid.UUID, now: datetime) -> int:
         """Remind the assignee of every task inside its reminder window, once (08_DECISIONS.md 2026-11-15).

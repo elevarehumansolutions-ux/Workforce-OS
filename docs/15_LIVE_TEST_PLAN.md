@@ -150,6 +150,12 @@ added as an employee (Stage 3). So you do NOT need one person per accepted role.
 5. Mark a task blocked with a reason. Expect: the reviewer is notified; approve it; the task is no
    longer overdue.
 6. Reassign a task. Expect: the new person is told.
+9. (to-do 58) A block left waiting. As the employee mark a task blocked and leave it unreviewed. As the database
+   owner move its `blocked_at` back about 25 hours (the same idea as `14_PRODUCTION_TROUBLESHOOTING.md` section 14,
+   on `task_blocks`), then run the scan (`celery -A app.core.celery_app call app.modules.tasks.tasks.overdue_scan`).
+   The reviewer (the employee's reporting manager, else the head, else HR) gets "Block waiting for your review"; it
+   opens Blocks to review. Move it back to about 49 hours and run the scan again: HR gets "A block has waited 2 days
+   1 hour for review" (and the reviewer is not told again). Decide the block: nothing further.
 8. (to-do 57) The reviewer sets the time. As the employee, open a task and press Mark blocked: there is an optional
    "How much extra time do you think you will need?" (say 2 hours) and a note that the reviewer decides. As the
    reviewer open Blocks to review: the block shows "The person asked for 2 hours more". Press Approve…: a panel asks
