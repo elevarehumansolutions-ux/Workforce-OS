@@ -1,11 +1,12 @@
 ﻿"use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useRef, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import DeadlineHint from "@/components/DeadlineHint";
+import DeadlineQuickPicks from "@/components/DeadlineQuickPicks";
 import PersonSelect from "@/components/PersonSelect";
 import {
   peopleOfDepartment,
@@ -39,6 +40,10 @@ export default function AssignTaskPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Set by the "Create and add another" button just before the form is submitted. A ref, not state,
+  // because the submit handler must see the value from the click that started it.
+  const addAnotherRef = useRef(false);
+  const [justCreated, setJustCreated] = useState("");
 
   useEffect(function () {
     let cancelled = false;
@@ -72,6 +77,7 @@ export default function AssignTaskPage() {
     e.preventDefault();
     if (!ctx) return;
     setFormError("");
+    setJustCreated("");
 
     const newErrors: Record<string, string> = {};
     const trimmedTitle = title.trim();
@@ -107,7 +113,18 @@ export default function AssignTaskPage() {
     setSubmitting(true);
     try {
       const created = await apiFetch<Task>("/tasks", { method: "POST", body: body });
-      router.push("/tasks/" + created.id);
+      if (addAnotherRef.current) {
+        // Keep the department, goal and deadline (a head usually hands out several similar tasks);
+        // clear what is different each time.
+        setJustCreated("Created: " + created.title);
+        setTitle("");
+        setDescription("");
+        setAssigneeId("");
+        setExtras([]);
+        setSubmitting(false);
+      } else {
+        router.push("/tasks/" + created.id);
+      }
     } catch (err) {
       if (err instanceof ApiError && Object.keys(err.fieldErrors).length > 0) {
         setErrors(err.fieldErrors);
@@ -152,6 +169,11 @@ export default function AssignTaskPage() {
           onSubmit={handleSubmit}
           className="max-w-2xl space-y-5 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-xl"
         >
+          {justCreated ? (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+              {justCreated}. The department, goal and deadline are kept for the next one.
+            </div>
+          ) : null}
           {formError ? (
             <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
               {formError}
@@ -232,6 +254,7 @@ export default function AssignTaskPage() {
                 }}
                 className={inputClass}
               />
+              <DeadlineQuickPicks onPick={setDueLocal} />
               <DeadlineHint value={dueLocal} />
               {errors.due_at ? <p className="mt-1 text-xs text-red-400">{errors.due_at}</p> : null}
             </div>
@@ -405,13 +428,28 @@ export default function AssignTaskPage() {
             <Link href="/tasks" className="text-sm font-medium text-gray-400 hover:text-gray-200">
               Cancel
             </Link>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-lg bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting ? "Creating…" : "Create task"}
-            </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                disabled={submitting}
+                onClick={function () {
+                  addAnotherRef.current = true;
+                }}
+                className="rounded-lg border border-indigo-400/50 px-5 py-3 text-sm font-semibold text-indigo-200 transition hover:bg-indigo-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Create and add another
+              </button>
+              <button
+                type="submit"
+                disabled={submitting}
+                onClick={function () {
+                  addAnotherRef.current = false;
+                }}
+                className="rounded-lg bg-indigo-500 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? "Creating…" : "Create task"}
+              </button>
+            </div>
           </div>
         </form>
       ) : null}

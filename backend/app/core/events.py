@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Event names. Always use these constants, never a typed-out string.
 TASK_COMPLETED = "task.completed"
 TASK_CANCELLED = "task.cancelled"
+KPI_RESULT_SAVED = "kpi.result_saved"
 
 # A listener is an async function: ``async def listener(db, **details)``.
 Listener = Callable[..., Awaitable[None]]

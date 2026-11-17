@@ -110,6 +110,30 @@ class ScoringService:
         await self.compute_employee_scores(organization_id, period_start, period_end, now)
         await self.compute_department_scores(organization_id, period_start, period_end, now)
 
+    async def refresh_departments_after_result(
+        self, organization_id: uuid.UUID, result_period_start: date, now: datetime
+    ) -> bool:
+        """After HR saves a KPI result, bring the departments' figures up to date at once.
+
+        Without this the department's "did it hit its goals" number waited for the nightly job,
+        so a person who had just typed a result saw nothing change. Only the department rows
+        of the OPEN quarter are recomputed (people's scores come from tasks, not from typed
+        results, so they do not change), and only when the result belongs to that quarter.
+
+        Returns:
+            True if the rows were refreshed, False if the result was for another period.
+        """
+        organization = await self._organization_repo.get_organization_by_id(organization_id)
+        if organization is None:
+            return False
+        current_start, current_end = current_fiscal_quarter(
+            organization.fiscal_year_start_month, organization.timezone, now
+        )
+        if period_dates(current_start, current_end)[0] != result_period_start:
+            return False
+        await self.compute_department_scores(organization_id, current_start, current_end, now)
+        return True
+
     async def close_period(
         self,
         organization_id: uuid.UUID,

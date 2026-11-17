@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { apiFetch } from "@/lib/api";
 import DeadlineHint from "@/components/DeadlineHint";
+import DeadlineQuickPicks from "@/components/DeadlineQuickPicks";
 import PersonSelect from "@/components/PersonSelect";
 import { errorMessage, localInputToIso, peopleOfDepartment } from "@/lib/tasks";
 import type { CallerContext, Task } from "@/lib/tasks";
@@ -86,6 +87,7 @@ export default function AssignInline({ task, ctx, onAssigned }: AssignInlineProp
             }}
             className={fieldClass}
           />
+          <DeadlineQuickPicks onPick={setDueLocal} />
           <DeadlineHint value={dueLocal} />
         </div>
       )}

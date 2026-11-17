@@ -34,6 +34,7 @@ from app.modules.blueprint.router import router as blueprint_router
 from app.modules.attendance.router import router as attendance_router
 from app.modules.tasks.router import router as tasks_router
 from app.modules.workflow.listeners import register_listeners as register_workflow_listeners
+from app.modules.scoring.listeners import register_listeners as register_scoring_listeners
 from app.modules.scoring.router import router as scoring_router
 from app.modules.workflow.router import router as workflow_router
 
@@ -196,3 +197,5 @@ app.include_router(workflow_router, prefix="/api/v1", tags=["workflow"])
 # the next step's task). Tasks are only completed or cancelled through the API
 # today; if a background job ever does it, it must call this too.
 register_workflow_listeners()
+# The KPI module announces a saved result; Scoring refreshes the department figures at once.
+register_scoring_listeners()
