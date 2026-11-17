@@ -134,8 +134,13 @@ function DepartmentCharts(props: { departments: CompanyDepartmentLine[] }) {
   );
 }
 
+// "Mon 16 Nov" for the moment the summary was saved.
+function writtenOn(generatedAt: string): string {
+  return new Date(generatedAt).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
+
 // The short written summary. It never names a person; every number in it was checked by the server.
-function SummaryBox(props: { period: Period }) {
+function SummaryBox(props: { period: Period; quarterIsFinal: boolean }) {
   const load = useLoad<ExecutiveSummary>(
     "summary|" + props.period.start + "|" + props.period.end,
     function () {
@@ -152,10 +157,19 @@ function SummaryBox(props: { period: Period }) {
         {data && data.summary_text !== null ? (
           <p className="text-xs text-indigo-200/70">
             {data.is_final ? "Final for this quarter" : "Updated weekly, so far this quarter"}
+            {data.generated_at !== null ? " · written " + writtenOn(data.generated_at) : ""}
             {data.source === "plain" ? " · facts only" : ""}
           </p>
         ) : null}
       </div>
+      {/* The text is saved once a week, so it can be older than the numbers on this page. */}
+      {data && data.summary_text !== null && !data.is_final ? (
+        <p className="mt-2 text-xs text-amber-200">
+          {props.quarterIsFinal
+            ? "This quarter has closed, but its final summary has not been written yet. The text below is the last weekly one and may not match the figures on this page."
+            : "This text was written on the date shown. The figures on this page are updated every night, so they can be newer."}
+        </p>
+      ) : null}
       {load.loading ? <p className="mt-2 text-sm text-gray-400">Loading…</p> : null}
       {load.error ? <p className="mt-2 text-sm text-red-300">{load.error}</p> : null}
       {data && data.summary_text !== null ? <p className="mt-2 text-sm leading-relaxed text-white">{data.summary_text}</p> : null}
@@ -401,7 +415,7 @@ export default function CompanyPerformancePage() {
 
         {data ? (
           <div className="mt-6">
-            <SummaryBox period={period} />
+            <SummaryBox period={period} quarterIsFinal={data.is_final} />
 
             {/* Two different questions, so two numbers; they are never blended into one. */}
             <div className="grid gap-4 md:grid-cols-2">
