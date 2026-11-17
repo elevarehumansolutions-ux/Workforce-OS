@@ -311,6 +311,12 @@ the REAL nightly job as if it were another date, on the TEST company only. No fi
    must be within 14 days of 1 Jan/Apr/Jul/Oct, so this is checked by reading the code and the unit test,
    not live, unless you test in mid-December).
 6. `unfreeze --quarter-start 2026-10-01`, add one more task, `run` again: the figures change.
+11. **The written summary (to-dos 72 and 73).** On Company performance for Oct to Dec 2026 the summary
+   box shows "written {date}" and, if the text is not final, an amber note saying it can be older than the
+   figures. Then run the helper's new command `summary --on 2027-01-04` (section 12 step 3b of the
+   troubleshooting doc) and refresh: the box says "Final for this quarter", the amber note is gone, and
+   the numbers in the text (company punctuality 65.8, 12 on time, 1 late, 6 not done, unless data changed
+   since) match the page. It must not name a person.
 
 ## Stage 10: Settings, roles and limits (M2, M13 not built)
 

@@ -9,9 +9,11 @@ Run inside the api container, from /app (the id comes from `SELECT id, name FROM
 
     python scripts/admin/stage9_time_helper.py show     --org <id> --name "<exact name>"
     python scripts/admin/stage9_time_helper.py run      --org <id> --name "<exact name>" --on 2027-01-02
+    python scripts/admin/stage9_time_helper.py summary  --org <id> --name "<exact name>" --on 2027-01-04
     python scripts/admin/stage9_time_helper.py unfreeze --org <id> --name "<exact name>" --quarter-start 2026-10-01
 
-``run`` closes the quarter that ended before the date and refreshes the new one, and (for a
+``summary`` runs the weekly written-summary job as if it were that date (the final text of a quarter
+that has closed, then the "so far" text); run ``run`` first. ``run`` closes the quarter that ended before the date and refreshes the new one, and (for a
 company older than the new quarter) sends the quarter-start KPI weight reminder. ``unfreeze``
 re-opens a closed quarter so you can add data and close it again. Manual KPI results that HR
 typed in are never touched by either.
@@ -96,6 +98,18 @@ async def run(db: AsyncSession, organization: Organization, on: date) -> None:
     print(f"Ran the nightly job as if it were {pretend_now:%Y-%m-%d %H:%M} UTC: {result}")
 
 
+async def summary(db: AsyncSession, organization: Organization, on: date) -> None:
+    """Run the real weekly summary job as if it were ``on`` (01:00 UTC that day).
+
+    It writes the FINAL summary of a quarter that has just closed (once, then frozen) and this
+    week's "so far" summary. Run ``run`` first so the figures it describes exist. The job asks the
+    AI model to write the text, so this takes a few seconds and uses a little of the API quota.
+    """
+    pretend_now = datetime.combine(on, datetime.min.time(), tzinfo=UTC) + timedelta(hours=1)
+    result = await scoring_jobs.run_summary_for_organization(db, organization.id, pretend_now)
+    print(f"Ran the summary job as if it were {pretend_now:%Y-%m-%d %H:%M} UTC: {result}")
+
+
 async def unfreeze(db: AsyncSession, organization: Organization, quarter_start: date) -> None:
     """Re-open a closed quarter: clear its frozen marks so it can be closed again.
 
@@ -114,7 +128,7 @@ async def unfreeze(db: AsyncSession, organization: Organization, quarter_start: 
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description="Run scoring as if it were another date (TEST companies only).")
-    parser.add_argument("command", choices=["show", "run", "unfreeze"])
+    parser.add_argument("command", choices=["show", "run", "summary", "unfreeze"])
     parser.add_argument("--org", required=True, help="the company's id")
     parser.add_argument("--name", required=True, help="the company's exact name, typed again as a safety check")
     parser.add_argument("--on", help="run: the pretend date, YYYY-MM-DD")
@@ -131,6 +145,10 @@ async def main() -> None:
                 if not args.on:
                     sys.exit("run needs --on YYYY-MM-DD")
                 await run(db, organization, date.fromisoformat(args.on))
+            elif args.command == "summary":
+                if not args.on:
+                    sys.exit("summary needs --on YYYY-MM-DD")
+                await summary(db, organization, date.fromisoformat(args.on))
             else:
                 if not args.quarter_start:
                     sys.exit("unfreeze needs --quarter-start YYYY-MM-DD")

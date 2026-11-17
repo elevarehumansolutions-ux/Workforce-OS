@@ -436,6 +436,23 @@ leaderboard and the company view and pick the quarter 2026-10-01 to 2026-12-31: 
 On the first night of the new quarter HR administrators also get the KPI-weight reminder for any
 department with weights below 100 (Notifications).
 
+Step 3b: write the summary text for that date. The written summary on Company performance is NOT made
+by the nightly job; a separate weekly job (Mondays 03:00 UTC) writes it, so after `run` it still shows an
+older text. This runs that weekly job as if it were the given date, for the test company only:
+
+```
+docker compose -f docker-compose.prod.yml exec -T api python scripts/admin/stage9_time_helper.py summary --org <id> --name "Zenith Test Ltd" --on 2027-01-04
+```
+`summary` is the helper's command name; `--org` and `--name` are the same safety pair as before (the name
+must match the company exactly or nothing happens); `--on 2027-01-04` is the pretend date (use a date
+AFTER the quarter ended to get its FINAL summary, written once and frozen, plus this week's "so far" one).
+It asks the AI model to write the text, so it takes a few seconds. It prints `{'final': ..., 'current':
+...}`: what happened in each of the two steps. Reading the evidence: open Company performance; the box
+should say "Final for this quarter" and "written ...", and its numbers should match the page. If the text
+still looks old, run `run` first (the summary describes the saved scores) and check that the quarter is
+closed. Rule to remember: **a saved text can be older than the numbers beside it; always look at the
+"written" date.**
+
 Step 4: to add more data and close the quarter again, re-open it (only the "frozen" marks are cleared;
 nothing is deleted; manual KPI results you typed in are never touched), then run step 3 again:
 
