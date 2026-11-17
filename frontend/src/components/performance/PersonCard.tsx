@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { scoreClasses, scoreText } from "@/lib/performance";
+import { apiFetch } from "@/lib/api";
+import { personPath, scoreClasses, scoreText } from "@/lib/performance";
+import ScoreTrend from "@/components/performance/ScoreTrend";
 import ChartCard from "@/components/charts/ChartCard";
 import BarList, { BarTable } from "@/components/charts/BarList";
 import type { BarRow } from "@/components/charts/BarList";
-import type { PersonPerformance } from "@/lib/performance";
+import type { Period, PersonPerformance } from "@/lib/performance";
 
 function kpiRows(data: PersonPerformance): BarRow[] {
   return data.kpis.map(function (line) {
@@ -19,6 +21,12 @@ function kpiRows(data: PersonPerformance): BarRow[] {
 // rests on, and one row per KPI. Used for "My performance" and for a colleague's card.
 export default function PersonCard(props: { data: PersonPerformance }) {
   const data = props.data;
+
+  async function loadEarlierScore(period: Period): Promise<string | null> {
+    const earlier = await apiFetch<PersonPerformance>(personPath(data.employee_id, period), { method: "GET" });
+    return earlier.overall_score;
+  }
+
   return (
     <div className="mt-6">
       <div className="flex flex-wrap items-end gap-6">
@@ -38,6 +46,17 @@ export default function PersonCard(props: { data: PersonPerformance }) {
             </p>
           )}
         </div>
+      </div>
+
+      <div className="mt-6">
+        <ScoreTrend
+          subjectKey={data.employee_id}
+          title="Overall score, last four quarters"
+          measureName="Overall score"
+          shownStart={data.period_start}
+          shownScore={data.overall_score}
+          loadScore={loadEarlierScore}
+        />
       </div>
 
       {data.kpis.length > 0 ? (
