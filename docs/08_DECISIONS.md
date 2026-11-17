@@ -1352,6 +1352,15 @@ Raised by Emmanuel while setting up the first workflow template in the Stage 7 l
 - **One person picker.** Every dropdown that chooses a person becomes a single shared component: a group per department, each person shown as "Name, Position", people without a position under "No position yet". Chosen over a searchable combobox for now (a native select works the same on a phone and needs no new behaviour to learn); search can be added to the one component later.
 - **The Start Workflow page** gets a way forward when there are no templates (a button for HR administrators and managers, a sentence for everyone else).
 
+## 2026-11-17 — Five fixes found while preparing the Stage 9 test data (BUILT, to-dos 67 to 71)
+
+All five were found by Emmanuel while creating tasks and KPI results for the live test; he asked for all of them ("go ahead with all to-dos").
+- **67, no past deadlines (server):** creating a task, or CHANGING its deadline, to a time that has passed is refused (422 on field `due_at`). Saving other fields of an already-overdue task still works, because only a changed deadline is checked. Rejected: only warning (the amber hint already did, and people still saved), and refusing any edit of an overdue task. Workflow tasks are not affected (their deadline is counted forward from now).
+- **68, "Create and add another":** a second button on Assign task that keeps the department, goal and deadline and clears the title, description and people. Rejected: keeping the person too (a head hands different tasks to different people).
+- **69, quick time buttons:** In 1 hour, Today 5:00 pm (only while still ahead), Tomorrow 9:00 am, In 3 days 5:00 pm, Next Monday 9:00 am, under every deadline box. The box stays for any other time. The 9 and 5 are fixed, not read from the company's working hours (nice-to-have later).
+- **70, KPI result box says what to type:** label "type a number only (in %), the target is 95", an inverse KPI says "Lower is better", numeric keyboard, placeholder from the target.
+- **71, saving a result refreshes the department figures at once:** the KPI module announces the event `kpi.result_saved` (new constant in `core/events.py`) and the Scoring module's new listener recomputes the open quarter's department rows. Chosen over a direct call because Scoring already imports the KPI module (a call back would be circular) and over refreshing on every page view (wasteful). Only the open quarter, only when the result belongs to it; a frozen row is never rewritten.
+
 ## 2026-11-17 — The final summary of a closed quarter is queued the night the quarter closes (BUILT, to-do 72; refines question 10 of M12)
 
 **Found in Stage 9 (Emmanuel):** the written summary is a saved text written by the weekly job (Mondays 03:00 UTC), so for up to a week after a quarter closed the company screen said "Final" while the summary still said "so far" with old numbers.

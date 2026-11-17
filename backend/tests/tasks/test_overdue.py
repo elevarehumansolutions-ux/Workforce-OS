@@ -13,8 +13,12 @@ from app.modules.tasks.enums import TaskStatus
 from app.modules.tasks.models import Task
 from app.modules.tasks.overdue import is_overdue
 from tests.conftest import set_org_context
+from tests.tasks.past_deadlines import allow_past_deadlines  # noqa: F401 - used through usefixtures below
 from tests.tasks.test_tasks_router import TASKS, _ids, _world
 from tests.tasks.test_tasks_router import _task as _create_task_via_api
+
+# These tests need tasks that are already overdue (see tests/tasks/past_deadlines.py).
+pytestmark = pytest.mark.usefixtures("allow_past_deadlines")
 
 LONG_AGO = "2020-01-01T00:00:00+00:00"
 FAR_AHEAD = "2099-01-01T00:00:00+00:00"

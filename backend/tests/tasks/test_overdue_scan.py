@@ -15,7 +15,11 @@ from app.modules.audit_and_notification.models import Notification
 from app.modules.tasks import tasks as task_jobs
 from app.modules.tasks.repository import TaskRepository
 from tests.conftest import set_org_context
+from tests.tasks.past_deadlines import allow_past_deadlines  # noqa: F401 - used through usefixtures below
 from tests.tasks.test_tasks_router import NOTIFICATIONS, TASKS, _clock_in, _task, _world
+
+# These tests need tasks that are already overdue (see tests/tasks/past_deadlines.py).
+pytestmark = pytest.mark.usefixtures("allow_past_deadlines")
 
 LONG_AGO = "2020-01-01T00:00:00+00:00"
 ANOTHER_LONG_AGO = "2021-01-01T00:00:00+00:00"

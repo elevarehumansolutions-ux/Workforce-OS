@@ -8,6 +8,7 @@ import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
 import BlockReviewActions from "@/components/BlockReviewActions";
 import DeadlineHint from "@/components/DeadlineHint";
+import DeadlineQuickPicks from "@/components/DeadlineQuickPicks";
 import { NOTIFICATIONS_CHANGED } from "@/components/NotificationBell";
 import TogetherCard from "@/components/TogetherCard";
 import {
@@ -779,6 +780,7 @@ function TaskDetailContent() {
                     }}
                     className={inputClass}
                   />
+                  <DeadlineQuickPicks onPick={setEditDue} />
                   <DeadlineHint value={editDue} />
                   {task.approved_blocked_seconds > 0 ? (
                     <p className="mt-1 text-xs text-amber-300">
@@ -916,6 +918,7 @@ function TaskDetailContent() {
                     }}
                     className={inputClass}
                   />
+                  <DeadlineQuickPicks onPick={setReassignDue} />
                   <DeadlineHint value={reassignDue} />
                 </div>
               </div>

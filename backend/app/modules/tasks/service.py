@@ -270,6 +270,20 @@ class TaskService:
         if await self._kpi_repo.get_kpi_by_id(kpi_id) is None:
             raise KPINotFoundException()
 
+    @staticmethod
+    def _refuse_past_deadline(due_at: datetime | None) -> None:
+        """Refuse a deadline that has already passed (a task would be overdue the moment it is saved).
+
+        ``None`` (no deadline) is fine. The message is attached to the ``due_at`` field so the
+        screen can show it under the deadline box.
+
+        Raises:
+            ValidationException: If ``due_at`` is not in the future.
+        """
+        if due_at is not None and due_at <= datetime.now(UTC):
+            message = "The deadline must be in the future. Choose a time that has not passed yet."
+            raise ValidationException(message=message, details=[{"field": "due_at", "message": message}])
+
     async def create_task(self, caller: Membership, data: dict) -> Task:
         """Create a task, working out who it goes to.
 
@@ -314,6 +328,7 @@ class TaskService:
             )
         if data.get("kpi_id") is not None:
             await self._validate_kpi(data["kpi_id"])
+        self._refuse_past_deadline(data.get("due_at"))
 
         assignee_id = data.get("assigned_to_employee_id")
         outsider = not ctx.is_hr and not is_head and ctx.own_department_id != department.id
@@ -723,6 +738,10 @@ class TaskService:
             raise TaskNotOpenException()
         if data.get("kpi_id") is not None:
             await self._validate_kpi(data["kpi_id"])
+        # Only a CHANGED deadline is checked: saving a new title on a task that is already
+        # overdue must keep working, because its old deadline is still in the past.
+        if data.get("due_at") != task.due_at:
+            self._refuse_past_deadline(data.get("due_at"))
 
         old_data =jsonable_encoder({field: getattr(task, field) for field in data})
         task = await self._repo.update_task(task, data)

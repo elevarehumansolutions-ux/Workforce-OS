@@ -7,6 +7,7 @@ repository but never commits — the router commits after a successful
 call, same convention as every other module.
 """
 
+from app.core import events
 from app.core.exceptions import KPIScorePeriodClosedException, KPITrackedByTasksException
 from datetime import date
 import decimal
@@ -388,6 +389,7 @@ class KPIService:
                     ),
                 },
             )
+            await self._announce_result_saved(organization_id, kpi_id, data)
             return created
 
         old_data = _snapshot(existing_score, ("actual_value", "score_percentage"))
@@ -408,7 +410,24 @@ class KPIService:
                 ),
             },
         )
+        await self._announce_result_saved(organization_id, kpi_id, data)
         return updated
+
+    async def _announce_result_saved(
+        self, organization_id: uuid.UUID, kpi_id: uuid.UUID, data: KPIScoreCreate
+    ) -> None:
+        """Tell the notice board a KPI result was saved, so the department's figures can follow it.
+
+        The KPI module does not know who listens (the Scoring module does).
+        """
+        await events.publish(
+            events.KPI_RESULT_SAVED,
+            self._db,
+            organization_id=organization_id,
+            kpi_id=kpi_id,
+            period_start=data.period_start,
+            period_end=data.period_end,
+        )
             
         
 

@@ -18,7 +18,11 @@ from tests.tasks.test_task_block_review import (
     _titles,
     _world_with_a_boss,
 )
+from tests.tasks.past_deadlines import allow_past_deadlines  # noqa: F401 - used through usefixtures below
 from tests.tasks.test_tasks_router import NOTIFICATIONS, TASKS, _task
+
+# These tests need tasks that are already overdue (see tests/tasks/past_deadlines.py).
+pytestmark = pytest.mark.usefixtures("allow_past_deadlines")
 
 LONG_AGO = "2020-01-01T00:00:00+00:00"
 

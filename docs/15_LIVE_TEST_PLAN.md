@@ -311,6 +311,14 @@ the REAL nightly job as if it were another date, on the TEST company only. No fi
    must be within 14 days of 1 Jan/Apr/Jul/Oct, so this is checked by reading the code and the unit test,
    not live, unless you test in mid-December).
 6. `unfreeze --quarter-start 2026-10-01`, add one more task, `run` again: the figures change.
+12. **Fixes from the data setup (to-dos 67 to 71).** (a) Assign task: pick a deadline in the past
+   (type a time that has passed) and save: it is refused with the message under the deadline box; the
+   quick buttons (In 1 hour, Tomorrow 9:00 am and so on) fill the box and the hint shows the distance.
+   On an overdue task, edit only the title and save: it works; change its deadline to a past time: refused.
+   (b) Press "Create and add another": "Created: ..." appears, department, goal and deadline stay, title
+   and person are cleared. (c) KPIs screen as HR: the result box says "type a number only (in %), the
+   target is ...". Type a result and save, then open the department screen (as the head) WITHOUT running
+   anything: the goals number has changed at once.
 11. **The written summary (to-dos 72 and 73).** On Company performance for Oct to Dec 2026 the summary
    box shows "written {date}" and, if the text is not final, an amber note saying it can be older than the
    figures. Then run the helper's new command `summary --on 2027-01-04` (section 12 step 3b of the

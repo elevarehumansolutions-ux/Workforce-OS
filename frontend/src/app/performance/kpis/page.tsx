@@ -276,10 +276,25 @@ function RecordResult(props: { kpi: KpiFull; onSaved: () => void }) {
   }
 
   return (
-    <form onSubmit={save} className="mt-2 flex flex-wrap items-center gap-2">
-      <input className={INPUT + " w-40"} placeholder="This quarter's result" value={value} onChange={(e) => setValue(e.target.value)} />
-      <button type="submit" disabled={busy} className={GHOST}>Save result</button>
-      {error ? <span className="text-xs text-red-300">{error}</span> : null}
+    <form onSubmit={save} className="mt-2">
+      <label className="mb-1 block text-xs text-gray-400">
+        This quarter&apos;s result: type a number only
+        {props.kpi.unit ? " (in " + props.kpi.unit + ")" : ""}
+        {props.kpi.target_value !== null ? ", the target is " + Number(props.kpi.target_value) + (props.kpi.unit ? " " + props.kpi.unit : "") : ""}
+        {props.kpi.is_inverse ? ". Lower is better." : ""}
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          className={INPUT + " w-40"}
+          inputMode="decimal"
+          placeholder={props.kpi.target_value !== null ? "e.g. " + Number(props.kpi.target_value) : "e.g. 95"}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        {props.kpi.unit ? <span className="text-xs text-gray-500">{props.kpi.unit}</span> : null}
+        <button type="submit" disabled={busy} className={GHOST}>Save result</button>
+        {error ? <span className="text-xs text-red-300">{error}</span> : null}
+      </div>
     </form>
   );
 }
