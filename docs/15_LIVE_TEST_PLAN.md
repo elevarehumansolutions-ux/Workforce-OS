@@ -290,6 +290,12 @@ the REAL nightly job as if it were another date, on the TEST company only. No fi
    a bar per person. Dashboard "Value of your jobs": one bar split secured / on track / at risk / lost.
    Every chart has a "View as table" button that shows the same numbers; a person with no score shows
    "No data yet" and no bar. Check it at phone width too.
+0b. **A department head's view (to-do 66).** Log in as a head who delegates their work (for example
+   Adaeze, head of Dispatch). On Performance > My performance, expect a blue box "You head Dispatch" with
+   the department's two numbers and the button "Open Dispatch performance", ABOVE their own (maybe empty)
+   card; the button opens the Department screen on their department, with the trend, task split and a bar
+   per person. Log in as a plain employee: no box. A manager who is not a head: no box, but the
+   Department view button still works for their own department.
 1. Before running it, have real data in the current quarter (Q4 2026, Oct to Dec): tasks done on time,
    late and not done, linked to KPIs; manual KPI results; and one department whose KPI weights add up to
    LESS than 100 (for example one KPI at 70%).
