@@ -2,12 +2,9 @@
 
 import { useState } from "react";
 
-export interface TrendSeries {
-  name: string;
-  colour: string;
-  // One value per label. null = no data that quarter: the line breaks there instead of dropping to 0.
-  values: (number | null)[];
-}
+const UP_COLOUR = "#0ca30c";
+const DOWN_COLOUR = "#d03b3b";
+const FLAT_COLOUR = "#9ca3af";
 
 const WIDTH = 600;
 const HEIGHT = 220;
@@ -16,17 +13,57 @@ const RIGHT = 16;
 const TOP = 12;
 const BOTTOM = 28;
 
-// Lines over time on ONE axis (never two). Two series maximum in practice here: the headline score
-// and punctuality are different questions, so they are two lines, not a blended one.
-export default function TrendLines(props: { labels: string[]; series: TrendSeries[] }) {
+function colourOfChange(change: number): string {
+  if (change > 0) {
+    return UP_COLOUR;
+  }
+  if (change < 0) {
+    return DOWN_COLOUR;
+  }
+  return FLAT_COLOUR;
+}
+
+function arrowOfChange(change: number): string {
+  if (change > 0) {
+    return "▲";
+  }
+  if (change < 0) {
+    return "▼";
+  }
+  return "■";
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+// The change between a quarter and the closest earlier quarter that has data. null when there is
+// nothing to compare with (the first quarter, or no earlier data).
+function changeAt(values: (number | null)[], index: number): number | null {
+  const now = values[index];
+  if (now === null) {
+    return null;
+  }
+  for (let i = index - 1; i >= 0; i--) {
+    const before = values[i];
+    if (before !== null) {
+      return now - before;
+    }
+  }
+  return null;
+}
+
+// ONE measure over time, coloured by direction like a market chart: each stretch of line is green
+// when the score rose into that quarter and red when it fell. Colour is never the only signal:
+// the headline above the chart and the tooltip show an arrow, the words and the change in points.
+// A quarter with no data breaks the line (never a drop to 0).
+export default function TrendLines(props: { labels: string[]; values: (number | null)[]; measureName: string }) {
   const [hovered, setHovered] = useState<number | null>(null);
 
   let top = 100;
-  for (const s of props.series) {
-    for (const v of s.values) {
-      if (v !== null && v > top) {
-        top = Math.ceil(v / 10) * 10;
-      }
+  for (const v of props.values) {
+    if (v !== null && v > top) {
+      top = Math.ceil(v / 10) * 10;
     }
   }
 
@@ -45,33 +82,55 @@ export default function TrendLines(props: { labels: string[]; series: TrendSerie
     return TOP + plotHeight - (value / top) * plotHeight;
   }
 
-  // A line is drawn in pieces, one per run of quarters that have data, so a gap stays a gap.
-  function pathsOf(values: (number | null)[]): string[] {
-    const pieces: string[] = [];
-    let current = "";
-    for (let i = 0; i < values.length; i++) {
-      const v = values[i];
-      if (v === null) {
-        if (current !== "") {
-          pieces.push(current);
-          current = "";
-        }
-      } else {
-        current = current + (current === "" ? "M" : "L") + xOf(i) + " " + yOf(v) + " ";
-      }
+  // The newest quarter with data, and how it moved from the one before.
+  let latestIndex = -1;
+  for (let i = 0; i < props.values.length; i++) {
+    if (props.values[i] !== null) {
+      latestIndex = i;
     }
-    if (current !== "") {
-      pieces.push(current);
+  }
+  const latestChange = latestIndex >= 0 ? changeAt(props.values, latestIndex) : null;
+
+  // Each piece of line joins a quarter to the closest earlier quarter that has data.
+  // It is drawn as its own segment so it can have its own colour.
+  const segments: { x1: number; y1: number; x2: number; y2: number; colour: string }[] = [];
+  for (let i = 1; i < props.values.length; i++) {
+    const now = props.values[i];
+    if (now === null) {
+      continue;
     }
-    return pieces;
+    // Only join to the quarter directly before: a missing quarter in between stays a visible gap.
+    const before = props.values[i - 1];
+    if (before === null) {
+      continue;
+    }
+    segments.push({ x1: xOf(i - 1), y1: yOf(before), x2: xOf(i), y2: yOf(now), colour: colourOfChange(now - before) });
   }
 
   const gridValues = [0, top / 2, top];
 
   return (
     <div>
+      {latestIndex >= 0 ? (
+        <p className="mb-2 text-sm text-gray-300">
+          <span className="text-2xl font-bold text-white">{round2(props.values[latestIndex] as number)}</span>{" "}
+          {latestChange === null ? (
+            <span className="text-gray-500">first quarter with data, nothing to compare with yet</span>
+          ) : (
+            <span className="font-semibold" style={{ color: colourOfChange(latestChange) }}>
+              {arrowOfChange(latestChange)} {latestChange > 0 ? "Rising" : latestChange < 0 ? "Falling" : "Flat"}{" "}
+              {latestChange > 0 ? "+" : ""}
+              {round2(latestChange)} points
+            </span>
+          )}
+          <span className="ml-2 text-xs text-gray-500">vs the quarter before ({props.labels[latestIndex]})</span>
+        </p>
+      ) : (
+        <p className="mb-2 text-sm text-gray-500">No data yet in these quarters.</p>
+      )}
+
       <div className="relative">
-        <svg viewBox={"0 0 " + WIDTH + " " + HEIGHT} className="w-full" role="img" aria-label="Scores over the last quarters">
+        <svg viewBox={"0 0 " + WIDTH + " " + HEIGHT} className="w-full" role="img" aria-label={props.measureName + " over the last quarters"}>
           {gridValues.map(function (g) {
             return (
               <g key={g}>
@@ -95,21 +154,18 @@ export default function TrendLines(props: { labels: string[]; series: TrendSerie
             <line x1={xOf(hovered)} x2={xOf(hovered)} y1={TOP} y2={TOP + plotHeight} stroke="rgba(255,255,255,0.25)" strokeWidth={1} />
           ) : null}
 
-          {props.series.map(function (s) {
-            return (
-              <g key={s.name}>
-                {pathsOf(s.values).map(function (d, i) {
-                  return <path key={i} d={d} fill="none" stroke={s.colour} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />;
-                })}
-                {s.values.map(function (v, i) {
-                  if (v === null) {
-                    return null;
-                  }
-                  // The 2px ring in the card colour keeps a dot readable where two lines meet.
-                  return <circle key={i} cx={xOf(i)} cy={yOf(v)} r={4} fill={s.colour} stroke="#0d1220" strokeWidth={2} />;
-                })}
-              </g>
-            );
+          {segments.map(function (s, i) {
+            return <line key={i} x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2} stroke={s.colour} strokeWidth={2.5} strokeLinecap="round" />;
+          })}
+
+          {props.values.map(function (v, i) {
+            if (v === null) {
+              return null;
+            }
+            const change = changeAt(props.values, i);
+            const colour = change === null ? FLAT_COLOUR : colourOfChange(change);
+            // The ring in the card colour keeps a dot readable where it meets a line.
+            return <circle key={i} cx={xOf(i)} cy={yOf(v)} r={4.5} fill={colour} stroke="#0d1220" strokeWidth={2} />;
           })}
 
           {/* One wide invisible strip per quarter: a bigger target than the dots for hovering. */}
@@ -136,28 +192,33 @@ export default function TrendLines(props: { labels: string[]; series: TrendSerie
         {hovered !== null ? (
           <div className="pointer-events-none absolute right-2 top-2 rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-xs shadow-lg">
             <p className="font-semibold text-white">{props.labels[hovered]}</p>
-            {props.series.map(function (s) {
-              const v = s.values[hovered];
-              return (
-                <p key={s.name} className="mt-1 flex items-center gap-1.5 text-gray-300">
-                  <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: s.colour }} />
-                  {s.name}: {v === null ? "No data yet" : Math.round(v * 100) / 100}
-                </p>
-              );
-            })}
+            {props.values[hovered] === null ? (
+              <p className="mt-1 text-gray-400">No data yet</p>
+            ) : (
+              <p className="mt-1 text-gray-300">
+                {props.measureName}: {round2(props.values[hovered] as number)}
+                {changeAt(props.values, hovered) !== null ? (
+                  <span style={{ color: colourOfChange(changeAt(props.values, hovered) as number) }}>
+                    {" "}
+                    {arrowOfChange(changeAt(props.values, hovered) as number)} {round2(changeAt(props.values, hovered) as number)}
+                  </span>
+                ) : null}
+              </p>
+            )}
           </div>
         ) : null}
       </div>
 
       <ul className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-400">
-        {props.series.map(function (s) {
-          return (
-            <li key={s.name} className="flex items-center gap-1.5">
-              <span className="inline-block h-0.5 w-4" style={{ backgroundColor: s.colour }} />
-              {s.name}
-            </li>
-          );
-        })}
+        <li className="flex items-center gap-1.5">
+          <span style={{ color: UP_COLOUR }}>▲</span> Rising
+        </li>
+        <li className="flex items-center gap-1.5">
+          <span style={{ color: DOWN_COLOUR }}>▼</span> Falling
+        </li>
+        <li className="flex items-center gap-1.5">
+          <span style={{ color: FLAT_COLOUR }}>■</span> Flat, or first quarter
+        </li>
       </ul>
     </div>
   );

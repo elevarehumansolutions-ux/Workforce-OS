@@ -283,7 +283,7 @@ Scoring works in quarters, so this stage uses the helper `backend/scripts/admin/
 (commands, with line-by-line explanations, in `14_PRODUCTION_TROUBLESHOOTING.md` section 12). It runs
 the REAL nightly job as if it were another date, on the TEST company only. No fiscal month is changed.
 0. **The graphs (to-do 65), check them on the current quarter before using the helper.** Company
-   performance: a two-line chart "Last four quarters" (blue = company score, orange = punctuality; a
+   performance: two charts "last four quarters" (company score, punctuality), each segment green when it rose, red when it fell, with an arrow and the points change above (a
    quarter with no data is a gap in the line, never a drop to 0) and two bar charts, goals and punctuality
    per department, with a thin line at 100. Department: a coloured bar of on time (green) / late (amber) /
    not done (red) with the numbers under it, and a bar per person. Person card: a bar per KPI. Leaderboard:

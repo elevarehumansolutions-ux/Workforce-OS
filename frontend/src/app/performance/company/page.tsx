@@ -83,21 +83,22 @@ function TrendChart(props: { points: CompanyTrendPoint[] }) {
     </table>
   );
 
+  // Two different questions, so two charts, each coloured by its own direction.
   return (
-    <ChartCard
-      title="Last four quarters"
-      subtitle="Two different questions, so two lines: did departments hit their goals, and did people deliver on time."
-      chart={
-        <TrendLines
-          labels={labels}
-          series={[
-            { name: "Company score (goals)", colour: "#3987e5", values: headline },
-            { name: "Punctuality", colour: "#d95926", values: punctuality },
-          ]}
-        />
-      }
-      table={table}
-    />
+    <div className="grid gap-4 md:grid-cols-2">
+      <ChartCard
+        title="Company score, last four quarters"
+        subtitle="Did departments hit their goals? Green when it rose, red when it fell."
+        chart={<TrendLines labels={labels} values={headline} measureName="Company score" />}
+        table={table}
+      />
+      <ChartCard
+        title="Punctuality, last four quarters"
+        subtitle="Did people deliver on time? Green when it rose, red when it fell."
+        chart={<TrendLines labels={labels} values={punctuality} measureName="Punctuality" />}
+        table={table}
+      />
+    </div>
   );
 }
 
