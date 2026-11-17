@@ -6,6 +6,7 @@ import { apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PeriodBar from "@/components/performance/PeriodBar";
 import PersonCard from "@/components/performance/PersonCard";
+import HeadScorecard from "@/components/performance/HeadScorecard";
 import { loadCaller, roleLabel } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
 import { CURRENT_QUARTER, canSeeCompany, canSeeRankedList, departmentsICanOpen, personPath } from "@/lib/performance";
@@ -25,6 +26,16 @@ export default function MyPerformancePage() {
 
   const ctx = caller.data;
   const data = card.data;
+
+  // The departments this person is the head of (a manager who is not a head has none).
+  const headedDepartments: { id: string; name: string }[] = [];
+  if (ctx && ctx.employee !== null) {
+    for (const d of ctx.departments) {
+      if (d.head_employee_id === ctx.employee.id) {
+        headedDepartments.push({ id: d.id, name: d.name });
+      }
+    }
+  }
 
   const actions = ctx ? (
     <div className="flex items-center gap-2">
@@ -63,6 +74,8 @@ export default function MyPerformancePage() {
           isFinal={data ? data.is_final : false}
           onChange={setPeriod}
         />
+
+        {headedDepartments.length > 0 ? <HeadScorecard departments={headedDepartments} period={period} /> : null}
 
         {card.loading ? <p className="mt-6 text-sm text-gray-400">Loading your performance…</p> : null}
 
