@@ -316,7 +316,9 @@ the REAL nightly job as if it were another date, on the TEST company only. No fi
    figures. Then run the helper's new command `summary --on 2027-01-04` (section 12 step 3b of the
    troubleshooting doc) and refresh: the box says "Final for this quarter", the amber note is gone, and
    the numbers in the text (company punctuality 65.8, 12 on time, 1 late, 6 not done, unless data changed
-   since) match the page. It must not name a person.
+   since) match the page. It must not name a person. (In real life no one runs this: the night a quarter
+   closes the scoring job now queues the summary by itself, decision 2026-11-17. The helper's `run` does
+   NOT queue it, because the queued job would use the real date, so for the test company use `summary`.)
 
 ## Stage 10: Settings, roles and limits (M2, M13 not built)
 

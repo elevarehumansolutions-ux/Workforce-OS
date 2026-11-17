@@ -212,6 +212,29 @@ async def test_the_scan_queues_one_job_per_organization_that_can_have_a_score(cl
     assert nothing.owner["organization"]["id"] not in queued_ids
 
 
+def test_closing_a_quarter_queues_the_final_summary_for_that_organization(monkeypatch):
+    """The night a quarter closes, the summary job is queued at once, not left for Monday."""
+    sent = MagicMock()
+    monkeypatch.setattr(celery, "send_task", sent)
+    org_id = uuid.uuid4()
+
+    queued = scoring_jobs.queue_final_summary_if_quarter_closed(org_id, {"closed_previous_period": True})
+
+    assert queued is True
+    sent.assert_called_once_with(scoring_jobs.SUMMARY_ORG_TASK, args=[str(org_id)])
+
+
+def test_an_ordinary_night_queues_no_summary(monkeypatch):
+    """A night that closed nothing leaves the weekly job to do the summary."""
+    sent = MagicMock()
+    monkeypatch.setattr(celery, "send_task", sent)
+
+    queued = scoring_jobs.queue_final_summary_if_quarter_closed(uuid.uuid4(), {"closed_previous_period": False})
+
+    assert queued is False
+    sent.assert_not_called()
+
+
 def test_the_nightly_job_is_registered_and_scheduled_for_two_in_the_morning_utc():
     """Celery knows both tasks, and Beat runs the scan at 02:00."""
     import app.modules.scoring.tasks  # noqa: F401 - importing registers the tasks
