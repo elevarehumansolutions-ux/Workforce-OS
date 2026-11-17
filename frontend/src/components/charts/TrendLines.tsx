@@ -123,7 +123,11 @@ export default function TrendLines(props: { labels: string[]; values: (number | 
               {round2(latestChange)} points
             </span>
           )}
-          <span className="ml-2 text-xs text-gray-500">vs the quarter before ({props.labels[latestIndex]})</span>
+          {latestChange === null ? (
+            <span className="ml-2 text-xs text-gray-500">({props.labels[latestIndex]})</span>
+          ) : (
+            <span className="ml-2 text-xs text-gray-500">vs the earlier quarter, now {props.labels[latestIndex]}</span>
+          )}
         </p>
       ) : (
         <p className="mb-2 text-sm text-gray-500">No data yet in these quarters.</p>
