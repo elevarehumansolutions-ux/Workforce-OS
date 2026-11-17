@@ -8,6 +8,7 @@ import PeriodBar from "@/components/performance/PeriodBar";
 import { loadCaller, roleLabel } from "@/lib/tasks";
 import { useLoad } from "@/lib/useLoad";
 import { CURRENT_QUARTER, departmentPath, departmentsICanOpen, scoreClasses, scoreText } from "@/lib/performance";
+import ScoreTrend from "@/components/performance/ScoreTrend";
 import ChartCard from "@/components/charts/ChartCard";
 import BarList, { BarTable } from "@/components/charts/BarList";
 import type { BarRow } from "@/components/charts/BarList";
@@ -114,6 +115,11 @@ function DepartmentBody(props: { departmentId: string }) {
     setPage(1);
   }
 
+  async function loadEarlierGoalsScore(earlierPeriod: Period): Promise<string | null> {
+    const earlier = await apiFetch<DepartmentPerformance>(departmentPath(props.departmentId, earlierPeriod, 1), { method: "GET" });
+    return earlier.kpi_results_score;
+  }
+
   return (
     <div>
       <PeriodBar
@@ -177,6 +183,17 @@ function DepartmentBody(props: { departmentId: string }) {
                 </p>
               )}
             </div>
+          </div>
+
+          <div className="mt-4">
+            <ScoreTrend
+              subjectKey={data.department_id}
+              title="Goals score, last four quarters"
+              measureName="Goals score"
+              shownStart={data.period_start}
+              shownScore={data.kpi_results_score}
+              loadScore={loadEarlierGoalsScore}
+            />
           </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
