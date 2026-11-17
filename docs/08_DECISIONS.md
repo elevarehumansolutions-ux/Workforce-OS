@@ -1352,6 +1352,15 @@ Raised by Emmanuel while setting up the first workflow template in the Stage 7 l
 - **One person picker.** Every dropdown that chooses a person becomes a single shared component: a group per department, each person shown as "Name, Position", people without a position under "No position yet". Chosen over a searchable combobox for now (a native select works the same on a phone and needs no new behaviour to learn); search can be added to the one component later.
 - **The Start Workflow page** gets a way forward when there are no templates (a button for HR administrators and managers, a sentence for everyone else).
 
+## 2026-11-17 — The final summary of a closed quarter is queued the night the quarter closes (BUILT, to-do 72; refines question 10 of M12)
+
+**Found in Stage 9 (Emmanuel):** the written summary is a saved text written by the weekly job (Mondays 03:00 UTC), so for up to a week after a quarter closed the company screen said "Final" while the summary still said "so far" with old numbers.
+- **Decision (Emmanuel, "close the final summary gap"):** when the nightly scoring job reports `closed_previous_period: True` (the one night a quarter closes), the Celery wrapper `score_organization` queues the existing `summarize_organization` job for that company at once. New plain function `queue_final_summary_if_quarter_closed` in `scoring/tasks.py`; two unit tests.
+- **Why queued, not inline:** the summary calls the AI model (seconds, can fail or retry), and the scoring night is one transaction that must not wait for it. **Why in the Celery wrapper and not in `run_scoring_for_organization`:** the test helper calls that function with a pretend date, and a queued job would use the real date.
+- **If the AI call fails that night:** nothing is lost. The weekly job still runs `finalize_previous`, which writes the final summary only if it is not final yet, so the worst case is the old behaviour (Monday). Running twice never writes twice ("already_final").
+- **Rejected:** writing the summary inside the scoring night (a slow or failing model call would risk the scores themselves), and a new schedule (a second timer for the same thing).
+- **Not changed:** the "written {date}" label and amber note on the screen (to-do 72 frontend part) stay, for the small window while the job runs and for any failed night.
+
 ## 2026-11-16 — The reviewer sets the time for an approved block (BUILT, to-do 57; REVERSES part of 2026-10-09)
 
 Raised by Emmanuel in the Stage 6 live test. Two worries, both from the 2026-10-09 rule (approved time = the length of the blocked period, credited when the person unblocks; an open block is never overdue): (1) once people learn that, they can stay blocked longer to gain time; (2) a reviewer who approves at once gives only the minutes that happened to pass. He asked for the reviewer to set the time and asked what is best for a production system.

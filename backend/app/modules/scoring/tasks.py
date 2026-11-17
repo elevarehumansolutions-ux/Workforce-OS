@@ -101,13 +101,33 @@ async def _scan() -> int:
         await engine.dispose()
 
 
+def queue_final_summary_if_quarter_closed(organization_id: uuid.UUID, result: dict) -> bool:
+    """Start the final summary right after a quarter closes, instead of waiting for Monday.
+
+    The night a quarter closes, ``result["closed_previous_period"]`` is True once. The summary
+    is written by its own job (it calls the AI model, so it is queued, not run inside the
+    scoring night). If that job fails, the Monday job still writes the final summary: it
+    checks "is the closed quarter's summary final yet?" first, so running it twice is safe.
+
+    Returns:
+        True when a summary job was queued.
+    """
+    if not result["closed_previous_period"]:
+        return False
+    celery.send_task(SUMMARY_ORG_TASK, args=[str(organization_id)])
+    return True
+
+
 async def _score_organization(organization_id: uuid.UUID) -> dict:
     engine = create_async_engine(settings.database_url, poolclass=NullPool)
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-            return await run_scoring_for_organization(db, organization_id)
+            result = await run_scoring_for_organization(db, organization_id)
     finally:
         await engine.dispose()
+    # After the scores are committed, so the summary is written from the closed numbers.
+    queue_final_summary_if_quarter_closed(organization_id, result)
+    return result
 
 
 async def run_summary_scan(db: AsyncSession) -> int:
