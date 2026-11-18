@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import DeadlineField from "@/components/DeadlineField";
+import Modal from "@/components/Modal";
 import DeadlineHint from "@/components/DeadlineHint";
 import DeadlineQuickPicks from "@/components/DeadlineQuickPicks";
 import PersonSelect from "@/components/PersonSelect";
@@ -21,6 +22,8 @@ import {
   roleLabel,
 } from "@/lib/tasks";
 import type { CallerContext, Task } from "@/lib/tasks";
+
+const PAST_DEADLINE_MESSAGE = "That deadline has already passed. Choose a time in the future.";
 
 const inputClass =
   "w-full rounded-lg border border-white/10 bg-[#0a0e1a] px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500";
@@ -45,6 +48,20 @@ export default function AssignTaskPage() {
   // because the submit handler must see the value from the click that started it.
   const addAnotherRef = useRef(false);
   const [justCreated, setJustCreated] = useState("");
+  // The "that time has passed" message, shown in a window the person must acknowledge.
+  const [deadlineProblem, setDeadlineProblem] = useState("");
+  // The green "Created: ..." note, so the page can scroll up to it after "Create and add another".
+  const noticeRef = useRef<HTMLDivElement>(null);
+
+  // Changing the deadline clears the old deadline error: the message was about the old time.
+  function changeDeadline(value: string) {
+    setDueLocal(value);
+    setErrors(function (current) {
+      const rest = { ...current };
+      delete rest.due_at;
+      return rest;
+    });
+  }
 
   useEffect(function () {
     let cancelled = false;
@@ -61,6 +78,17 @@ export default function AssignTaskPage() {
       cancelled = true;
     };
   }, []);
+
+  // After "Create and add another" the page is still scrolled down at the buttons, so bring the green
+  // note into view; otherwise nothing seems to have happened.
+  useEffect(
+    function () {
+      if (justCreated !== "" && noticeRef.current) {
+        noticeRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    },
+    [justCreated]
+  );
 
   const selectedDepartment = ctx
     ? ctx.departments.find(function (d) {
@@ -96,6 +124,12 @@ export default function AssignTaskPage() {
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
 
+    // Checked here too, so the person is told at once instead of after a trip to the server.
+    if (dueIso && new Date(dueIso).getTime() <= Date.now()) {
+      setDeadlineProblem(PAST_DEADLINE_MESSAGE);
+      return;
+    }
+
     const body: Record<string, unknown> = { department_id: departmentId, title: trimmedTitle };
     if (description.trim()) body.description = description.trim();
     if (dueIso) body.due_at = dueIso;
@@ -127,6 +161,12 @@ export default function AssignTaskPage() {
         router.push("/tasks/" + created.id);
       }
     } catch (err) {
+      if (err instanceof ApiError && err.fieldErrors.due_at) {
+        // The server's own refusal of a passed deadline: same window, not a red line that lingers.
+        setDeadlineProblem(err.fieldErrors.due_at);
+        setSubmitting(false);
+        return;
+      }
       if (err instanceof ApiError && Object.keys(err.fieldErrors).length > 0) {
         setErrors(err.fieldErrors);
         setFormError(err.message);
@@ -171,7 +211,7 @@ export default function AssignTaskPage() {
           className="max-w-2xl space-y-5 rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 shadow-xl"
         >
           {justCreated ? (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+            <div ref={noticeRef} className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
               {justCreated}. The department, goal and deadline are kept for the next one.
             </div>
           ) : null}
@@ -246,8 +286,8 @@ export default function AssignTaskPage() {
               <label htmlFor="due" className="mb-2 block text-sm font-medium text-gray-200">
                 Deadline <span className="text-gray-500">(optional)</span>
               </label>
-              <DeadlineField id="due" value={dueLocal} onChange={setDueLocal} />
-              <DeadlineQuickPicks onPick={setDueLocal} />
+              <DeadlineField id="due" value={dueLocal} onChange={changeDeadline} />
+              <DeadlineQuickPicks onPick={changeDeadline} />
               <DeadlineHint value={dueLocal} />
               {errors.due_at ? <p className="mt-1 text-xs text-red-400">{errors.due_at}</p> : null}
             </div>
@@ -445,6 +485,29 @@ export default function AssignTaskPage() {
             </div>
           </div>
         </form>
+      ) : null}
+
+      {deadlineProblem ? (
+        <Modal
+          title="Choose a deadline in the future"
+          onClose={function () {
+            setDeadlineProblem("");
+          }}
+        >
+          <p className="text-sm text-gray-300">{deadlineProblem}</p>
+          <div className="mt-5 flex justify-end">
+            <button
+              type="button"
+              autoFocus
+              onClick={function () {
+                setDeadlineProblem("");
+              }}
+              className="rounded-lg bg-indigo-500 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-600"
+            >
+              OK, I&apos;ll change it
+            </button>
+          </div>
+        </Modal>
       ) : null}
     </AppShell>
   );
