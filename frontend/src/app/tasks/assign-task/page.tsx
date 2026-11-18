@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
+import DeadlineField from "@/components/DeadlineField";
 import DeadlineHint from "@/components/DeadlineHint";
 import DeadlineQuickPicks from "@/components/DeadlineQuickPicks";
 import PersonSelect from "@/components/PersonSelect";
@@ -245,15 +246,7 @@ export default function AssignTaskPage() {
               <label htmlFor="due" className="mb-2 block text-sm font-medium text-gray-200">
                 Deadline <span className="text-gray-500">(optional)</span>
               </label>
-              <input
-                id="due"
-                type="datetime-local"
-                value={dueLocal}
-                onChange={function (e) {
-                  setDueLocal(e.target.value);
-                }}
-                className={inputClass}
-              />
+              <DeadlineField id="due" value={dueLocal} onChange={setDueLocal} />
               <DeadlineQuickPicks onPick={setDueLocal} />
               <DeadlineHint value={dueLocal} />
               {errors.due_at ? <p className="mt-1 text-xs text-red-400">{errors.due_at}</p> : null}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { apiFetch } from "@/lib/api";
+import DeadlineField from "@/components/DeadlineField";
 import DeadlineHint from "@/components/DeadlineHint";
 import DeadlineQuickPicks from "@/components/DeadlineQuickPicks";
 import PersonSelect from "@/components/PersonSelect";
@@ -79,14 +80,7 @@ export default function AssignInline({ task, ctx, onAssigned }: AssignInlineProp
       {deadlineStillAhead ? null : (
         <div>
           <label className="mb-1 block text-xs text-gray-500">Deadline (required)</label>
-          <input
-            type="datetime-local"
-            value={dueLocal}
-            onChange={function (e) {
-              setDueLocal(e.target.value);
-            }}
-            className={fieldClass}
-          />
+          <DeadlineField value={dueLocal} onChange={setDueLocal} />
           <DeadlineQuickPicks onPick={setDueLocal} />
           <DeadlineHint value={dueLocal} />
         </div>
