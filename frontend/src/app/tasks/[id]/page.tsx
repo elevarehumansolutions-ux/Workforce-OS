@@ -7,6 +7,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import AppShell from "@/components/AppShell";
 import PersonSelect from "@/components/PersonSelect";
 import BlockReviewActions from "@/components/BlockReviewActions";
+import DeadlineField from "@/components/DeadlineField";
 import DeadlineHint from "@/components/DeadlineHint";
 import DeadlineQuickPicks from "@/components/DeadlineQuickPicks";
 import { NOTIFICATIONS_CHANGED } from "@/components/NotificationBell";
@@ -772,14 +773,7 @@ function TaskDetailContent() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs text-gray-500">Deadline</label>
-                  <input
-                    type="datetime-local"
-                    value={editDue}
-                    onChange={function (e) {
-                      setEditDue(e.target.value);
-                    }}
-                    className={inputClass}
-                  />
+                  <DeadlineField value={editDue} onChange={setEditDue} />
                   <DeadlineQuickPicks onPick={setEditDue} />
                   <DeadlineHint value={editDue} />
                   {task.approved_blocked_seconds > 0 ? (
@@ -910,14 +904,7 @@ function TaskDetailContent() {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs text-gray-500">New deadline (required)</label>
-                  <input
-                    type="datetime-local"
-                    value={reassignDue}
-                    onChange={function (e) {
-                      setReassignDue(e.target.value);
-                    }}
-                    className={inputClass}
-                  />
+                  <DeadlineField value={reassignDue} onChange={setReassignDue} />
                   <DeadlineQuickPicks onPick={setReassignDue} />
                   <DeadlineHint value={reassignDue} />
                 </div>
