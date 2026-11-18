@@ -41,6 +41,8 @@ for (let m = 0; m < 60; m++) {
 }
 
 const BOX = "rounded-lg border border-white/10 bg-[#0a0e1a] px-3 py-2 text-sm text-white outline-none focus:border-indigo-500";
+// The three time boxes are narrower than the date box, so they fit side by side on a phone too.
+const TIME_BOX = BOX + " px-2";
 
 // A deadline chosen like the date is: a calendar for the day, and drop-downs for the time.
 // `value` and `onChange` use the same "YYYY-MM-DDTHH:mm" text a datetime-local box uses ("" = no
@@ -68,8 +70,10 @@ export default function DeadlineField(props: { value: string; onChange: (value: 
     }
   }
 
+  // Two lines: the date, then the time. The time line never wraps, so hour, minute and AM/PM
+  // always stay together, however narrow the column is.
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="space-y-2">
       <input
         id={props.id}
         type="date"
@@ -77,53 +81,54 @@ export default function DeadlineField(props: { value: string; onChange: (value: 
         onChange={function (e) {
           changeDate(e.target.value);
         }}
-        className={BOX}
+        className={BOX + " w-full"}
       />
-      <span className="text-xs text-gray-500">at</span>
-      <select
-        aria-label="Hour"
-        value={parts.time.hour}
-        onChange={function (e) {
-          changeTime({ hour: Number(e.target.value), minute: parts.time.minute, ampm: parts.time.ampm });
-        }}
-        className={BOX}
-      >
-        {HOURS.map(function (h) {
-          return (
-            <option key={h} value={h}>
-              {h}
-            </option>
-          );
-        })}
-      </select>
-      <span className="text-gray-500">:</span>
-      <select
-        aria-label="Minute"
-        value={parts.time.minute}
-        onChange={function (e) {
-          changeTime({ hour: parts.time.hour, minute: Number(e.target.value), ampm: parts.time.ampm });
-        }}
-        className={BOX}
-      >
-        {MINUTES.map(function (m) {
-          return (
-            <option key={m} value={m}>
-              {pad(m)}
-            </option>
-          );
-        })}
-      </select>
-      <select
-        aria-label="AM or PM"
-        value={parts.time.ampm}
-        onChange={function (e) {
-          changeTime({ hour: parts.time.hour, minute: parts.time.minute, ampm: e.target.value === "PM" ? "PM" : "AM" });
-        }}
-        className={BOX}
-      >
-        <option value="AM">AM</option>
-        <option value="PM">PM</option>
-      </select>
+      <div className="flex flex-nowrap items-center gap-2">
+        <select
+          aria-label="Hour"
+          value={parts.time.hour}
+          onChange={function (e) {
+            changeTime({ hour: Number(e.target.value), minute: parts.time.minute, ampm: parts.time.ampm });
+          }}
+          className={TIME_BOX}
+        >
+          {HOURS.map(function (h) {
+            return (
+              <option key={h} value={h}>
+                {h}
+              </option>
+            );
+          })}
+        </select>
+        <span className="text-gray-500">:</span>
+        <select
+          aria-label="Minute"
+          value={parts.time.minute}
+          onChange={function (e) {
+            changeTime({ hour: parts.time.hour, minute: Number(e.target.value), ampm: parts.time.ampm });
+          }}
+          className={TIME_BOX}
+        >
+          {MINUTES.map(function (m) {
+            return (
+              <option key={m} value={m}>
+                {pad(m)}
+              </option>
+            );
+          })}
+        </select>
+        <select
+          aria-label="AM or PM"
+          value={parts.time.ampm}
+          onChange={function (e) {
+            changeTime({ hour: parts.time.hour, minute: parts.time.minute, ampm: e.target.value === "PM" ? "PM" : "AM" });
+          }}
+          className={TIME_BOX}
+        >
+          <option value="AM">AM</option>
+          <option value="PM">PM</option>
+        </select>
+      </div>
     </div>
   );
 }
