@@ -23,7 +23,6 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "manager", label: "Manager" },
   { value: "hr_administrator", label: "HR Administrator" },
   { value: "business_executive", label: "Business Executive" },
-  { value: "system_administrator", label: "System Administrator" },
 ];
 
 interface InviteResponse {

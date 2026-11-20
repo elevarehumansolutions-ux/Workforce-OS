@@ -35,7 +35,6 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "manager", label: "Manager" },
   { value: "hr_administrator", label: "HR Administrator" },
   { value: "business_executive", label: "Business Executive" },
-  { value: "system_administrator", label: "System Administrator" },
 ];
 
 interface Pagination {
@@ -278,15 +277,18 @@ export default function EmployeeDirectoryPage() {
                 <option value="inactive">Offboarded</option>
               </select>
             </div>
-            <button
-              type="button"
-              onClick={function () {
-                router.push("/employees/add");
-              }}
-              className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600"
-            >
-              + Add Employee
-            </button>
+            {/* The server lets only HR create employees, so others do not get a button that fails. */}
+            {canManage ? (
+              <button
+                type="button"
+                onClick={function () {
+                  router.push("/employees/add");
+                }}
+                className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600"
+              >
+                + Add Employee
+              </button>
+            ) : null}
           </div>
 
           {loading ? (

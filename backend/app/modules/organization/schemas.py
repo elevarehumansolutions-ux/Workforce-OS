@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.core.schemas import NormalizedEmail
-from app.modules.tenancy_identity.enums import MembershipRole
+from app.modules.tenancy_identity.enums import CustomerRole
 
 from .enums import CriticalityType, EmployeeStatus, EmploymentType, RiskLevel
 
@@ -174,7 +174,7 @@ class EmployeeCreateRequest(BaseModel):
     address: str | None = None
     employment_type: EmploymentType | None = None
     grant_login_access: bool = False
-    role: MembershipRole | None = None
+    role: CustomerRole | None = None
     # The Add Employee checkbox "Make this person head of <department>": the department of the
     # chosen position gets this person as its head, in the same all-or-nothing call. It REPLACES
     # an existing head (the screen asks first).
@@ -224,7 +224,7 @@ class EmployeeLinkUserRequest(BaseModel):
 class EmployeeGrantLoginRequest(BaseModel):
     """Request body for giving an employee login access ("Send invite")."""
 
-    role: MembershipRole
+    role: CustomerRole
 
 
 class EmployeeResponse(BaseModel):
