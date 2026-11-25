@@ -9,6 +9,7 @@ import RoleSidebarNav from "@/components/SidebarNav";
 import { isHrRole, loadMe } from "@/lib/settings";
 import Logo from "@/components/Logo";
 import MobileNav from "@/components/MobileNav";
+import MovePersonDialog from "@/components/MovePersonDialog";
 import UserMenu from "@/components/UserMenu";
 
 // The menu is shared (and filtered by role) in components/SidebarNav.tsx.
@@ -111,6 +112,8 @@ export default function EmployeeDetailsPage() {
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
+
+  const [showMove, setShowMove] = useState(false);
 
   const [showInvitePicker, setShowInvitePicker] = useState(false);
   const [inviteRole, setInviteRole] = useState("");
@@ -354,6 +357,16 @@ export default function EmployeeDetailsPage() {
             </h1>
           </div>
           <div className="flex items-center gap-3">
+            {canManage && employee.status === "active" ? (
+              <button
+                type="button"
+                onClick={function () { setShowMove(true); }}
+                disabled={actionBusy}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-gray-200 transition hover:bg-white/5 disabled:opacity-60"
+              >
+                Move
+              </button>
+            ) : null}
             {!canManage ? null : employee.status === "active" ? (
               <button
                 type="button"
@@ -378,6 +391,20 @@ export default function EmployeeDetailsPage() {
         </div>
 
         <main className="flex-1 px-8 py-8">
+          {showMove ? (
+            <MovePersonDialog
+              employeeId={employee.id}
+              onClose={function (done) {
+                setShowMove(false);
+                if (done) {
+                  setActionError("");
+                  setActionNotice(done);
+                  load();
+                }
+              }}
+            />
+          ) : null}
+
           {actionNotice ? (
             <div className="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
               {actionNotice}

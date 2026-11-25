@@ -62,7 +62,13 @@ Built directly on `02_SYSTEM_DESIGN.md` (module ownership) and `04_DATABASE.md` 
 - `GET /memberships` — list the org's people, offset-paginated. **HR Administrator only** — not open to every member, unlike most `GET` endpoints in this API.
 - `PATCH /memberships/{id}` — change a teammate's role and/or **deactivate** them. **HR Administrator only.** A caller can't target their own membership this way, and can't deactivate the org's Owner. `is_deactivated` accepts only `true`; `false` is a **422** that points at `POST /memberships/{id}/reactivate` (changed 2026-10-02; reactivation used to work here without the offboarded-employee check or an audit entry).
 
-`GET /ai-usage` — the org's own `ai_usage_log`, newest call first, offset-paginated. **`hr_administrator`-only** (not open to `business_executive`, unlike AI suggestion review — this is the org's own cost/usage visibility, a narrower audience). Its screen doesn't land until M13 (paired with Billing History), not overlooked.
+**Moving people and roles (added 2026-11-25), both `hr_administrator` only:**
+- `POST /employees/{id}/move` body `{position_id}` → the updated employee. Leaving a department ends the person's headship of it; `manager_id` becomes the one active holder of the role above the new role, else `null` (this REPLACES a manager set by hand); tasks, scores and access level are untouched. 422 if offboarded or already in that role; 404 for an unknown role.
+- `POST /positions/{id}/move` body `{department_id}` → the updated role. Its holders move with it; a holder who headed the old department stops heading it; reporting lines are untouched. 422 if already there; 404 for an unknown role or department.
+- Screens: "Move" on the employee profile; on Employees > Org chart, drag a person onto a role or a role onto a department (or "Move to another role" / "Move role"). Each opens a window listing what will change; nothing happens until confirmed. The server's message is shown on failure.
+- **Also 2026-11-25:** `POST`/`PATCH /positions` now answer **404** for a `department_id`, and `POST`/`PATCH /employees` for a `position_id`, that does not exist, is deleted or belongs to another company (they were not checked).
+
+`GET /ai-usage` — one organization's `ai_usage_log`, newest call first, offset-paginated. **(Changed 2026-11-25) `system_administrator` only**, Elevare's platform role: every customer role, HR included, gets **403** (it was `hr_administrator`). No screen calls it today; the Billing screen no longer shows usage. It will be read from the platform admin interface when that is built.
 
 **Not yet built:** `GET /billing/history`. Designed (see `04_DATABASE.md`) but not mounted in the code — calling it 404s. Its own backend milestone isn't scheduled yet as of this audit.
 

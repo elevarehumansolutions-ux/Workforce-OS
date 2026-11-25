@@ -15,7 +15,16 @@ interface OrgChartViewProps {
   headIds: string[];
   selectedPersonId: string;
   onSelectPerson: (id: string) => void;
+  // Both are given only to people who may move things (HR). Dragging only asks: the page opens a
+  // window and nothing changes until it is confirmed.
+  onMovePerson?: (personId: string, roleId: string) => void;
+  // departmentId is empty when the "Move" link was pressed, so the window asks for it.
+  onMoveRole?: (roleId: string, departmentId: string) => void;
 }
+
+// What is being dragged is stored under one of these names.
+const DRAGGED_PERSON = "application/x-person";
+const DRAGGED_ROLE = "application/x-role";
 
 export default function OrgChartView(props: OrgChartViewProps) {
   const roots = buildBoxes(props.positions);
@@ -48,6 +57,12 @@ export default function OrgChartView(props: OrgChartViewProps) {
       <button
         key={e.id}
         type="button"
+        draggable={props.onMovePerson !== undefined}
+        onDragStart={function (event) {
+          // Without this the role box around the name would start being dragged too.
+          event.stopPropagation();
+          event.dataTransfer.setData(DRAGGED_PERSON, e.id);
+        }}
         onClick={function () { props.onSelectPerson(e.id); }}
         className={
           "block w-full rounded-md px-2 py-1 text-left text-xs " +
@@ -60,6 +75,28 @@ export default function OrgChartView(props: OrgChartViewProps) {
     );
   }
 
+  // A browser only allows a drop where dragging over it was "prevented".
+  function allowDrop(event: React.DragEvent) {
+    const types = event.dataTransfer.types;
+    if (types.includes(DRAGGED_PERSON) || types.includes(DRAGGED_ROLE)) event.preventDefault();
+  }
+
+  // Something was dropped on a role box, or (roleId empty) on a department name.
+  function handleDrop(event: React.DragEvent, roleId: string, departmentId: string) {
+    event.preventDefault();
+    const personId = event.dataTransfer.getData(DRAGGED_PERSON);
+    const draggedRoleId = event.dataTransfer.getData(DRAGGED_ROLE);
+    if (personId && roleId && props.onMovePerson) {
+      const person = props.employees.find(function (e) { return e.id === personId; });
+      if (person && person.position_id !== roleId) props.onMovePerson(personId, roleId);
+    }
+    if (draggedRoleId && props.onMoveRole) {
+      // Dropping a role on a box means "into that box's department".
+      const role = props.positions.find(function (p) { return p.id === draggedRoleId; });
+      if (role && role.department_id !== departmentId) props.onMoveRole(draggedRoleId, departmentId);
+    }
+  }
+
   function renderBox(box: Box) {
     const p = box.position;
     const color = colorOfDepartment[p.department_id] || "#6b7280";
@@ -68,6 +105,10 @@ export default function OrgChartView(props: OrgChartViewProps) {
       <div
         className="inline-block w-52 rounded-xl border border-white/10 bg-[#0a0e1a] px-3 pb-3 pt-2.5 text-left shadow-lg"
         style={{ borderTop: "3px solid " + color }}
+        draggable={props.onMoveRole !== undefined}
+        onDragStart={function (event) { event.dataTransfer.setData(DRAGGED_ROLE, p.id); }}
+        onDragOver={allowDrop}
+        onDrop={function (event) { handleDrop(event, p.id, p.department_id); }}
       >
         <p className="text-sm font-semibold leading-snug text-white">{p.title}</p>
         <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-gray-400">
@@ -84,6 +125,15 @@ export default function OrgChartView(props: OrgChartViewProps) {
             people.map(personButton)
           )}
         </div>
+        {props.onMoveRole ? (
+          <button
+            type="button"
+            onClick={function () { if (props.onMoveRole) props.onMoveRole(p.id, ""); }}
+            className="mt-2 text-[11px] text-gray-500 underline hover:text-indigo-300"
+          >
+            Move role
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -107,6 +157,26 @@ export default function OrgChartView(props: OrgChartViewProps) {
 
   return (
     <div>
+      {/* Drop targets for a role: a department with no roles yet has no box to drop onto. */}
+      {props.onMoveRole ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          <span>Drag a person onto a role, or a role onto a department:</span>
+          {props.departments.map(function (d) {
+            return (
+              <span
+                key={d.id}
+                onDragOver={allowDrop}
+                onDrop={function (event) { handleDrop(event, "", d.id); }}
+                className="rounded-lg border border-dashed border-white/20 px-3 py-2 text-gray-300"
+              >
+                <span className="mr-1.5 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: colorOfDepartment[d.id] }} />
+                {d.name}
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
+
       <div className="overflow-x-auto pb-3 [color-scheme:dark]">
         <div className="org-tree mx-auto w-max min-w-full">
           <ul>

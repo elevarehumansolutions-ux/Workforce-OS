@@ -3,9 +3,11 @@ import uuid
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import update
 
 from tests.conftest import register_verified_and_login, set_org_context
 from app.modules.ai.repository import AIUsageLogRepository
+from app.modules.tenancy_identity.models import Membership
 
 AI_USAGE = "/api/v1/ai-usage"
 
@@ -47,23 +49,28 @@ async def test_ai_usage_requires_authentication(client):
 
 
 @pytest.mark.asyncio
-async def test_ai_usage_requires_hr_admin_role(client, monkeypatch):
-    """A business_executive is rejected — unlike suggestion review, usage is HR-only."""
+async def test_no_customer_role_can_read_usage(client, monkeypatch):
+    """A company's HR administrator and business executive are both refused: usage is Elevare's own."""
     owner = await register_verified_and_login(client, email="ai_usage_owner1@example.com")
     exec_user = await _invite_and_accept(
         client, monkeypatch, owner, "ai_usage_exec1@example.com", "business_executive"
     )
-    resp = await client.get(AI_USAGE, headers=_auth_header(exec_user["access_token"]))
-    assert resp.status_code == 403
+    for person in (owner, exec_user):
+        resp = await client.get(AI_USAGE, headers=_auth_header(person["access_token"]))
+        assert resp.status_code == 403, resp.text
 
 
 @pytest.mark.asyncio
-async def test_hr_admin_sees_own_organizations_usage_log(client, db_session):
-    """HR Administrator can list their own org's usage log, newest first."""
+async def test_platform_role_reads_the_organizations_usage_log(client, db_session):
+    """Elevare's platform role can list the organization's usage log."""
     owner = await register_verified_and_login(client, email="ai_usage_owner2@example.com")
     org_id = uuid.UUID(owner["organization"]["id"])
 
     await set_org_context(db_session, org_id)
+    # No request can give this role (customers are refused), so set it as Elevare would: in the database.
+    await db_session.execute(
+        update(Membership).where(Membership.organization_id == org_id).values(role="system_administrator")
+    )
     repo = AIUsageLogRepository(db_session)
     await repo.create_usage_log(
         organization_id=org_id, purpose="ai_suggestion_generation", model="claude-sonnet-5",

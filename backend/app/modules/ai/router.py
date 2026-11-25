@@ -26,7 +26,7 @@ router = APIRouter()
 
 _REVIEW_ROLES = ("hr_administrator", "business_executive")
 _READ_ROLES = ("hr_administrator", "business_executive")
-_USAGE_READ_ROLES = ("hr_administrator",)
+_USAGE_READ_ROLES = ("system_administrator",)  # Elevare's own role: usage is not shown to customers
 
 
 @router.get("/ai-usage", status_code=200)
@@ -38,8 +38,10 @@ async def list_ai_usage(
 ) -> PaginationResponse:
     """List the caller's organization's own LLM usage log, newest call first.
 
-    Requires the HR Administrator role — an org's own cost/usage visibility,
-    not a cross-tenant admin view (08_DECISIONS.md 2026-09-07).
+    Requires Elevare's platform role (``system_administrator``): customers see their billing
+    history, not model usage or costs (08_DECISIONS.md 2026-11-25). No customer can be given
+    that role, so today nobody calls this from a screen; the platform admin interface will.
+    Still scoped to one organization, not a cross-tenant view.
 
     Args:
         page: 1-indexed page number.

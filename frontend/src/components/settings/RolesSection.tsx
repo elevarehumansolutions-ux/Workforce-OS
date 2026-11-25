@@ -28,7 +28,7 @@ const CAPABILITIES: { label: string; hr: boolean; exec: boolean; manager: boolea
   { label: "Review recommendations", hr: true, exec: true, manager: false, employee: false },
   { label: "Enter manual KPI scores", hr: true, exec: true, manager: false, employee: false },
   { label: "See the audit log", hr: true, exec: true, manager: false, employee: false },
-  { label: "See billing and usage", hr: true, exec: false, manager: false, employee: false },
+  { label: "See billing history", hr: true, exec: false, manager: false, employee: false },
   { label: "Create tasks (managers and department heads, in their scope)", hr: true, exec: false, manager: true, employee: false },
   { label: "Build workflow templates", hr: true, exec: false, manager: true, employee: false },
   { label: "Start a workflow case", hr: true, exec: false, manager: true, employee: true },

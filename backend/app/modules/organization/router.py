@@ -28,12 +28,14 @@ from .schemas import (
     EmployeeGrantLoginRequest,
     EmployeeGrantLoginResponse,
     EmployeeLinkUserRequest,
+    EmployeeMoveRequest,
     EmployeeResponse,
     EmployeeUpdateRequest,
     LocationCreateRequest,
     LocationResponse,
     LocationUpdateRequest,
     PositionCreateRequest,
+    PositionMoveRequest,
     PositionResponse,
     PositionUpdateRequest,
 )
@@ -486,6 +488,20 @@ async def get_position(
     return PositionResponse.model_validate(position)
 
 
+@router.post("/positions/{position_id}/move", status_code=200)
+async def move_position(
+    position_id: uuid.UUID,
+    data: PositionMoveRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_ORG_STRUCTURE_WRITE_ROLES)),
+) -> PositionResponse:
+    """Move a role and its people to another department (HR Administrator)."""
+    position = await PositionService(db).move_position(position_id, data.department_id, caller.user_id)
+    response = PositionResponse.model_validate(position)
+    await db.commit()
+    return response
+
+
 @router.patch("/positions/{position_id}", status_code=200)
 async def update_position(
     position_id: uuid.UUID,
@@ -727,6 +743,22 @@ async def update_employee(
     )
     await db.commit()
     return await _employee_response(service, employee)
+
+
+@router.post("/employees/{employee_id}/move", status_code=200)
+async def move_employee(
+    employee_id: uuid.UUID,
+    data: EmployeeMoveRequest,
+    db: AsyncSession = Depends(get_db),
+    caller: Membership = Depends(require_org_role(*_ORG_STRUCTURE_WRITE_ROLES)),
+) -> EmployeeResponse:
+    """Move an employee to another role (HR Administrator). See ``EmployeeService.move_employee``."""
+    service = EmployeeService(db)
+    employee = await service.move_employee(employee_id, data.position_id, caller.user_id)
+    # Build the response before the commit: afterwards the tenant context is gone.
+    response = await _employee_response(service, employee)
+    await db.commit()
+    return response
 
 
 @router.post("/employees/{employee_id}/link-user", status_code=200)

@@ -215,6 +215,18 @@ class EmployeeUpdateRequest(BaseModel):
         return self.model_dump(exclude_unset=True) != {}
 
 
+class EmployeeMoveRequest(BaseModel):
+    """Request body for moving a person to another role."""
+
+    position_id: uuid.UUID
+
+
+class PositionMoveRequest(BaseModel):
+    """Request body for moving a role to another department."""
+
+    department_id: uuid.UUID
+
+
 class EmployeeLinkUserRequest(BaseModel):
     """Request body for linking a login to an existing employee."""
 

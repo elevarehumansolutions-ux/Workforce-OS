@@ -6,6 +6,8 @@ import AppShell from "@/components/AppShell";
 import OrgChartView from "@/components/OrgChartView";
 import Modal from "@/components/Modal";
 import FormerHeadDialog from "@/components/FormerHeadDialog";
+import MovePersonDialog from "@/components/MovePersonDialog";
+import MoveRoleDialog from "@/components/MoveRoleDialog";
 import { ACCESS_LEVELS, findFormerHead } from "@/lib/formerHead";
 import type { FormerHead } from "@/lib/formerHead";
 import { ApiError, apiFetch } from "@/lib/api";
@@ -69,6 +71,9 @@ export default function EmployeeChartPage() {
   const [error, setError] = useState("");
   // Set after a head was replaced: the person who was head before, so HR can decide on their access level.
   const [formerHead, setFormerHead] = useState<FormerHead | null>(null);
+  // The open move window, if any. An empty roleId / departmentId means "not chosen yet".
+  const [movingPerson, setMovingPerson] = useState<{ personId: string; roleId: string } | null>(null);
+  const [movingRole, setMovingRole] = useState<{ roleId: string; departmentId: string } | null>(null);
 
   const data = state.data;
   const person = data ? data.employees.find(function (e) { return e.id === pickedId; }) : undefined;
@@ -111,6 +116,24 @@ export default function EmployeeChartPage() {
     });
   }
 
+  function openMovePerson(personId: string, roleId: string) {
+    setPickedId("");
+    setMessage("");
+    setError("");
+    setMovingPerson({ personId: personId, roleId: roleId });
+  }
+
+  // Both move windows end here. A message means something moved, so the chart is loaded again.
+  function closeMove(done: string) {
+    setMovingPerson(null);
+    setMovingRole(null);
+    setMessage(done);
+    // Reload even when cancelled: the person window may have created a role before failing.
+    setReload(reload + 1);
+  }
+
+  const roleBeingMoved = data && movingRole ? data.positions.find(function (p) { return p.id === movingRole.roleId; }) : undefined;
+
   function setAccessLevel(role: string) {
     if (!member) return;
     run(function () {
@@ -138,12 +161,28 @@ export default function EmployeeChartPage() {
               headIds={data.departments.map(function (d) { return d.head_employee_id || ""; }).filter(function (id) { return id !== ""; })}
               selectedPersonId={pickedId}
               onSelectPerson={function (id) { setPickedId(id); setMessage(""); setError(""); }}
+              onMovePerson={data.canEdit ? openMovePerson : undefined}
+              onMoveRole={data.canEdit ? function (roleId, departmentId) { setMessage(""); setMovingRole({ roleId: roleId, departmentId: departmentId }); } : undefined}
             />
           </div>
 
           {/* While a person's window is open the messages show inside it, so they are never hidden behind it. */}
           {!person && error ? <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</p> : null}
           {!person && message ? <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">{message}</p> : null}
+
+          {movingPerson ? (
+            <MovePersonDialog employeeId={movingPerson.personId} startRoleId={movingPerson.roleId} onClose={closeMove} />
+          ) : null}
+
+          {movingRole && roleBeingMoved ? (
+            <MoveRoleDialog
+              role={roleBeingMoved}
+              departments={data.departments}
+              employees={data.employees}
+              startDepartmentId={movingRole.departmentId}
+              onClose={closeMove}
+            />
+          ) : null}
 
           {formerHead ? (
             <FormerHeadDialog
@@ -174,6 +213,14 @@ export default function EmployeeChartPage() {
 
               {data.canEdit ? (
                 <div className="mt-4 flex flex-wrap items-end gap-4">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={function () { openMovePerson(person.id, ""); }}
+                    className="rounded-lg border border-white/10 px-4 py-2 text-xs font-semibold text-gray-200 hover:bg-white/5 disabled:opacity-50"
+                  >
+                    Move to another role
+                  </button>
                   {department && !isHead ? (
                     <button
                       type="button"

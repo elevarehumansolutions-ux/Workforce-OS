@@ -487,6 +487,7 @@ class PositionService:
             PositionNotFoundException: If ``reports_to_position_id`` is not a
                 position of the caller's org.
         """
+        await DepartmentService(self._db).get_department_by_id(data["department_id"])
         if data.get("reports_to_position_id") is not None:
             await self._validate_reports_to(data["reports_to_position_id"])
         position = await self._repo.create_position({**data, "organization_id": organization_id})
@@ -554,6 +555,8 @@ class PositionService:
                 position report to itself or create a reporting loop.
         """
         position = await self.get_position_by_id(position_id)
+        if data.get("department_id") is not None:
+            await DepartmentService(self._db).get_department_by_id(data["department_id"])
         if data.get("reports_to_position_id") is not None:
             await self._validate_reports_to(data["reports_to_position_id"], position_id)
         old_data = _snapshot(position, data.keys())
@@ -566,6 +569,30 @@ class PositionService:
             entity_id=position.id,
             changes={"old": old_data, "new": jsonable_encoder(data)},
         )
+        return position
+
+    async def move_position(
+        self, position_id: uuid.UUID, department_id: uuid.UUID, actor_user_id: uuid.UUID
+    ) -> Position:
+        """Move a role, with the people in it, to another department.
+
+        Anyone in the role who headed the old department stops heading it. Reporting lines, tasks,
+        past scores and access levels are not touched.
+
+        Raises:
+            PositionNotFoundException / DepartmentNotFoundException: Unknown in this company.
+            ValidationException: The role is already in that department.
+        """
+        position = await self.get_position_by_id(position_id)
+        old_department_id = position.department_id
+        if department_id == old_department_id:
+            raise ValidationException(message="This role is already in that department")
+        # Goes through update_position, which checks the department and writes the audit entry.
+        position = await self.update_position(position_id, actor_user_id, {"department_id": department_id})
+
+        employees = EmployeeService(self._db)
+        for holder in await EmployeeRepository(self._db).list_active_holders(position_id):
+            await employees._stop_heading(holder, old_department_id, actor_user_id)
         return position
 
     async def delete_position(self, position_id: uuid.UUID, actor_user_id: uuid.UUID) -> Position:
@@ -726,6 +753,7 @@ class EmployeeService:
         Returns:
             The newly created ``Employee``.
         """
+        await PositionService(self._db).get_position_by_id(data["position_id"])
         if data.get("user_id") is not None:
             await self._validate_user_link(organization_id, data["user_id"])
         employee = await self._repo.create_employee({**data, "organization_id": organization_id})
@@ -900,6 +928,8 @@ class EmployeeService:
                 id exists in the caller's org.
         """
         employee = await self.get_employee_by_id(employee_id)
+        if data.get("position_id") is not None:
+            await PositionService(self._db).get_position_by_id(data["position_id"])
         old_data = _snapshot(employee, data.keys())
         employee = await self._repo.update_employee(employee, data)
         await self._audit.log_action(
@@ -913,6 +943,69 @@ class EmployeeService:
         if "position_id" in data:
             # Moved to another role: the chart may now say who their manager is, or who reports to them.
             await self._link_managers_automatically(employee, actor_user_id)
+        return employee
+
+    async def _stop_heading(
+        self, employee: Employee, department_id: uuid.UUID, actor_user_id: uuid.UUID
+    ) -> None:
+        """If this person heads that department, leave it without a head (they are moving out)."""
+        for department in await self._department_repo.list_departments_headed_by(employee.id):
+            if department.id == department_id:
+                await DepartmentService(self._db).update_department(
+                    department.id, actor_user_id, {"head_employee_id": None}
+                )
+
+    async def _manager_for_role(self, position: Position, employee_id: uuid.UUID) -> uuid.UUID | None:
+        """The one active person holding the role above this one, or None if that is not clear."""
+        if position.reports_to_position_id is None:
+            return None
+        bosses = await self._repo.list_active_holders(position.reports_to_position_id)
+        bosses = [boss for boss in bosses if boss.id != employee_id]
+        if len(bosses) == 1:
+            return bosses[0].id
+        return None
+
+    async def move_employee(
+        self, employee_id: uuid.UUID, position_id: uuid.UUID, actor_user_id: uuid.UUID
+    ) -> Employee:
+        """Move an active employee to another role, possibly in another department.
+
+        Everything happens in one transaction: leaving a department ends the person's headship of
+        it, and their manager becomes the new role's manager (empty if that is not clear). Their
+        tasks, past scores and login access level are not touched.
+
+        Raises:
+            EmployeeNotFoundException / PositionNotFoundException: Unknown in this company.
+            ValidationException: The employee is offboarded or already holds that role.
+        """
+        employee = await self.get_employee_by_id(employee_id)
+        if employee.status != EmployeeStatus.ACTIVE:
+            raise ValidationException(message="An offboarded employee can't be moved. Reinstate them first.")
+        positions = PositionService(self._db)
+        new_position = await positions.get_position_by_id(position_id)
+        if new_position.id == employee.position_id:
+            raise ValidationException(message="They already hold that role")
+
+        old_position = await PositionRepository(self._db).get_position_by_id(employee.position_id)
+        if old_position is not None and old_position.department_id != new_position.department_id:
+            await self._stop_heading(employee, old_position.department_id, actor_user_id)
+
+        changes = {
+            "position_id": new_position.id,
+            "manager_id": await self._manager_for_role(new_position, employee.id),
+        }
+        old_data = _snapshot(employee, changes.keys())
+        employee = await self._repo.update_employee(employee, changes)
+        await self._audit.log_action(
+            organization_id=employee.organization_id,
+            actor_user_id=actor_user_id,
+            action="update",
+            entity_type="employee",
+            entity_id=employee.id,
+            changes={"old": old_data, "new": jsonable_encoder(changes), "reason": "moved to another role"},
+        )
+        # If they are the only holder of the new role, people below it with no manager get them.
+        await self._link_managers_automatically(employee, actor_user_id)
         return employee
 
     async def link_user(

@@ -467,6 +467,19 @@ what is described, and send what you saw.
 16. (7, 8) Done inside Stage 9: the reminder for a department below 100% and "Scored on X% of its KPI
     weights".
 
+## Stage 12: Billing without usage, and moving people and roles (to-dos 78 and 80)
+
+Deploy first (rebuild the api and frontend; no migration; hard refresh).
+
+1. As HR open Settings. The menu says "Billing", and the screen shows billing history only (no usage, no cost box).
+2. Open a person's profile who heads a department and press **Move**. Choose another department and role. Expect a
+   "What will change" box (loses headship, new manager, unfinished tasks listed). Cancel: nothing changed.
+3. Move them. The profile shows the new role and department; the old department has no head.
+4. Move someone using **+ Create a new role here**. The role exists once and holds them.
+5. Employees > Org chart: drag a person's name onto a role in another department; the same window opens with that
+   role chosen. Drag a role box onto a department name at the top; confirm. The role and its people move.
+6. Press "Move role" and "Move to another role" (the phone way). As a manager: no drag, no move buttons.
+
 ## What to send me after each stage
 
 - What you did, what you expected, what happened.
