@@ -15,7 +15,8 @@ Run inside the api container, from /app (the id comes from `SELECT id, name FROM
 ``summary`` runs the weekly written-summary job as if it were that date (the final text of a quarter
 that has closed, then the "so far" text); run ``run`` first. ``run`` closes the quarter that ended before the date and refreshes the new one, and (for a
 company older than the new quarter) sends the quarter-start KPI weight reminder. ``unfreeze``
-re-opens a closed quarter so you can add data and close it again. Manual KPI results that HR
+PRINTS the SQL that re-opens a closed quarter (run it as the database owner; this script cannot,
+because the app's database role is not the table owner) so you can add data and close it again. Manual KPI results that HR
 typed in are never touched by either.
 """
 
@@ -29,7 +30,7 @@ from pathlib import Path
 # Run from /app as a plain script: make "app" importable.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from sqlalchemy import func, select, text, update  # noqa: E402
+from sqlalchemy import func, select, text  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
 from sqlalchemy.pool import NullPool  # noqa: E402
 
@@ -113,17 +114,31 @@ async def summary(db: AsyncSession, organization: Organization, on: date) -> Non
 async def unfreeze(db: AsyncSession, organization: Organization, quarter_start: date) -> None:
     """Re-open a closed quarter: clear its frozen marks so it can be closed again.
 
-    Only the freeze is cleared; no number is deleted. Manual KPI results HR typed in are never
-    touched (they live in another table). The next ``run`` recomputes and freezes it again.
+    THIS COMMAND CHANGES NOTHING ITSELF. The database has a lock on these tables (the trigger
+    ``freeze_finalized_rows``) that refuses ANY change to a frozen row, including clearing its mark,
+    and only the table owner may switch that lock off. The app (and so this script) connects as the
+    restricted ``elevare_app`` role on purpose and is not the owner. So this prints the exact SQL to
+    paste into psql as the database owner (``elevare``). Each table's lock is switched off, the mark
+    cleared and the lock switched back on inside one transaction, so a failure rolls everything back.
+    Only the freeze is cleared; no number is deleted, and the KPI results HR typed are never touched.
     """
+    organization_id = str(organization.id)
+    statements = ["BEGIN;"]
     for model in (EmployeeKPIScore, DepartmentScore, ExecutiveSummary):
-        result = await db.execute(
-            update(model)
-            .where(model.organization_id == organization.id, model.period_start == quarter_start)
-            .values(finalized_at=None)
+        table = model.__tablename__  # our own table names, never typed by a person
+        statements.append(f"ALTER TABLE {table} DISABLE TRIGGER freeze_finalized_rows;")
+        statements.append(
+            f"UPDATE {table} SET finalized_at = NULL "
+            f"WHERE organization_id = '{organization_id}' AND period_start = '{quarter_start}';"
         )
-        print(f"  {model.__tablename__}: {result.rowcount} rows re-opened")
-    await db.commit()
+        statements.append(f"ALTER TABLE {table} ENABLE TRIGGER freeze_finalized_rows;")
+    statements.append("COMMIT;")
+    print("Run this as the DATABASE OWNER (this script cannot, by design). Paste it into psql:")
+    print()
+    print("docker compose -f docker-compose.prod.yml exec -T db psql -U elevare -d elevare_db <<'SQL'")
+    for statement in statements:
+        print(statement)
+    print("SQL")
 
 
 async def main() -> None:

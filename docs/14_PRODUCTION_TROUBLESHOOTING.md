@@ -454,11 +454,40 @@ closed. Rule to remember: **a saved text can be older than the numbers beside it
 "written" date.**
 
 Step 4: to add more data and close the quarter again, re-open it (only the "frozen" marks are cleared;
-nothing is deleted; manual KPI results you typed in are never touched), then run step 3 again:
+nothing is deleted; manual KPI results you typed in are never touched), then run step 3 again.
+**Re-opening needs the DATABASE OWNER, not the helper** (see the 2026-11-18 incident below): the app
+connects as the restricted `elevare_app` role and the database refuses any change to a frozen row,
+including clearing its mark, unless the table's lock (a trigger) is switched off by the table owner.
+Run this through `psql -U elevare` (the owner), the same way as the other queries in this guide; it
+needs no company id because it looks the company up by name (change the name and the date):
 
 ```
-docker compose -f docker-compose.prod.yml exec -T api python scripts/admin/stage9_time_helper.py unfreeze --org <id> --name "Zenith Test Ltd" --quarter-start 2026-10-01
+docker compose -f docker-compose.prod.yml exec -T db psql -U elevare -d elevare_db <<'SQL'
+BEGIN;
+ALTER TABLE employee_kpi_scores DISABLE TRIGGER freeze_finalized_rows;
+UPDATE employee_kpi_scores SET finalized_at = NULL WHERE period_start = '2026-10-01'
+  AND organization_id = (SELECT id FROM organizations WHERE name = 'HNEXUS Technologies');
+ALTER TABLE employee_kpi_scores ENABLE TRIGGER freeze_finalized_rows;
+ALTER TABLE department_scores DISABLE TRIGGER freeze_finalized_rows;
+UPDATE department_scores SET finalized_at = NULL WHERE period_start = '2026-10-01'
+  AND organization_id = (SELECT id FROM organizations WHERE name = 'HNEXUS Technologies');
+ALTER TABLE department_scores ENABLE TRIGGER freeze_finalized_rows;
+ALTER TABLE executive_summaries DISABLE TRIGGER freeze_finalized_rows;
+UPDATE executive_summaries SET finalized_at = NULL WHERE period_start = '2026-10-01'
+  AND organization_id = (SELECT id FROM organizations WHERE name = 'HNEXUS Technologies');
+ALTER TABLE executive_summaries ENABLE TRIGGER freeze_finalized_rows;
+COMMIT;
+SQL
 ```
+Line by line: `<<'SQL' ... SQL` feeds the lines between to psql as one script (the quotes stop the shell
+touching them). `BEGIN; ... COMMIT;` makes it all-or-nothing: if any line fails, nothing is kept, the
+lock included. For each of the three tables: `DISABLE TRIGGER freeze_finalized_rows` switches the
+freeze lock off, the `UPDATE ... SET finalized_at = NULL` clears the "frozen" mark for that company and
+quarter only (`period_start` is the quarter's first day), and `ENABLE TRIGGER` puts the lock straight
+back. Expect `UPDATE n` lines (n = rows re-opened) and `COMMIT`. To check the lock is on afterwards:
+`SELECT tgrelid::regclass, tgenabled FROM pg_trigger WHERE tgname = 'freeze_finalized_rows';` should show
+`O` (enabled) for all three tables. The helper's own `unfreeze` command now only prints this SQL with
+the company id filled in.
 Reading the evidence: `show` after step 3 should say `1 frozen`-or-more department rows for the closed
 quarter and `0 frozen` for the current one. If `run` prints `closed_previous_period: False`, the quarter
 was already frozen (run `unfreeze` first), or the company was created after that quarter ended.
@@ -579,6 +608,29 @@ Line by line:
 ---
 
 ## Incident log
+
+### 2026-11-18: the helper's `unfreeze` did nothing, so a re-opened quarter was still frozen (found by Emmanuel)
+
+- **Symptom:** after "unfreeze", saving a KPI result did not change the department's goals number
+  (86.97 stayed). A query showed `department_scores.finalized_at = 2027-01-02 01:00:00+00`: the quarter
+  was still frozen, so the refresh (correctly) refused to rewrite it. The KPI result itself had saved.
+- **First hypotheses (wrong):** the api was not redeployed (ruled out: `grep -c register_scoring_listeners
+  app/main.py` printed 2); the screen sent a different period (ruled out: it asks the server for the
+  current quarter).
+- **Cause (confirmed):** the helper's `unfreeze` ran an UPDATE to clear `finalized_at`. A database
+  trigger refuses ANY change to a frozen row, including that one (there was even a test asserting it),
+  and only the table owner can switch the trigger off. The app, and so the helper, connects as the
+  restricted `elevare_app` role on purpose. The command could never work; it was documented without
+  ever being run.
+- **How it was found:** two read-only queries side by side: `kpi_scores` showed the NEW result (60), but
+  `department_scores` showed the OLD number AND a filled `finalized_at`. Pattern to remember: **new
+  input saved + old derived number + a `finalized_at` that is set = the row is frozen, not stale.**
+- **Why it was missed:** nothing ran `unfreeze` in a test, and the command was never tried live before
+  Stage 9.
+- **Fix:** Step 4 above (SQL as the database owner); the helper's `unfreeze` only prints it; a test
+  checks the printed SQL and that the helper changes nothing.
+- **Rule to remember:** a helper that runs inside the app container has the app's limits; anything the
+  database protects from the app (frozen rows, RLS) must be done as the owner through `psql -U elevare`.
 
 ### 2026-10-07: `PUT /api/v1/business-dna` returns 500 (reported by Uche)
 
