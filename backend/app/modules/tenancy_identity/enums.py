@@ -30,6 +30,20 @@ class MembershipRole(str, Enum):
     SYSTEM_ADMINISTRATOR = "system_administrator"
 
 
+class CustomerRole(str, Enum):
+    """The roles a customer company may give its own people.
+
+    The same as ``MembershipRole`` without ``system_administrator``: that is Elevare's own platform
+    role (08_DECISIONS.md 2026-09-02), never something a customer's HR may hand out. Request
+    bodies use this class, so a request naming the platform role is refused with a 422.
+    """
+
+    HR_ADMINISTRATOR = "hr_administrator"
+    MANAGER = "manager"
+    BUSINESS_EXECUTIVE = "business_executive"
+    EMPLOYEE = "employee"
+
+
 class AccountStatus(str, Enum):
     """Lifecycle status of a user account, the single source of truth for account state."""
 

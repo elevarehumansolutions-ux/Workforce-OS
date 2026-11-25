@@ -19,7 +19,7 @@ from pydantic import (
 
 from app.core.schemas import NormalizedEmail
 
-from .enums import SubscriptionStatus, AuthProvider, MembershipRole, AccountStatus
+from .enums import SubscriptionStatus, AuthProvider, MembershipRole, CustomerRole, AccountStatus
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +143,7 @@ class InviteTeammateRequest(BaseModel):
     """Payload for POST /memberships — invite or directly add a teammate."""
 
     email: NormalizedEmail
-    role: MembershipRole
+    role: CustomerRole
     # Optional: prefilled (and editable) on the accept page, so the invitee does not type it again.
     full_name: str | None = Field(default=None, max_length=255)
 
@@ -155,7 +155,7 @@ class ReactivateMembershipRequest(BaseModel):
     when they were deactivated.
     """
 
-    role: MembershipRole | None = None
+    role: CustomerRole | None = None
 
 
 class UpdateMembershipRequest(BaseModel):
@@ -170,7 +170,7 @@ class UpdateMembershipRequest(BaseModel):
     internally, for ``POST /employees/{id}/reinstate``.
     """
 
-    role: MembershipRole | None = None
+    role: CustomerRole | None = None
     is_deactivated: bool | None = None
 
     @field_validator("is_deactivated")

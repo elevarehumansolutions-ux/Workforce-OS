@@ -9,6 +9,7 @@ import FormerHeadDialog from "@/components/FormerHeadDialog";
 import { findFormerHead } from "@/lib/formerHead";
 import type { FormerHead } from "@/lib/formerHead";
 import PersonSelect from "@/components/PersonSelect";
+import { isHrRole, loadMe } from "@/lib/settings";
 
 import NotificationBell from "@/components/NotificationBell";
 import RoleSidebarNav from "@/components/SidebarNav";
@@ -41,7 +42,6 @@ const ROLE_OPTIONS: { value: string; label: string }[] = [
   { value: "manager", label: "Manager" },
   { value: "hr_administrator", label: "HR Administrator" },
   { value: "business_executive", label: "Business Executive" },
-  { value: "system_administrator", label: "System Administrator" },
 ];
 
 // Matches EmploymentType on the backend exactly.
@@ -166,6 +166,20 @@ export default function AddEmployeePage() {
   // Which chart window is open: choosing the role, or choosing the manager.
   const [picker, setPicker] = useState<"position" | "manager" | null>(null);
   const [unlinkedMembers, setUnlinkedMembers] = useState<UnlinkedMember[]>([]);
+  // null = not known yet. Only HR may create employees (the server refuses everyone else), so
+  // anyone else gets a plain notice here instead of a form that fails when saved.
+  const [isHr, setIsHr] = useState<boolean | null>(null);
+
+  useEffect(function () {
+    loadMe()
+      .then(function (me) {
+        setIsHr(isHrRole(me.role));
+      })
+      .catch(function () {
+        // If the role cannot be read, leave the form; the server still refuses a non-HR save.
+        setIsHr(true);
+      });
+  }, []);
 
   useEffect(function () {
     Promise.all([
@@ -424,7 +438,18 @@ export default function AddEmployeePage() {
         </div>
 
         <main className="flex-1 px-8 py-8">
-          {loadingRefData ? (
+          {isHr === false ? (
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-8 text-sm text-amber-200 shadow-xl">
+              <p className="font-semibold">Only an HR administrator can add employees.</p>
+              <p className="mt-2 text-amber-200/80">
+                Ask your HR administrator to add the person, or open the{" "}
+                <Link href="/employees/directory" className="underline">
+                  Employee Directory
+                </Link>{" "}
+                to see who is already here.
+              </p>
+            </div>
+          ) : loadingRefData ? (
             <div className="rounded-2xl border border-white/10 bg-[#0d1220]/80 p-8 text-sm text-gray-400 shadow-xl">
               Loading form…
             </div>
